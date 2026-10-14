@@ -1,0 +1,9 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": [
+    "appraisal_review",
+    "C:/Users/INTEL/AppData/Local/Python/pythoncore-3.14-64/Lib/site-packages"
+  ],
+  "reportMissingTypeStubs": "none"
+}

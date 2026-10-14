@@ -1,0 +1,23 @@
+# Core Django
+django
+djangorestframework
+django-cors-headers
+djangorestframework-simplejwt
+
+google-generativeai
+PyPDF2
+pypdf
+pdfplumber
+pymupdf
+beautifulsoup4
+lxml
+# Admin interface
+# django-admin-interface
+# django-colorfield
+
+django-jazzmin
+playwright>=1.40.0
+pytest-playwright>=0.4.0
+openpyxl
+aiosmtplib
+werkzeug

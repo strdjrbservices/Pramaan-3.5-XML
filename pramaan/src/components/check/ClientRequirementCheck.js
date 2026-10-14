@@ -1,0 +1,335 @@
+import React, { useCallback, useState } from 'react';
+import {
+  Button,
+  CircularProgress,
+  Paper,
+  Typography,
+  Alert,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Stack,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
+} from '@mui/material';
+
+export const CLIENT_REQUIREMENT_PROMPT = `
+Client Requirement Check:
+Based on the Lender/Client name in the document, verify if it matches any of a list of lenders/clients and check for any specific requirements.
+Your output must be a single, clean JSON object. Do not include any text outside of the JSON object.
+The JSON object must have a "summary" (a one to two-line overview stating which lender/client is present and if their requirements are met) and a "details" array.
+Each object in the "details" array represents a requirement and must have the following keys:
+- "requirement": A string describing the client-specific rule being checked.
+- "status": A string, which must be one of 'Fulfilled', 'Not Fulfilled', 'Needs Review', or 'Not Applicable'.
+- "value_or_comment": A string containing the extracted value or a brief comment explaining the status. If a value is extracted, also include the page number.
+
+Lender/Client List and their requirements:
+- Visio Lending:
+  - Report Condition: Verify the report is made "As Is". If not, status is "Needs Review" with comment: "Report is not 'As Is', please advise before rejecting."
+  - No Repairs: Even if the report is "As Is", verify there are no repairs listed. If repairs are found, status is "Needs Review" with comment: "This is Visio. Report made as-is and the subject has repair, please refer the snap and advise."
+  - Reviewer Notes: No need to check for specific neighborhood words (Average, convenient, good, desirable). UAD pages are not mandatory.
+
+- Best2Lend LLC:
+  - Two-Value Report Requirements: For reports with two values ("As-Is" and "As-Repaired"), the "As-Is" comps are not required to be gridded.
+- Ice Lender Holdings LLC:
+  - "As Is" Report: Verify the appraisal is made "as is". If not, the status should be "Not Fulfilled" with a comment to advise before rejecting.
+  - Value vs. Price: Check if the final appraised value is more than 10% higher than the listing price (from 'Offered for Sale in Last 12 Months' field) or purchase/contract price. If so, status is "Needs Review" and comment should be "Please address the appraised value being higher than the purchase price for the subject property."
+  - USPAP Compliance Addendum: Verify that a "USPAP Compliance Addendum" page or section is included in the report. If not found, status is "Not Fulfilled" with comment "Per client instructions: All appraisal reports must include the updated USPAP compliance addendum."
+  - FIRREA Statement: Verify the report contains a statement that it was prepared in accordance with FIRREA (Financial Institutions Reform, Recovery, and Enforcement Act of 1989) requirements. If not found, status is "Not Fulfilled" with comment "Per client instructions: All appraisal reports must contain commentary indicating that the report was prepared in accordance with FIRREA requirements".
+  - Photographs: Based on photo labels or descriptions, verify that photos of the interior, exterior, all mechanical systems, full kitchen (including refrigerator, stove, oven, sink), and the roof are present.
+  - Kitchen Photo with Refrigerator: Specifically confirm the kitchen photo shows a refrigerator. If not, status is "Not Fulfilled" with comment "Per client instructions, please provide a kitchen photo with the refrigerator showing. If there is no refrigerator in the kitchen, please address as comments in the report."
+  - Comparable Distance Guidelines: Based on the neighborhood location type (Urban, Suburban, or Rural), check the 'Proximity to Subject' for each comparable sale against these guidelines: Urban <= 1 mile, Suburban <= 3 miles, Rural <= 10 miles. If any comparable exceeds the guideline, its status is "Not Fulfilled" with the comment "Comp #X exceeds the client's distance guideline of Y mile(s). Please address the need to use this comp."
+- Equity Wave Lending, Inc:
+  - Intended Use/User Verbiage: Verify the report contains the specific "Intended User" and "Intended Use" statements.
+    - Intended User: "Equity Wave Lending, Inc. it's investors, assignees, and/or successors"
+    - Intended Use: "The making, arranging, or selling of a private money/hard money loan"
+    - If either is missing, status is "Not Fulfilled" with comment: "Please include the required Intended Use/User verbiage."
+- Hometown equity:
+  - Smoke/CO Detectors: Please confirm if smoke/co detectors are installed and ask for photos.
+- FOUNDATION MORTGAGE:
+  - Short Term Rental (STR) Form: If the product type includes "STR 1007", verify that the specific STR form is used, not a standard 1007 form.
+- BPL Mortgage, LLC:
+  - Smoke/CO Detectors: Verify the report addresses if smoke/CO detectors were present and if they are required by law. If not mentioned, status is "Not Fulfilled" with comment: "Please address if smoke/co detector were present and required by law".
+  - Value vs. Price: Check if the final appraised value is more than 10% higher than the listing price or purchase/contract price. If it is, verify an explanatory comment exists. If no comment, status is "Needs Review" with comment: "Please address the appraised value being higher than the purchase price for the subject property." For "As-is w/ARV" reports, compare against the "as-is" value.
+  - Value Increase Since Prior Sale: If the final value is higher than the subject's prior sale price, verify that there are comments in the 'Improvements' or 'Prior Sales History' sections explaining the value increase. If no explanation is found, status is "Needs Review" with comment: "Please address the increase in value since the subject's prior sale".
+  - Cost to Cure: Check for any mentioned repairs or deferred maintenance. If found, verify a "cost to cure" is provided. If required but missing, status is "Not Fulfilled" with comment: "Please provide cost to cure for the repairs/deferred maintenance.". Exceptions: No cost to cure is needed if the only repair is turning on water, or on a 1004D form.
+  - Cost Approach Completion: Verify that the "Cost Approach" section is completed. If not, status is "Not Fulfilled" with comment: "Per engagement letter, please complete the cost approach even if it is not weighted or applied in determining the value of the subject."
+  - Photo Requirements: Verify there are at least 2 photos for every room, taken from opposite sides, and that they are not blurry, pixelated, or dark.
+  - Bedroom Photo Labels: Ensure bedroom photos are labeled specifically as "Bedroom 1", "Bedroom 2", etc. If not, status is "Not Fulfilled" with comment: "The bedroom photos need to be labeled as 'Bedroom 1', 'Bedroom 2' etc., please revise the label of bedroom photos accordingly."
+  - Distance Guidelines: Check comparable distances against these guidelines: Urban <= 1 mile, Suburban <= 1 mile, Rural <= 5 miles. If a comp exceeds its guideline, verify a comment explains the reason. If no comment, status is "Not Fulfilled" with comment: "Please address the use of comp #X exceeding lender distance guideline of Y mile(s)."
+  - Multi-family Unit Count: For multi-family properties, verify that the number of units in the subject property matches the number of units for all comparable properties. If there is a mismatch, status is "Not Fulfilled" with comment: "The subject is a X-unit property; however, Comp #Y used is a Z-unit property. please address as a comment in the report."
+  - Heating System: Verify the report addresses if the subject's heating system is functional. A comment from the appraiser that it was too hot to test is an acceptable reason. If not addressed, status is "Not Fulfilled" with comment: "Please address if the subject's heating system is functioning".
+  - Quality and Condition Ratings: Verify that all reports (including 1025 and 2090) use "Q" and "C" ratings for "Quality" and "Condition" for the subject and all comparables. If not, status is "Not Fulfilled" with comment: "Per client requirement, please include 'Q' and 'C' ratings for 'Quality' and 'Condition' for the subject and all comps."
+  - Unacceptable Practices: No need to review for FREDDIE unacceptable practices.
+  - 1004MC Form: The 1004MC form is not required.
+- Rain City Capital:
+  - Report Type: Client requires conventional reports.
+  - Health and Safety: Any identified health and safety issues must make the report "subject to" that condition.
+  - Two-Value Reports: Must be completed "Subject to," and include an additional grid for the "As Is" value.
+  - Cost to Cure: Verify that no "cost to cure" is provided for cosmetic items. If a cost to cure for cosmetic items is found, status is "Not Fulfilled" with comment: "Please remove cost to cure for cosmetic items."
+  - 1004MC Form: The 1004MC form is not required.
+  - Payment Status: Verify the order is marked as PAID.
+- TheLender:
+  - Smoke/CO Detectors: Ensure photos of smoke and CO detectors are included if they are present and required to be installed. If not, status is "Not Fulfilled" with comment: "Please confirm if smoke/CO detectors are present/required and include photos."
+
+- East Coast Capital Corp:
+  - Cost Approach Completion: Verify that the cost approach is completed. If not, status is "Not Fulfilled" with comment: "This client requires the cost approach to be completed, even if it is not relevant to the development of value."
+- Plaza home mortage:
+  - Invoice (NY State Only): If the property state is NY, verify that an invoice is NOT included in the report. If an invoice is found, the status is "Needs Review" with the comment: "Can the appraiser please remove the invoice from the report? This will be delivered to the client as a separate document. Please also ask the appraiser to upload the invoice to the Supporting Documents section."
+  - Client Email Address: Verify that the client's email address is present in the report. If it is missing, the status is "Needs Review" with the comment: "The report can be completed, but advise the team that we could not email the report to the client because there is no email address."
+  - Invoice Upload (Non-NY): For states other than NY, if an invoice is required but not found in the report, the status is "Needs Review" with the comment: "Complete the order and advise the team that the appraiser needs to upload the invoice to the supporting documents."
+- Lend with Aloha LLC ISAOA/ATIMA_x000a_Malama Funding LLC ISAOA/ATIMA
+- CIVIC:
+  - As-Is Value Order: For reports with two values (e.g., "As-Is" and "As-Repaired"), verify that the "As-Is" value is presented first.
+  - Unacceptable Practices: No need to review for FREDDIE Unacceptable Practices.
+- National Loan Funding LLC/ Easy Street Capital, LLC:
+  - Prior Services: Check the prior services statement. If the appraiser indicates they 'did' or 'have' performed services on the subject property within the last 3 years, the status should be "Needs Review" with the comment: "The appraiser performed prior service on subject property within the three-year period, please refer the snap and advise".
+- Capital Funding Financial:
+  - As-Is Value First: On any 2-value reports (e.g., "As-Is" and "As-Repaired"), verify that the "As-Is" value is presented first in the reconciliation section. If the report is completed for the "As-Repaired Value" first, the status should be "Not Fulfilled" with the comment: "The client requires the report to be completed for the As-Is value. Please update the report to show the As-Is value in the Reconciliation section, with the As-Is comps included in the grid as comps #1-#3."
+- Sierra Pacific Mortgage Company
+  - 1004MC must needed
+- Temple View:
+  - Two-Value Report Requirements: For reports with two values ("As-Is" and "As-Repaired"):
+    1. Report Condition: Verify the report is completed "subject to" the hypothetical condition that repairs have been completed.
+    2. ARV Comps: Confirm at least 3 "As-Repaired Value" (ARV) comps are gridded in the sales comparison approach.
+    3. As-Is Comps: Verify that 3 "As-Is" comps are referenced. They are not required to be gridded, but if they are not, there must be comments identifying the 3 comps used and explaining how the "As-Is" value was reconciled. If the appraiser chooses to grid them, that is also acceptable.
+    4. Value Basis: The final value should be subject to the repair bid.
+- Kind Lending:
+  - ENV File: An ENV file is not required. XML and PDF files are sufficient.
+  - 1004MC Form: The 1004MC form is not required.
+- Loandepot:
+  - 1004MC Form: The 1004MC form is a mandatory client requirement. Verify its presence and completion. If the appraiser has commented that it is not needed, this is incorrect and should be flagged. Status should be "Not Fulfilled" if missing or commented as not needed.
+  - General Instructions: For any required revisions, do not mention page numbers in the comments, especially for ENV files. Revisions should be posted on the internal group for review before sending to the appraiser.
+
+- Dart Bank:
+  - ENV File: An ENV file is required for now.
+  - Payment Status: Verify the order is marked as PAID.
+- The Loan Store:
+  - 1004MC Form: Verify the 1004MC form is included and completed.
+  - Double-Strapped Water Heaters (UT Only): If the property state is UT, verify the report includes a comment on whether the water heater is double-strapped.
+  - Environmental Addendum (Commercial Only): For commercial reports, verify that an "Environmental Addendum" or "Form 69F2" is included. If not, status is "Not Fulfilled" with comment: "The client requires Environmental Addendum Form 69F2 to be included in all commercial appraisals. Please include."
+  - General Instructions:
+    - For 1007 Rent Schedule reports, an ENV file is not required; a PDF is acceptable.
+    - An ENV file is not generally required for this client.
+    - When creating revisions, do not mention page numbers, especially for ENV files.
+- Champions funding:
+  - E&O Insurance: Verify that the appraiser's E&O (Errors and Omissions) insurance document is attached to the report. If not attached, status is "Not Fulfilled" with comment: "Per client instructions for their assignments, please attach appraiser's E&O to the report."
+  - Value vs. Predominant Value: Check if the appraised value is more than 10% higher or lower than the 'predominant value' from the neighborhood section. If it is, and no explanatory comment exists, the status is "Not Fulfilled".
+    - If value is lower, comment: "Appraised value is lower than Predominant value. Appraiser to comment whether it is an under improvement and if there is any impact on the value and marketability of the subject property".
+    - If value is higher, comment: "Appraised value is higher than Predominant value. Appraiser to comment whether it is an over improvement and if there is any impact on the value and marketability of the subject property."
+- GFL Capital Mortgage:
+  - Value vs. Purchase Price: If the final appraised value is lower than the purchase price, the status should be "Needs Review" with the comment: "Final value is lower than purchase price, please advise".
+ 
+- Futures Financial:
+  - Reviewer Level: Only senior members should review these reports.
+  - Borrower "FRANCIS, Richel":
+    - If product type is "Desktop", verify the report is a desktop ARV and the reconciliation section is "subject-to plans and specs".
+    - If product type is "As-is with ARV", verify the report is "as-is" and includes two values.
+- Cardinal financial company:
+  - No 1004MC is OK
+- Deephaven Mortgage LLC:
+  - Built-Up Status: If "Built Up" in the neighborhood section is "Over 75%", the status should be "Needs Review" with the comment: "Please confirm if 75% built-up status impacts marketability of the subject property."
+- OCMBC:
+  - Smoke/CO Detectors: Verify the report comments on whether smoke/CO detectors were present. If not mentioned, status is "Not Fulfilled" with comment: "Please comment if smoke/CO detectors were or were not present."
+  - Water Heater Strapping: Verify the report comments on whether the hot water heater is properly double strapped and if this is required by law. If not mentioned, status is "Not Fulfilled" with comment: "Please comment if the hot water heater is properly double strapped and if these are required by law."
+- Loanguys.com inc:
+  - Quality and Condition Ratings: Verify that all reports (including 1025 and 2090) use "Q" and "C" ratings for "Quality" and "Condition" for the subject and all comparables. If not, status is "Not Fulfilled" with comment: "Per client requirement, please include 'Q' and 'C' ratings for 'Quality' and 'Condition' for the subject and all comps."
+- Paramount Residential Mortgage Group:
+  - Lender Name Formatting: Verify if the lender name "Paramount Residential Mortgage Group" includes "INC". If it does, the status should be "Needs Review" with the comment: "Lender name includes 'INC'. Per client, if this is the only revision needed, it can be disregarded and the report submitted."
+- Arc Home:
+  - Short Term Rental (STR) Requirements: If the product type is "Short term rental" or "STR", verify the appraiser has addressed local short-term rental regulations (zoning allowances, licensing). If not addressed, status is "Needs Review" with comment: "This is an STR order, please escalate for review. Appraiser must address short term rental regulations, such as whether the local jurisdiction allows short term rentals per the zoning requirements or if they require the owners to obtain a license."
+- CV3 Financial:
+  - Borrower Name: Verify that the 'Borrower' field contains the entity name (e.g., an LLC) and that a comment in an addendum mentions the individual borrower's name. If the borrower is an entity and the individual's name is not commented, the status is "Not Fulfilled" with a comment like "Please comment that the individual borrower is [Individual's Name]."
+  - Unacceptable Practices: No need to review for FREDDIE Unacceptable Practices.
+- Nationwide Mortgage Bankers:
+  - Hurricane Damage Statement (FL): If the property state is Florida (FL), verify the report addresses any potential damage from "Hurricane Helene" and "Hurricane Milton". If not addressed, status is "Not Fulfilled" with comment: "Please address if the subject has suffered any damage from the recent hurricanes Helene and Milton."
+  - Hurricane Damage Statement (GA, NC, SC, TN, VA): If the property state is Georgia (GA), North Carolina (NC), South Carolina (SC), Tennessee (TN), or Virginia (VA), verify the report addresses any potential damage from "Hurricane Helene". If not addressed, status is "Not Fulfilled" with comment: "Please address if the subject has suffered any damage from the recent hurricane Helene."
+- Logan Financial / Logan Finance:
+  - Smoke/CO Detectors: Verify the report includes commentary on the presence of smoke/CO detectors and includes photos. If not, status is "Not Fulfilled" with comment: "Please confirm if smoke/CO detectors are present/required and include photos."
+
+- New American Funding:
+  - Health and Safety Repairs: Verify that any identified health and safety issues (including required smoke/CO detectors and water heater straps) are made "subject to repair". If not, status is "Not Fulfilled".
+  - 1004MC Form: The 1004MC form is not required.
+  - ROV Review (C2C/Fastapp orders): For "Coast to Coast" or "Fastapp" orders, if the report is a revision from an ROV, it should be reviewed and then escalated for completion approval. Status should be "Needs Review" with comment: "ROV is good to go. Escalate to team before completing."
+- Haus Capital:
+  - Report Condition: If the appraisal is made "Subject To", the status should be "Needs Review" with the comment: "Report is 'Subject To'. Please advise."
+
+`;
+
+const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) => {
+  const [filterValue, setFilterValue] = useState('all');
+
+  const handleCheck = () => {
+    onPromptSubmit(CLIENT_REQUIREMENT_PROMPT);
+  };
+
+  const renderResponse = useCallback(() => {
+    if (!response) return null;
+
+    let data = response;
+    if (typeof response === 'string') {
+      try {
+        data = JSON.parse(response);
+      } catch (e) {
+        return <pre>{response}</pre>;
+      }
+    }
+
+    const summary = data?.summary ?? 'No summary available';
+    const details = Array.isArray(data?.details) ? data.details : [];
+
+    const renderValue = (val) => {
+      if (val == null) return '';  
+      if (typeof val === 'object') return JSON.stringify(val, null, 2);
+      return String(val);
+    };
+
+    const getStatusStyle = (status) => {
+      const normalizedStatus = String(status || '').trim().toLowerCase();
+      
+      const greenStatuses = ['fulfilled', 'ok', 'yes', 'pass', 'passed'];
+      const redStatuses = ['not fulfilled', 'not applicable', 'failed', 'no'];
+      
+      if (greenStatuses.includes(normalizedStatus)) {
+        return {
+          backgroundColor: '#d4edda',
+          color: '#155724',
+          border: '1px solid #c3e6cb',
+          padding: '4px 8px',
+          borderRadius: '4px',
+          fontWeight: 'bold',
+          display: 'inline-block'
+        };
+      } else if (redStatuses.includes(normalizedStatus)) {
+        return {
+          backgroundColor: '#f8d7da',
+          color: '#721c24',
+          border: '1px solid #f5c6cb',
+          padding: '4px 8px',
+          borderRadius: '4px',
+          fontWeight: 'bold',
+          display: 'inline-block'
+        };
+      }
+      return {};
+    };
+
+    const isGreen = (status) => {
+      const normalized = String(status || '').trim().toLowerCase();
+      return ['fulfilled', 'ok', 'pass', 'passed', 'yes'].includes(normalized);
+    };
+
+    const filteredDetails = details.filter(item => {
+      if (filterValue === 'passed') return isGreen(item.status);
+      if (filterValue === 'failed') return !isGreen(item.status);
+      return true;
+    });
+
+    const sortedDetails = [...filteredDetails].sort((a, b) => {
+      const isGreenA = isGreen(a.status);
+      const isGreenB = isGreen(b.status);
+      if (isGreenA && !isGreenB) return -1;
+      if (!isGreenA && isGreenB) return 1;
+      return 0;
+    });
+
+    return (
+      <Stack spacing={3} sx={{ mt: 3 }}>
+        {summary && (
+          <Paper elevation={1} sx={{ p: 2, bgcolor: 'background.default' }}>
+            <Typography variant="h6" gutterBottom component="div" color="primary.main">
+              Summary
+            </Typography>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+              {renderValue(summary)}
+            </Typography>
+          </Paper>
+        )}
+        {details.length > 0 && (
+          <Paper elevation={1} sx={{ p: 2 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+              <Typography variant="h6" component="div" color="primary.main">
+                Details
+              </Typography>
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel id="client-status-filter-label">Filter Status</InputLabel>
+                <Select
+                  labelId="client-status-filter-label"
+                  id="client-status-filter"
+                  value={filterValue}
+                  label="Filter Status"
+                  onChange={(e) => setFilterValue(e.target.value)}
+                >
+                  <MenuItem value="all">All</MenuItem>
+                  <MenuItem value="passed">Passed / OK</MenuItem>
+                  <MenuItem value="failed">Failed / Review</MenuItem>
+                </Select>
+              </FormControl>
+            </Stack>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Requirement</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Value / Comment</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {sortedDetails.length > 0 ? (
+                    sortedDetails.map((item, index) => (
+                      <TableRow key={index}>
+                        <TableCell>{renderValue(item.requirement)}</TableCell>
+                        <TableCell>
+                          <span style={getStatusStyle(item.status)}>
+                            {renderValue(item.status)}
+                          </span>
+                        </TableCell>
+                        <TableCell>{renderValue(item.value_or_comment)}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={3} align="center">
+                        No matching items found.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        )}
+      </Stack>
+    );
+  }, [response, filterValue]);
+
+  return (
+    <div id="client-requirement-check-section" className="card shadow mb-4">
+      <div className="card-header CAR1 bg-primary text-white">
+        <strong>Client Requirement Check</strong>
+      </div>
+      <div className="card-body">
+        <Stack spacing={2}>
+          <Button
+            onClick={handleCheck}
+            variant="contained"
+            color="secondary"
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Check Client Requirements'}
+          </Button>
+          {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+          {response && renderResponse()}
+        </Stack>
+      </div>
+    </div>
+  );
+};
+
+export default ClientRequirementCheck;

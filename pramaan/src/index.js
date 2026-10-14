@@ -1,0 +1,32 @@
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import './index.css';
+import App from './App';
+import reportWebVitals from './reportWebVitals';
+
+// Suppress ResizeObserver loop overlay errors in development
+window.addEventListener('error', (e) => {
+  if (e.message === 'ResizeObserver loop completed with undelivered notifications.' || 
+      e.message === 'ResizeObserver loop limit exceeded') {
+    const resizeObserverErrortarget = window.document.getElementById('webpack-dev-server-client-overlay');
+    if (resizeObserverErrortarget) {
+      resizeObserverErrortarget.style.display = 'none';
+    }
+    e.stopImmediatePropagation();
+  }
+});
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <BrowserRouter>
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  </BrowserRouter>
+);
+
+// If you want to start measuring performance in your app, pass a function
+// to log results (for example: reportWebVitals(console.log))
+// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
+reportWebVitals();

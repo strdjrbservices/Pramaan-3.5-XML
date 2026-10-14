@@ -1,0 +1,1879 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pramaan AutoFlow</title>
+    <link rel="icon" type="image/png"
+        href="https://img1.wsimg.com/isteam/ip/0fd74e55-e5ad-49d2-9e7f-72778653fbbc/blob-4751499.png/:/rs=w:193,h:193,cg:true,m/cr=w:193,h:193/qt=q:95">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;600;700&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-glow: rgba(99, 102, 241, 0.4);
+            --secondary: #8763f1;
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+            --accent-error: #ef4444;
+            --accent-kill: #71717a;
+            --gradient-header: linear-gradient(135deg, #8763f1 0%, #6366f1 100%);
+            --glass-blur: blur(12px);
+
+            --bg-dark: #0a0a0f;
+            --card-bg: rgba(25, 25, 35, 0.8);
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --glass-border: #ffffff;
+            --input-bg: rgba(0, 0, 0, 0.4);
+            --item-bg: rgba(15, 23, 42, 0.5);
+            --item-hover: rgba(15, 23, 42, 0.7);
+            --shadow-main: 0 15px 30px rgba(0, 0, 0, 0.4), 0 5px 15px rgba(0, 0, 0, 0.2);
+            --terminal-bg: #020617;
+            --title-color: #ffffff;
+            --log-border: #ffffff;
+        }
+
+        body.light-mode {
+            --bg-dark: #f1f5f9;
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --text-main: #1e293b;
+            --text-dim: #64748b;
+            --glass-border: rgba(0, 0, 0, 0.08);
+            --input-bg: #ffffff;
+            --item-bg: rgba(241, 245, 249, 0.8);
+            --item-hover: #e2e8f0;
+            --shadow-main: 0 10px 25px rgba(0, 0, 0, 0.05);
+            --terminal-bg: #f8fafc;
+            --title-color: #0f172a;
+            --log-border: #6366f1;
+        }
+
+        body {
+            font-family: 'Public Sans', sans-serif;
+            background-color: var(--bg-dark);
+            background-image:
+                radial-gradient(at 0% 0%, rgba(135, 99, 241, 0.12) 0px, transparent 40%),
+                radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 40%);
+            color: var(--text-main);
+            margin: 0;
+            overflow-x: hidden;
+            min-height: 100vh;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6 {
+            color: var(--title-color);
+            transition: color 0.3s ease;
+        }
+
+        svg:not(.btn-control svg) {
+            stroke: currentColor;
+        }
+
+        .dashboard-header {
+            background: var(--card-bg);
+            padding: 3rem 1rem;
+            text-align: center;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .dashboard-header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 4px;
+            background: var(--gradient-header);
+            border-radius: 8px;
+            opacity: 0.9;
+        }
+
+        .section-title {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: auto;
+        }
+
+        .header-content h1 {
+            font-weight: 900;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            font-size: 3rem;
+            letter-spacing: -1.5px;
+            background: var(--gradient-header);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-content p {
+            margin-top: 0.8rem;
+            color: var(--text-dim);
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        .main-container {
+            max-width: 1500px;
+            margin: 0 auto;
+            padding: 0 2rem 4rem 2rem;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            gap: 2rem;
+        }
+
+        .glass-card {
+            background: var(--card-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid #ffffff;
+            border-radius: 20px;
+            padding: 1.75rem;
+            height: auto;
+            box-shadow: var(--shadow-main);
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            animation: cardEntrance 0.6s ease-out backwards;
+            color: var(--text-main);
+        }
+
+        @keyframes cardEntrance {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .dashboard-grid>div:nth-child(2) {
+            animation-delay: 0.1s;
+        }
+
+        .controls-grid>div:nth-child(1) {
+            animation-delay: 0.2s;
+        }
+
+        .controls-grid>div:nth-child(2) {
+            animation-delay: 0.3s;
+        }
+
+        .controls-grid>div:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        .controls-grid>div:nth-child(4) {
+            animation-delay: 0.5s;
+        }
+
+        .glass-card:hover {
+            border-color: var(--primary);
+        }
+
+        .upload-title {
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 1.2rem;
+            display: flex;
+            justify-content: space-between;
+            letter-spacing: 1.5px;
+        }
+
+        .directory-indicator {
+            background: var(--item-bg);
+            border: 1px solid #ffffff;
+            border-radius: 10px;
+            padding: 10px 15px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            margin-bottom: 1.75rem;
+            color: var(--secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .directory-indicator::before {
+            content: '📂';
+            font-size: 1rem;
+        }
+
+        .drop-zone {
+            border: 2px dashed #ffffff;
+            border-radius: 16px;
+            height: 150px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            background: rgba(135, 99, 241, 0.03);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .drop-zone::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at center, rgba(99, 102, 241, 0.1) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity 0.4s;
+        }
+
+        .drop-zone:hover::before {
+            opacity: 1;
+        }
+
+        .drop-zone:hover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.08);
+            transform: scale(0.99);
+        }
+
+        .drop-zone svg {
+            width: 60px;
+            height: 60px;
+            color: var(--primary);
+            margin-bottom: 1.25rem;
+            filter: drop-shadow(0 0 10px var(--primary-glow));
+            z-index: 1;
+        }
+
+        .management-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .nav-management {
+            border-bottom: 1px solid #ffffff;
+            margin-bottom: 1.5rem;
+            display: flex;
+            gap: 5px;
+            overflow-x: auto;
+            white-space: nowrap;
+            scrollbar-width: none;
+        }
+
+        .nav-management::-webkit-scrollbar {
+            display: none;
+        }
+
+        .mgmt-link {
+            padding: 12px 20px;
+            color: var(--text-dim);
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.8rem;
+            border-bottom: 3px solid transparent #ffffff;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .mgmt-link:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .mgmt-link.active {
+            color: var(--secondary);
+            border-bottom-color: #ffffff;
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .file-list-container {
+            height: 420px;
+            overflow-y: auto;
+            margin-top: 1rem;
+        }
+
+        .file-item {
+            background: var(--item-bg);
+            border-radius: 12px;
+            padding: 12px 18px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #ffffff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .file-item:hover {
+            background: var(--item-hover);
+            border-color: rgba(135, 99, 241, 0.3);
+            transform: translateX(5px);
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+            width: 1600px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        @media (max-width: 1200px) {
+            .controls-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .controls-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .control-label {
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+            letter-spacing: 1px;
+        }
+
+        .form-input {
+            background: var(--input-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: var(--text-main);
+            width: 100%;
+            font-size: 0.9rem;
+            font-weight: 400;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #ffffff;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+
+        .btn-control {
+            border-radius: 12px;
+            padding: 16px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+            border: #ffffff;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            font-size: 0.75rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-control::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.1);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .btn-control:hover::after {
+            opacity: 1;
+        }
+
+        .btn-control:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 25px rgba(0, 0, 0, 0.3), 0 4px 10px rgba(0, 0, 0, 0.15);
+        }
+
+        .btn-control:active {
+            transform: translateY(0);
+        }
+
+        .btn-start {
+            background: var(--accent-success);
+            color: #fff;
+        }
+
+        .btn-pause {
+            background: var(--accent-warning);
+            color: #fff;
+        }
+
+        .btn-stop {
+            background: var(--accent-error);
+            color: #fff;
+        }
+
+        .btn-kill {
+            background: var(--accent-kill);
+            color: #fff;
+        }
+
+        .log-error {
+            color: #f87171;
+            border-left-color: #ef4444;
+        }
+
+        .automation-log-container {
+            background: var(--terminal-bg);
+            max-width: 1400px;
+            width: 1400px;
+            border: 1px solid #ffffff;
+            border-radius: 16px;
+            margin-left: auto;
+            margin-right: auto;
+            margin-top: 2rem;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: var(--shadow-main);
+        }
+
+
+
+        .log-header {
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid var(--glass-border);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            background: linear-gradient(to right, rgba(15, 23, 42, 0.6), rgba(15, 23, 42, 0.3));
+            justify-content: space-between;
+        }
+
+        .log-header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .log-header-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: 0.5px;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .log-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .log-search-wrapper {
+            position: relative;
+            width: 220px;
+        }
+
+        .log-search-input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid #ffffff;
+            border-radius: 6px;
+            padding: 6px 12px 6px 30px;
+            font-size: 0.8rem;
+            color: #fff;
+            transition: all 0.2s;
+        }
+
+        .log-search-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.15);
+        }
+
+        .search-icon-log {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-dim);
+            pointer-events: none;
+        }
+
+        .log-action-btn {
+            background: none;
+            border: 1px solid #ffffff;
+            color: var(--text-dim);
+            padding: 4px 8px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .log-action-btn:hover {
+            border-color: #fff;
+            color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .log-tabs {
+            display: flex;
+            gap: 12px;
+            padding: 12px 25px;
+            background: rgba(15, 23, 42, 0.4);
+            border-bottom: 1px solid #ffffff;
+        }
+
+        .log-tab {
+            padding: 8px 18px;
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid #ffffff;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .log-tab:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+            transform: translateY(-1px);
+        }
+
+        .log-tab.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px var(--primary-glow);
+        }
+
+        .log-tab .tab-indicator {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            display: inline-block;
+        }
+
+        .log-tab.active .tab-indicator {
+            background: white;
+            box-shadow: 0 0 5px white;
+        }
+
+        .log-tab.has-update .tab-indicator {
+            background: var(--accent-warning);
+            box-shadow: 0 0 5px var(--accent-warning);
+            animation: pulse-update 1s infinite alternate;
+        }
+
+        @keyframes pulse-update {
+            from {
+                transform: scale(1);
+            }
+
+            to {
+                transform: scale(1.4);
+            }
+        }
+
+        .log-content-area {
+            display: none;
+            height: 480px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 12px;
+            line-height: 1.8;
+            padding: 25px;
+            background: var(--terminal-bg);
+            scrollbar-width: thin;
+            scrollbar-color: var(--primary) transparent;
+        }
+
+        .log-content-area.active {
+            display: block;
+        }
+
+        .log-content-area::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .log-content-area::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.3);
+            border-radius: 10px;
+        }
+
+        .log-content-area::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .log-line {
+            white-space: pre-wrap;
+            margin-bottom: 2px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+            padding-bottom: 2px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .log-time {
+            color: #888;
+            min-width: 85px;
+            user-select: none;
+        }
+
+        .log-msg {
+            color: var(--text-main);
+            flex: 1;
+        }
+
+        .log-footer {
+            padding: 8px 20px;
+            background: rgba(0, 0, 0, 0.6);
+            border-top: 1px solid #ffffff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.7rem;
+            color: var(--text-dim);
+        }
+
+        .log-status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #4ade80;
+            box-shadow: 0 0 8px #22c55e;
+        }
+
+        .log-navigation {
+            display: flex;
+            gap: 4px;
+        }
+
+        .btn-scroll {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            padding: 2px 4px;
+            transition: color 0.2s;
+        }
+
+        .btn-scroll:hover {
+            color: #fff;
+        }
+
+        .highlight-match {
+            background: rgba(245, 158, 11, 0.3);
+            color: #fbbf24;
+            border-radius: 2px;
+        }
+
+        .file-count-badge {
+            background-color: rgba(99, 102, 241, 0.15);
+            color: var(--primary);
+            padding: 0.25em 0.6em;
+            border-radius: 0.5rem;
+            font-size: 0.7rem;
+            font-weight: 700;
+            border: 1px solid #ffffff;
+            letter-spacing: 0.5px;
+        }
+
+        .password-container {
+            position: relative;
+        }
+
+        .pass-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: var(--text-dim);
+
+            opacity: 0.6;
+        }
+
+        .pass-toggle:hover {
+            opacity: 1;
+        }
+
+        @keyframes pulse-status {
+            0% {
+                box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(79, 70, 229, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(79, 70, 229, 0);
+            }
+        }
+
+        .status-running {
+            animation: pulse-status 2s infinite;
+            background: var(--primary) !important;
+        }
+
+        .review-modal-content {
+            background: var(--bg-dark) !important;
+            backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px !important;
+            color: var(--text-main);
+            width: 96vw;
+            max-width: 1700px;
+            height: 92vh;
+            margin: 2vh auto;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .review-header {
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid #ffffff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--item-bg);
+        }
+
+        .review-body {
+            padding: 1.5rem;
+            height: calc(92vh - 160px);
+            overflow: hidden;
+        }
+
+        .review-split-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            height: 100%;
+            gap: 2rem;
+        }
+
+        .pdf-viewer-pane {
+            height: 100%;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid #ffffff;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .review-editor-pane {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .review-table-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 12px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--primary) transparent;
+        }
+
+        .review-group-title {
+            font-size: 0.75rem;
+            font-weight: 900;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin: 1.5rem 0 0.75rem 0;
+            padding-bottom: 5px;
+            border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .review-row {
+            background: var(--item-bg);
+            border: 1px solid #ffffff;
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin-bottom: 10px;
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            gap: 15px;
+            align-items: center;
+            transition: all 0.2s ease;
+        }
+
+        .review-row:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+
+        .review-label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--text-dim);
+        }
+
+        .review-input {
+            background: var(--input-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            color: var(--text-main);
+            padding: 8px 12px;
+            font-size: 0.9rem;
+            width: 100%;
+            transition: all 0.2s;
+        }
+
+        .review-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+
+        .review-footer {
+            padding: 1.25rem 2rem;
+            border-top: 1px solid var(--glass-border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            background: var(--item-bg);
+        }
+
+        .btn-finalize {
+            background: var(--accent-success);
+            color: white;
+            font-weight: 800;
+            padding: 10px 25px;
+            border-radius: 12px;
+            border: none;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 15px rgba(52, 211, 153, 0.3);
+        }
+
+        .btn-finalize:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(52, 211, 153, 0.4);
+        }
+    </style>
+</head>
+
+<body>
+    <header class="dashboard-header">
+        <div style="position: absolute; top: 20px; right: 20px;">
+            <form action="/api/logout/" method="post" id="logoutForm" class="d-none">
+                {% csrf_token %}
+            </form>
+            <button onclick="document.getElementById('logoutForm').submit()"
+                class="btn btn-outline-danger rounded-pill px-4 py-2 fw-bold"
+                style="font-size: 0.8rem; letter-spacing: 0.5px; text-transform: uppercase; border-color: rgba(239, 68, 68, 0.4); color: #f87171;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor"
+                    stroke-width="2.5" viewBox="0 0 24 24" class="me-2" style="vertical-align: text-bottom;">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Log Out
+            </button>
+        </div>
+        <div class="header-content">
+            <h1>
+                <svg xmlns="http://www.w3.org/2000/svg" width="45" height="45" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="10" rx="2"></rect>
+                    <circle cx="12" cy="5" r="2"></circle>
+                    <path d="M12 7v4"></path>
+                    <line x1="8" y1="16" x2="8" y2="16"></line>
+                    <line x1="16" y1="16" x2="16" y2="16"></line>
+                </svg>
+                AutoFlow
+            </h1>
+            <p>Intelligent Web Automation Dashboard</p>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <div id="statusAlert" class="alert d-none glass-card mb-4 p-3 border-0"
+            style="background: rgba(59, 130, 246, 0.1); color: var(--text-main);"></div>
+
+        <main>
+            <section class="main-dashboard-section">
+                <div class="dashboard-grid">
+                    <div class="glass-card" style="height: 600px">
+                        <div class="upload-title">
+                            <span>Target Destination</span>
+                            <span id="storageLabel" class="text-primary fw-800">FILE REVIEW</span>
+                        </div>
+                        <div class="directory-indicator" id="dirPath">
+                            /Downloads/new_files_revised/
+                        </div>
+
+                        <div class="control-label">Drop Engine</div>
+                        <div class="drop-zone" onclick="document.getElementById('fileInput').click()">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            <div class="fw-bold fs-5">Drop files here</div>
+                            <div class="small text-dim mt-1">or click to browse local storage</div>
+                            <input type="file" id="fileInput" class="d-none" multiple
+                                onchange="handleFileSelect(event)">
+                        </div>
+
+                        <div class="mt-4">
+                            <div class="control-label text-center mb-2">ENGINE STATUS</div>
+                            <div id="statusBadge" class="badge w-100 py-3 rounded-pill"
+                                style="background: rgba(255, 255, 255, 0.03); font-size: 0.8rem; font-weight: 800; color: var(--text-dim); border: 1px solid var(--glass-border); text-transform: uppercase; letter-spacing: 2px;">
+                                SYSTEM IDLE</div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card" style="height: 600px">
+                        <div class="management-header">
+                            <h5 class="m-0 fw-bold fs-6">
+                                FILE MANAGEMENT <span id="fileCountBadge" class="file-count-badge ms-2">0 Files</span>
+                            </h5>
+                            <div class="d-flex gap-2 align-items-center">
+                                <div class="form-check m-0 me-2" style="font-size: 0.75rem;">
+                                    <input class="form-check-input" type="checkbox" id="masterCheck" checked
+                                        onclick="toggleAllFiles(this)">
+                                    <label class="form-check-label text-dim fw-bold" for="masterCheck">SELECT
+                                        ALL</label>
+                                </div>
+                                <button onclick="launchBatch()" class="btn btn-primary btn-sm px-3 rounded-pill fw-bold"
+                                    style="font-size: 0.75rem;">START SELECTED</button>
+                                <button onclick="clearAll()"
+                                    class="btn btn-outline-danger btn-sm px-3 rounded-pill fw-bold"
+                                    style="font-size: 0.75rem;">CLEAR ALL</button>
+                            </div>
+                        </div>
+
+                        <div class="nav-management">
+                            <a href="javascript:void(0)" class="mgmt-link"
+                                onclick="switchFolder('full_file', this)">Full
+                                File</a>
+                            <a href="javascript:void(0)" class="mgmt-link active"
+                                onclick="switchFolder('new_revised', this)">Revised</a>
+
+                            <a href="javascript:void(0)" class="mgmt-link" onclick="switchFolder('html_ref', this)">HTML
+                                Ref</a>
+                            <a href="javascript:void(0)" class="mgmt-link"
+                                onclick="switchFolder('old_revised', this)">OLD
+                                (Rev)</a>
+                            <a href="javascript:void(0)" class="mgmt-link" onclick="switchFolder('logs', this)">Logs</a>
+                            <a href="javascript:void(0)" class="mgmt-link"
+                                onclick="switchFolder('full_file_logs', this)">Full File Logs</a>
+                            <a href="javascript:void(0)" class="mgmt-link"
+                                onclick="switchFolder('processed', this)">Processed</a>
+                            <a href="javascript:void(0)" class="mgmt-link"
+                                onclick="switchFolder('errors', this)">Errors</a>
+                        </div>
+
+                        <div id="fileList" class="file-list-container">
+                            <div class="text-center py-5">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" fill="none"
+                                    stroke="var(--text-dim)" viewBox="0 0 24 24" class="mb-3 opacity-20">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
+                                        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                </svg>
+                                <p class="text-dim fs-6">No files found in this repository</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+    </div>
+    </section>
+
+    <section class="controls-section">
+        <h3 class="section-title">Automation Controls & Configuration</h3>
+        <div class="controls-grid">
+            <div class="glass-card" style="display: none;">
+                <h5 class="m-0 mb-3 fw-bold fs-6 text-center">AUTHENTICATION</h5>
+
+                <div class="mb-3">
+                    <div class="control-label">USERNAME</div>
+                    <input type="text" id="user" class="form-input" value="Abhi" placeholder="Abhi">
+                </div>
+                <div>
+                    <div class="control-label">PASSWORD</div>
+                    <div class="password-container">
+                        <input type="password" id="pass" class="form-input" value="Admin@2026" placeholder="Admin@2026">
+                        <span class="pass-toggle" onclick="togglePass()">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card">
+                <h5 class="m-0 mb-3 fw-bold fs-6 text-center">SETTINGS</h5>
+                <div class="mb-3">
+                    <div class="control-label">AUTOMATION MODE</div>
+                    <select id="mode" class="form-input">
+                        <option value="revised">Revised File Review</option>
+                        <option value="full">Full File Analysis</option>
+                    </select>
+                </div>
+                <div class="d-flex align-items-center justify-content-between mt-3">
+                    <div class="control-label m-0">RUN IN BACKGROUND</div>
+                    <div class="form-check form-switch m-0 p-0">
+                        <input class="form-check-input" type="checkbox" id="headless" checked
+                            style="width: 44px; height: 22px; cursor: pointer; background-color: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2);">
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card d-flex flex-column gap-2 justify-content-center">
+                <h5 class="m-0 mb-3 fw-bold fs-6 text-center">ENGINE COMMANDS</h5>
+                <div class="row g-2">
+                    <div class="col-6">
+                        <button onclick="launchBatch()" class="btn-control btn-start w-100">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
+                                viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z" />
+                            </svg> START
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button onclick="togglePause()" class="btn-control btn-pause w-100">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
+                                viewBox="0 0 24 24">
+                                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                            </svg> PAUSE
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button onclick="killSequence()" class="btn-control btn-stop w-100">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
+                                viewBox="0 0 24 24">
+                                <path d="M6 6h12v12H6z" />
+                            </svg> STOP
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button onclick="killSequence()" class="btn-control btn-kill w-100">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none"
+                                stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg> KILL
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card d-flex flex-column justify-content-between">
+                <h5 class="m-0 mb-3 fw-bold fs-6 text-center">FASTAPP INTEGRATION</h5>
+                <div>
+                    <div class="control-label">FASTAPP REPOSITORY</div>
+                    <p class="small text-dim mb-3">Fetch orders directly from the portal.</p>
+                </div>
+                <div class="mb-3">
+                    <div class="control-label">DOWNLOAD PREFERENCE</div>
+                    <select id="fastappDownloadPref" class="form-input">
+                        <option value="appr_id">Appraisal Number</option>
+                        <option value="original">Original Filename</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <div class="control-label">SUBMITTED DATE & TIME (OPTIONAL)</div>
+                    <input type="datetime-local" id="fastappSubmittedAfter" class="form-input"
+                        style="color-scheme: dark;">
+                </div>
+                <div class="d-flex flex-column gap-2">
+                    <button onclick="triggerFastApp('full_file')" class="btn-control w-100"
+                        style="background: var(--primary); color: #fff;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor"
+                            stroke-width="2" viewBox="0 0 24 24">
+                            <path d="M12 4v16m8-8H4" />
+                        </svg>
+                        IMPORT NEW ORDERS
+                    </button>
+                    <button onclick="triggerFastApp('update_review')" class="btn-control w-100"
+                        style="background: var(--secondary); color: #fff;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor"
+                            stroke-width="2" viewBox="0 0 24 24">
+                            <path
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        IMPORT REVISED ORDERS
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="log-viewer-section">
+        <h3 class="section-title">Real-time Automation Log</h3>
+        <div class="automation-log-container">
+            <div class="log-header">
+                <div class="log-header-left">
+                    <h6 class="log-header-title">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Automation Log
+                        <select id="logFileSelector" class="form-input ms-3"
+                            style="width: 250px; font-size: 0.7rem; padding: 4px 8px; background: rgba(255,255,255,0.05); height: 30px; border-radius: 6px;"
+                            onchange="handleLogFileChange()">
+                            <option value="active">🔴 LIVE: Active Session</option>
+                        </select>
+                    </h6>
+                </div>
+                <div class="log-controls">
+                    <div class="log-search-wrapper">
+                        <svg class="search-icon-log" xmlns="http://www.w3.org/2000/svg" width="14" height="14"
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <input type="text" id="logSearch" class="log-search-input" placeholder="Search logs..."
+                            onkeyup="filterLogs()">
+                    </div>
+                    <button class="log-action-btn" title="Download .txt" onclick="downloadLogText()"> /* Keep existing
+                        styles */
+                        <span style="font-size: 1.1rem; line-height: 1;">⬇</span> <small class="ms-1">.txt</small>
+                    </button>
+                    <div class="log-navigation">
+                        <button class="btn-scroll" onclick="scrollLogs('up')">▲</button>
+                        <button class="btn-scroll" onclick="scrollLogs('down')">▼</button>
+                    </div>
+                </div>
+            </div>
+            <div class="log-tabs">
+                <div class="log-tab active" onclick="switchLogTab('revised')" id="tab-revised">
+                    <span class="tab-indicator"></span> Revised Review
+                </div>
+                <div class="log-tab" onclick="switchLogTab('full')" id="tab-full">
+                    <span class="tab-indicator"></span> Full Analysis
+                </div>
+                <div class="log-tab" onclick="switchLogTab('fastapp')" id="tab-fastapp">
+                    <span class="tab-indicator"></span> FastApp Sync
+                </div>
+                <div class="log-tab" onclick="switchLogTab('history')" id="tab-history">
+                    <span class="tab-indicator"></span> History
+                </div>
+            </div>
+
+            <div id="logTerminalContent-revised" class="log-content-area active">
+                <div class="log-line">
+                    <span class="log-time">[${new Date().toLocaleTimeString()}]</span>
+                    <span class="log-msg">Revised Review terminal initialized...</span>
+                </div>
+            </div>
+            <div id="logTerminalContent-full" class="log-content-area">
+                <div class="log-line">
+                    <span class="log-time">[${new Date().toLocaleTimeString()}]</span>
+                    <span class="log-msg">Full Analysis terminal initialized...</span>
+                </div>
+            </div>
+            <div id="logTerminalContent-fastapp" class="log-content-area">
+                <div class="log-line">
+                    <span class="log-time">[${new Date().toLocaleTimeString()}]</span>
+                    <span class="log-msg">FastApp Sync terminal initialized...</span>
+                </div>
+            </div>
+            <div id="logTerminalContent-history" class="log-content-area">
+                <div class="log-line">
+                    <span class="log-time">[${new Date().toLocaleTimeString()}]</span>
+                    <span class="log-msg">History viewer active. Select a file from the dropdown to load...</span>
+                </div>
+            </div>
+            <div class="log-footer">
+                <div class="log-status-indicator">
+                    <div class="status-dot"></div>
+                    <span>Logs update automatically</span>
+                </div>
+                <div id="logMeta" class="small opacity-50">
+                    No active log file
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-5 text-dim small pb-4">
+            &copy; 2026 AutoFlow Intelligence Dashboard | Premium Automation Suite
+        </div>
+        </div>
+
+        <div
+            style="position: fixed; bottom: 20px; right: 20px; z-index: 1000; display: flex; flex-direction: column; gap: 10px;">
+            <button onclick="toggleTheme()"
+                class="btn btn-premium rounded-circle p-0 d-flex align-items-center justify-content-center shadow-lg"
+                style="width: 50px; height: 50px; background: var(--card-bg); border: 1px solid var(--glass-border);">
+                <svg id="themeIcon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none"
+                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path
+                        d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+                </svg>
+            </button>
+
+            <button onclick="showHelp()"
+                class="btn btn-primary rounded-circle p-0 d-flex align-items-center justify-content-center shadow-lg"
+                style="width: 50px; height: 50px; background: var(--secondary); border: none;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none"
+                    stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+            </button>
+        </div>
+
+        <script>
+            let currentFolder = 'new_revised';
+            let isDarkMode = true;
+            let lastLogContent = "";
+            let logPollInterval = null;
+
+            const AUTH_DEFAULTS = {
+                'qa': { user: 'Abhi', pass: 'Admin@2026' },
+                'fastapp': { user: 'DJRBREVIEW', pass: 'DJRB2605!#' }
+            };
+
+            function setupPersistence() {
+                const user = localStorage.getItem('af_user');
+                const pass = localStorage.getItem('af_pass');
+                const mode = localStorage.getItem('af_mode');
+                const dpref = localStorage.getItem('af_download_pref');
+
+                if (user) document.getElementById('user').value = user;
+                if (pass) document.getElementById('pass').value = pass;
+                if (mode) document.getElementById('mode').value = mode;
+                if (dpref) document.getElementById('fastappDownloadPref').value = dpref;
+
+                document.getElementById('user').onchange = (e) => localStorage.setItem('af_user', e.target.value);
+                document.getElementById('pass').onchange = (e) => localStorage.setItem('af_pass', e.target.value);
+
+                document.getElementById('mode').onchange = (e) => {
+                    const selectedMode = e.target.value;
+                    localStorage.setItem('af_mode', selectedMode);
+                    updateAuthFieldsByMode(selectedMode);
+                };
+
+                document.getElementById('fastappDownloadPref').onchange = (e) => localStorage.setItem('af_download_pref', e.target.value);
+            }
+
+            function updateAuthFieldsByMode(mode) {
+                const isFastApp = (mode === 'update_review');
+                const creds = isFastApp ? AUTH_DEFAULTS.fastapp : AUTH_DEFAULTS.qa;
+
+                const userField = document.getElementById('user');
+                const passField = document.getElementById('pass');
+
+                const currentVal = userField.value;
+                const otherCreds = isFastApp ? AUTH_DEFAULTS.qa : AUTH_DEFAULTS.fastapp;
+
+                if (!currentVal || currentVal === otherCreds.user) {
+                    userField.value = creds.user;
+                    userField.placeholder = creds.user;
+                }
+
+                if (!passField.value || passField.value === otherCreds.pass) {
+                    passField.value = creds.pass;
+                    passField.placeholder = creds.pass;
+                }
+            }
+
+            function getCookie(name) {
+                let cookieValue = null;
+                if (document.cookie && document.cookie !== '') {
+                    const cookies = document.cookie.split(';');
+                    for (let i = 0; i < cookies.length; i++) {
+                        const cookie = cookies[i].trim();
+                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                            break;
+                        }
+                    }
+                }
+                return cookieValue;
+            }
+
+            function toggleTheme() {
+                isDarkMode = !isDarkMode;
+                const body = document.body;
+                const icon = document.getElementById('themeIcon');
+
+                if (isDarkMode) {
+                    body.classList.remove('light-mode');
+                    icon.innerHTML = '<path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />';
+                    icon.setAttribute('stroke', 'white');
+                } else {
+                    body.classList.add('light-mode');
+                    icon.innerHTML = '<path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />';
+                    icon.setAttribute('stroke', '#0f172a');
+                }
+                localStorage.setItem('af_theme', isDarkMode ? 'dark' : 'light');
+            }
+
+            function isBatchFolder(key) {
+                return ['new_revised', 'full_file'].includes(key);
+            }
+
+            async function loadFiles() {
+                const container = document.getElementById('fileList');
+                const indicator = document.getElementById('dirPath');
+                const label = document.getElementById('storageLabel');
+                const fileCountBadge = document.getElementById('fileCountBadge');
+
+                if (!container) return;
+                indicator.innerText = `/Downloads/${currentFolder}/`;
+                label.innerText = currentFolder.replace('_', ' ').toUpperCase();
+
+                const checkedFiles = new Set();
+                const uncheckedFiles = new Set();
+                document.querySelectorAll('.batch-check').forEach(cb => {
+                    if (cb.checked) checkedFiles.add(cb.value);
+                    else uncheckedFiles.add(cb.value);
+                });
+
+                try {
+                    const res = await fetch(`/api/files/${currentFolder}`);
+                    const files = await res.json();
+
+                    if (files.length === 0) {
+                        container.innerHTML = `<div class="text-center py-5">
+                        ${fileCountBadge ? fileCountBadge.innerText = '0 Files' : ''}
+                        <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" fill="none" stroke="var(--text-dim)" viewBox="0 0 24 24" class="mb-3 opacity-20">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
+                        <p class="text-dim">No records found in selected repository</p>
+                    </div>`;
+                        return;
+                    }
+
+                    if (fileCountBadge) fileCountBadge.innerText = `${files.length} Files`;
+
+                    container.innerHTML = files.map(f => {
+                        const isChecked = !uncheckedFiles.has(f);
+                        return `
+                        <div class="file-item">
+                            <div class="d-flex align-items-center gap-3">
+                                ${isBatchFolder(currentFolder) ? `<input class="batch-check" type="checkbox" value="${f}" ${isChecked ? 'checked' : ''}>` : ''}
+                                <span class="fw-600" style="font-size: 0.95rem;">${f}</span>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <a href="/api/files/${currentFolder}/download/${f}" class="btn btn-outline-light btn-sm rounded-pill px-3" style="color: inherit; border-color: var(--glass-border);">Open</a>
+                                ${isBatchFolder(currentFolder) || currentFolder === 'processed' ? `<button onclick="deleteFile('${f}')" class="btn btn-outline-danger btn-sm rounded-pill px-3">Trash</button>` : ''}
+                            </div>
+                        </div>
+                    `}).join('');
+                } catch (e) {
+                    container.innerHTML = `<p class="text-danger text-center py-5">CRITICAL SYNC ERROR: ${e.message}</p>`;
+                }
+            }
+
+            function switchFolder(folder, el) {
+                currentFolder = folder;
+                document.querySelectorAll('.mgmt-link').forEach(l => l.classList.remove('active'));
+                el.classList.add('active');
+
+                const masterWrap = document.getElementById('masterCheck').parentElement;
+                if (isBatchFolder(currentFolder)) masterWrap.classList.remove('d-none');
+                else masterWrap.classList.add('d-none');
+
+                loadFiles();
+            }
+
+            function toggleAllFiles(master) {
+                const checks = document.querySelectorAll('.batch-check');
+                checks.forEach(c => c.checked = master.checked);
+            }
+
+            async function handleFileSelect(e) {
+                const files = e.target.files;
+                if (!files.length) return;
+
+                addLog(`[TARGET] Directing streams to ${currentFolder.toUpperCase()} repository`, 'info');
+
+                for (let file of files) {
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    try {
+                        const res = await fetch(`/api/files/upload/${currentFolder}`, {
+                            method: 'POST',
+                            headers: {
+                                'X-CSRFToken': getCookie('csrftoken')
+                            },
+                            body: formData
+                        });
+                        const data = await res.json();
+
+                        if (data.error) {
+                            addLog(`[REJECTED] ${file.name}: ${data.error}`, 'error');
+                            alert(data.error);
+                        } else {
+                            addLog(`[SUCCESS] ${file.name} securely stored`, 'success');
+                        }
+                    } catch (e) {
+                        addLog(`[CRITICAL] Stream interrupted for ${file.name}: ${e.message}`, 'error');
+                    }
+                }
+                loadFiles();
+            }
+
+            async function clearAll() {
+                if (!confirm(`Purge all records in ${currentFolder}?`)) return;
+                const res = await fetch(`/api/files/${currentFolder}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                });
+                const data = await res.json();
+                addLog(`[PURGED] Repository ${currentFolder} cleared`, 'warn');
+                loadFiles();
+            }
+
+            async function deleteFile(name) {
+                if (!confirm(`Permanently trash ${name}?`)) return;
+                await fetch(`/api/files/${currentFolder}/${name}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                });
+                loadFiles();
+                addLog(`[PURGED] ${name} has been removed from storage`, 'warn');
+            }
+
+            async function togglePause() {
+                const res = await fetch('/api/pause', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                });
+                const data = await res.json();
+                addLog(`[SYSTEM] ${data.message}`, data.paused ? 'warn' : 'info');
+            }
+
+            async function killSequence() {
+                if (!confirm("HARD TERMINATE ENGINE CORE?")) return;
+                const res = await fetch('/api/kill', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                });
+                const data = await res.json();
+                addLog(`[HALTED] ${data.message}`, 'error');
+            }
+
+            async function startAutomation() {
+                const checkboxes = document.querySelectorAll('.batch-check:checked');
+                let filenames = Array.from(checkboxes).map(cb => cb.value);
+                const mode = document.getElementById('mode').value;
+                const downloadPref = 'appr_id';
+                const username = document.getElementById('user').value;
+                const password = document.getElementById('pass').value;
+
+                if (filenames.length > 0) {
+                    await runBatchSequence(filenames, mode, username, password, downloadPref);
+                    return;
+                }
+
+                alert("NO FILES SELECTED IN THE QUEUE. PLEASE CHECK THE FILES YOU WISH TO PROCESS.");
+                addLog("[SYSTEM] Automation aborted: No targets selected in management queue", 'warn');
+            }
+
+            async function launchBatch() {
+                const checkboxes = document.querySelectorAll('.batch-check:checked');
+                const filenames = Array.from(checkboxes).map(cb => cb.value);
+                const mode = document.getElementById('mode').value;
+                const downloadPref = 'appr_id';
+                const username = document.getElementById('user').value;
+                const password = document.getElementById('pass').value;
+
+                if (!filenames.length) {
+                    alert("SELECT TARGETS FROM THE QUEUE FIRST");
+                    return;
+                }
+
+                await runBatchSequence(filenames, mode, username, password, downloadPref);
+            }
+
+            async function runBatchSequence(filenames, mode, username, password, downloadPref) {
+                addLog(`[SESSION] Initializing ${mode.toUpperCase()} scan for ${filenames.length} assets...`, 'info');
+
+                try {
+                    const res = await fetch('/api/start_batch_stored_revised', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: JSON.stringify({ filenames, username, password, mode, downloadPref })
+                    });
+                    const data = await res.json();
+                    if (data.error) {
+                        addLog(`[REJECTED] ${data.error}`, 'error');
+                    } else {
+                        addLog(`[PROCESSING] ${mode.toUpperCase()} sequence approved`, 'success');
+                    }
+                } catch (e) {
+                    addLog(`[ABORTED] Cluster initiation failed: ${e.message}`, 'error');
+                }
+            }
+
+            async function triggerFastApp(specificMode) {
+                const username = AUTH_DEFAULTS.fastapp.user;
+                const password = AUTH_DEFAULTS.fastapp.pass;
+                const downloadPref = document.getElementById('fastappDownloadPref').value;
+                const headless = document.getElementById('headless').checked;
+                const submittedAfter = document.getElementById('fastappSubmittedAfter').value;
+
+                const modeLabel = specificMode === 'full_file' ? "NEW ORDERS" : "REVISED ORDERS";
+                addLog(`[FASTAPP] Initiating ${modeLabel} scan...`, 'info');
+
+                try {
+                    const res = await fetch('/api/start_fastapp', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: JSON.stringify({
+                            username,
+                            password,
+                            mode: specificMode,
+                            downloadPref,
+                            headless,
+                            submittedAfter
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.error) {
+                        addLog(`[REJECTED] ${data.error}`, 'error');
+                    } else {
+                        addLog(`[SUCCESS] FastApp ${modeLabel} sequence launched`, 'success');
+                    }
+                } catch (e) {
+                    addLog(`[CRITICAL] Engine failure: ${e.message}`, 'error');
+                }
+            }
+
+            function togglePass() {
+                const input = document.getElementById('pass');
+                input.type = input.type === 'password' ? 'text' : 'password';
+            }
+
+            function addLog(msg, type) {
+                const term = document.getElementById(`logTerminalContent-${activeTab}`);
+                if (!term) return;
+
+                const div = document.createElement('div');
+                div.className = 'log-line';
+
+                let color = 'var(--text-main)';
+                if (type === 'error') color = 'var(--accent-error)';
+                if (type === 'success') color = 'var(--accent-success)';
+                if (type === 'warn') color = 'var(--accent-warning)';
+                if (type === 'info') color = 'var(--primary)';
+
+                div.innerHTML = `
+                <span class="log-time">[${new Date().toLocaleTimeString()}]</span>
+                <span class="log-msg" style="color: ${color}">${msg}</span>
+            `;
+                term.appendChild(div);
+                term.scrollTop = term.scrollHeight;
+            }
+
+            async function refreshLogList() {
+                try {
+                    const res = await fetch('/api/files/logs');
+                    const logs = await res.json();
+                    const selector = document.getElementById('logFileSelector');
+                    if (!selector) return;
+                    const currentVal = selector.value;
+
+                    selector.innerHTML = '<option value="active">🔴 LIVE: Active Session</option>';
+                    logs.forEach(log => {
+                        const opt = document.createElement('option');
+                        opt.value = log;
+                        opt.innerText = log;
+                        selector.appendChild(opt);
+                    });
+                    if (currentVal !== 'active') selector.value = currentVal;
+                } catch (e) { console.error("Log list fetch failed", e); }
+            }
+
+            function handleLogFileChange() {
+                const val = document.getElementById('logFileSelector').value;
+                if (val !== 'active') switchLogTab('history');
+                pollLogs();
+            }
+
+            let activeTab = 'revised';
+            let tabContents = {
+                revised: "",
+                full: "",
+                fastapp: "",
+                history: ""
+            };
+
+            function switchLogTab(tabId) {
+                activeTab = tabId;
+
+                document.querySelectorAll('.log-tab').forEach(t => t.classList.remove('active'));
+                const targetTab = document.getElementById(`tab-${tabId}`);
+                if (targetTab) {
+                    targetTab.classList.remove('has-update');
+                    targetTab.classList.add('active');
+                }
+
+                document.querySelectorAll('.log-content-area').forEach(c => c.classList.remove('active'));
+                const targetContent = document.getElementById(`logTerminalContent-${tabId}`);
+                if (targetContent) {
+                    targetContent.classList.add('active');
+                    targetContent.scrollTop = targetContent.scrollHeight;
+                }
+
+                if (tabId === 'history') refreshLogList();
+            }
+
+            async function pollLogs() {
+                const selector = document.getElementById('logFileSelector');
+                const selectedFile = selector.value;
+
+                if (selectedFile !== 'active') {
+                    if (activeTab !== 'history') switchLogTab('history');
+                    const url = `/api/logs/file/content/${encodeURIComponent(selectedFile)}`;
+                    try {
+                        const res = await fetch(url);
+                        const data = await res.json();
+                        if (data.content !== tabContents.history) {
+                            tabContents.history = data.content;
+                            updateLogDisplay('history', data.content);
+                        }
+                    } catch (e) { console.error("History fetch failed", e); }
+                    return;
+                }
+
+                try {
+                    const res = await fetch('/api/logs/active/content');
+                    const data = await res.json();
+
+                    if (!data.filename || !data.content) return;
+
+                    let routeTo = null;
+                    if (data.filename.includes('automation_revised')) routeTo = 'revised';
+                    else if (data.filename.includes('automation_full')) routeTo = 'full';
+                    else if (data.filename.includes('automation_fastapp')) routeTo = 'fastapp';
+
+                    if (routeTo && data.content !== tabContents[routeTo]) {
+                        tabContents[routeTo] = data.content;
+                        updateLogDisplay(routeTo, data.content);
+
+                        if (routeTo !== activeTab) {
+                            const tabEl = document.getElementById(`tab-${routeTo}`);
+                            if (tabEl) tabEl.classList.add('has-update');
+                        }
+
+                        const meta = document.getElementById('logMeta');
+                        if (meta && activeTab === routeTo) {
+                            meta.innerText = `Active: ${data.filename}`;
+                        } else if (meta && activeTab !== 'history') {
+                            meta.innerText = "Automation running in another tab...";
+                        }
+                    }
+                } catch (e) {
+                    console.error("Live log fetch failed", e);
+                }
+            }
+
+            function updateLogDisplay(tabId, content) {
+                const container = document.getElementById(`logTerminalContent-${tabId}`);
+                if (!container || !content) return;
+
+                const searchVal = document.getElementById('logSearch').value.toLowerCase();
+
+                const isAtBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 100;
+
+                const lines = content.split('\n');
+                const filteredLines = lines.map(line => {
+                    if (!line.trim()) return '';
+
+                    let timestamp = "";
+                    let msg = line;
+                    const tsMatch = line.match(/^\[(.*?)\] (.*)/);
+                    if (tsMatch) {
+                        timestamp = tsMatch[1];
+                        msg = tsMatch[2];
+                    }
+
+                    if (searchVal && !line.toLowerCase().includes(searchVal)) return '';
+
+                    if (searchVal) {
+                        const regex = new RegExp(`(${searchVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+                        msg = msg.replace(regex, '<span class="highlight-match">$1</span>');
+                    }
+
+                    let msgStyle = "";
+                    if (msg.includes('✅')) msgStyle = "color: #34d399;";
+                    else if (msg.includes('❌')) msgStyle = "color: #f87171;";
+                    else if (msg.includes('⏸') || msg.includes('▶')) msgStyle = "color: #fbbf24;";
+
+                    return `
+                    <div class="log-line">
+                        <span class="log-time">${timestamp ? '[' + timestamp + ']' : ''}</span>
+                        <span class="log-msg" style="${msgStyle}">${msg}</span>
+                    </div>
+                `;
+                }).filter(l => l !== '').join('');
+
+                container.innerHTML = filteredLines;
+
+                if (isAtBottom) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            }
+
+            function filterLogs() {
+                updateLogDisplay(activeTab, tabContents[activeTab]);
+            }
+
+            function scrollLogs(dir) {
+                const container = document.getElementById(`logTerminalContent-${activeTab}`);
+                if (!container) return;
+                if (dir === 'up') container.scrollTo({ top: 0, behavior: 'smooth' });
+                else container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+            }
+
+            function downloadLogText() {
+                const content = tabContents[activeTab];
+                if (!content) {
+                    alert("No log content to download for this tab.");
+                    return;
+                }
+                const blob = new Blob([content], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `automation_${activeTab}_log_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+                a.click();
+                window.URL.revokeObjectURL(url);
+            }
+
+            setInterval(async () => {
+                try {
+                    const res = await fetch('/api/status');
+                    const status = await res.json();
+                    const badge = document.getElementById('statusBadge');
+                    const alertBox = document.getElementById('statusAlert');
+
+                    if (!badge) return;
+
+                    if (!status.is_running) {
+                        const fResFull = await fetch('/api/files/full_file');
+                        const filesFull = await fResFull.json();
+                        const fResRev = await fetch('/api/files/new_revised');
+                        const filesRev = await fResRev.json();
+
+                        const totalPending = filesFull.length + filesRev.length;
+
+                        if (totalPending > 0) {
+                            badge.innerText = `READY: ${totalPending} ASSETS PENDING`;
+                            badge.style.background = "rgba(102, 16, 242, 0.1)";
+                            badge.style.color = "var(--primary)";
+                        } else {
+                            badge.innerText = "SYSTEM IDLE";
+                            badge.style.background = "rgba(148, 163, 184, 0.1)";
+                            badge.style.color = "#fff";
+                        }
+                        if (alertBox) alertBox.className = "d-none";
+                    } else {
+                        badge.innerText = "ACTIVE ENGINE";
+                        badge.classList.add('status-running');
+                        badge.style.color = "#fff";
+
+                        if (alertBox) {
+                            alertBox.className = "alert d-block glass-card mb-4 border-0 text-white";
+                            let batchMsg = status.batch_total > 0 ? `<span class="badge bg-white text-primary me-2" style="font-weight:900;">${status.batch_current} / ${status.batch_total}</span>` : "";
+                            alertBox.innerHTML = `<div class="d-flex align-items-center gap-3">
+                            <div class="spinner-border spinner-border-sm text-white"></div>
+                            <span style="font-weight:600; letter-spacing:0.5px;">${batchMsg} INTELLIGENCE CORE ACTIVE: Processing Data Streams...</span>
+                        </div>`;
+                        }
+                        badge.classList.remove('status-running');
+                        badge.style.background = "rgba(102, 16, 242, 0.1)";
+                    }
+                } catch (e) { }
+            }, 3000);
+
+            setInterval(pollLogs, 2000);
+            setInterval(refreshLogList, 10000);
+            setInterval(loadFiles, 5000);
+
+            function showHelp() {
+                alert("AutoFlow Dashboard Help:\n- Upload files to repositories.\n- Select files in 'File Review' to start automation.\n- Monitor real-time logs in the bottom section.\n- Search and download logs as needed.");
+            }
+
+
+            setupPersistence();
+            loadFiles();
+        </script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+
+</html>

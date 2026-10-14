@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "esnext",
+    "jsx": "react-jsx",
+    "baseUrl": "src",
+    "forceConsistentCasingInFileNames": false
+  },
+  "include": [
+    "src"
+  ]
+}
