@@ -12,6 +12,14 @@ import tempfile
 import xml.etree.ElementTree as ET
 from typing import Dict, Any, Optional
 
+try:
+    import pymupdf as fitz
+except ImportError:
+    try:
+        import fitz
+    except ImportError:
+        fitz = None
+
 def _clean_currency(val: Any) -> str:
     if val is None:
         return ""
@@ -533,6 +541,14 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
 
     if nb_elem is not None:
         nb_name = nb_elem.attrib.get("_Name", "")
+        if not nb_name and property_elem is not None:
+            proj_elem = property_elem.find("PROJECT")
+            if proj_elem is not None:
+                nb_name = proj_elem.attrib.get("_Name", "")
+        if not nb_name:
+            proj_elem = root.find(".//PROJECT")
+            if proj_elem is not None:
+                nb_name = proj_elem.attrib.get("_Name", "")
         nb_bound = nb_elem.attrib.get("_BoundaryAndCharacteristicsDescription", "")
         nb_desc = nb_elem.attrib.get("_Description", "")
         nb_mkt = nb_elem.attrib.get("_MarketConditionsDescription", "")
@@ -740,7 +756,9 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     cost_land_val = ""
     cost_total_cost = ""
 
+    cost_elem = None
     sales_comp_elem = None
+    income_elem = None
     if val_methods is not None:
         sales_comp_elem = val_methods.find("SALES_COMPARISON")
         if sales_comp_elem is not None:
@@ -748,15 +766,107 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
             sales_comp_comment = sales_comp_elem.attrib.get("_Comment", "")
 
         income_elem = val_methods.find("INCOME_ANALYSIS")
-        if income_elem is not None:
-            income_ind_val = _clean_currency(income_elem.attrib.get("ValueIndicatedByIncomeApproachAmount", ""))
-            income_grm = income_elem.attrib.get("GrossRentMultiplierFactor", "")
-            income_rent = _clean_currency(income_elem.attrib.get("EstimatedMarketMonthlyRentAmount", ""))
-
         cost_elem = val_methods.find("COST_ANALYSIS")
-        if cost_elem is not None:
-            cost_land_val = _clean_currency(cost_elem.attrib.get("SiteEstimatedValueAmount", ""))
-            cost_total_cost = _clean_currency(cost_elem.attrib.get("TotalDepreciatedCostOfImprovementsAmount", ""))
+
+    if income_elem is None:
+        income_elem = root.find(".//INCOME_ANALYSIS")
+
+    if income_elem is not None:
+        raw_ind_inc = income_elem.attrib.get("ValueIndicatedByIncomeApproachAmount", "")
+        if raw_ind_inc and raw_ind_inc != "0":
+            income_ind_val = _clean_currency(raw_ind_inc)
+        elif raw_ind_inc == "0":
+            income_ind_val = "0"
+
+        raw_grm = income_elem.attrib.get("GrossRentMultiplierFactor", "")
+        if raw_grm and raw_grm not in ["0", "00"]:
+            income_grm = raw_grm
+
+        raw_rent = income_elem.attrib.get("EstimatedMarketMonthlyRentAmount", "")
+        if raw_rent and raw_rent != "0":
+            income_rent = _clean_currency(raw_rent)
+
+    if cost_elem is None:
+        cost_elem = root.find(".//COST_ANALYSIS")
+
+    cost_type = ""
+    cost_data_source = ""
+    cost_quality_rating = ""
+    cost_effective_date = ""
+    cost_comment = ""
+    cost_site_comment = ""
+    cost_economic_life = ""
+    cost_site_val = ""
+    cost_total_new = ""
+    cost_depreciated = ""
+    cost_site_as_is = ""
+    cost_indicated_val = ""
+    dwelling_cost = ""
+    basement_cost = ""
+    deck_cost = ""
+    garage_cost = ""
+    amenities_cost = ""
+    depreciation_cost = ""
+    deprec_phys_pct = ""
+    deprec_func_pct = ""
+    deprec_ext_pct = ""
+    gla_sqft_cost = ""
+    price_per_sqft_cost = ""
+
+    if cost_elem is not None:
+        cost_type = cost_elem.attrib.get("_Type", "")
+        cost_data_source = cost_elem.attrib.get("DataSourceDescription", "")
+        cost_quality_rating = cost_elem.attrib.get("CostServiceQualityRatingDescription", "")
+        raw_eff_date = cost_elem.attrib.get("DataSourceEffectiveDate", "")
+        if raw_eff_date:
+            m_cd = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", raw_eff_date)
+            cost_effective_date = f"{m_cd.group(2)}/{m_cd.group(3)}/{m_cd.group(1)}" if m_cd else raw_eff_date
+        cost_comment = cost_elem.attrib.get("_Comment", "")
+        cost_site_comment = cost_elem.attrib.get("SiteEstimatedValueComment", "")
+        cost_economic_life = cost_elem.attrib.get("EstimatedRemainingEconomicLifeYearsCount", "")
+        cost_site_val = _clean_currency(cost_elem.attrib.get("SiteEstimatedValueAmount", ""))
+        cost_total_new = _clean_currency(cost_elem.attrib.get("NewImprovementTotalCostAmount", ""))
+        cost_depreciated = _clean_currency(cost_elem.attrib.get("NewImprovementDepreciatedCostAmount", ""))
+        cost_site_as_is = _clean_currency(cost_elem.attrib.get("SiteOtherImprovementsAsIsAmount", ""))
+        cost_ind_raw = cost_elem.attrib.get("ValueIndicatedByCostApproachAmount", "")
+        if cost_ind_raw and cost_ind_raw != "0":
+            cost_indicated_val = _clean_currency(cost_ind_raw)
+        elif cost_ind_raw == "0":
+            cost_indicated_val = "0"
+
+        for imp in cost_elem.findall("NEW_IMPROVEMENT"):
+            itype = imp.attrib.get("_Type", "")
+            iamt = _clean_currency(imp.attrib.get("_CostAmount", ""))
+            isqft = imp.attrib.get("SquareFeetCount", "")
+            ippsf = imp.attrib.get("PricePerSquareFootAmount", "")
+            idesc = imp.attrib.get("_CostDescription", "") or imp.attrib.get("_TypeOtherDescription", "")
+
+            if itype in ["Dwelling", "SectionOne"] and not dwelling_cost:
+                dwelling_cost = iamt
+                if isqft: gla_sqft_cost = isqft
+                if ippsf: price_per_sqft_cost = ippsf
+            elif "Garage" in itype or "Carport" in itype:
+                if not garage_cost: garage_cost = iamt
+            elif "Basement" in itype or "Bsmt" in idesc:
+                if not basement_cost: basement_cost = iamt
+            elif "Deck" in itype or "Porch" in itype or "Patio" in itype:
+                if not deck_cost: deck_cost = iamt
+            elif "Additional" in itype or "Amenities" in idesc:
+                if not amenities_cost: amenities_cost = iamt
+                if not deck_cost and any(k in idesc.lower() for k in ["porch", "deck", "patio"]):
+                    deck_cost = iamt
+
+        deprec_elem = cost_elem.find("DEPRECIATION")
+        if deprec_elem is not None:
+            deprec_tot = _clean_currency(deprec_elem.attrib.get("_TotalAmount", ""))
+            deprec_phys = _clean_currency(deprec_elem.attrib.get("_PhysicalAmount", ""))
+            deprec_phys_pct = deprec_elem.attrib.get("_PhysicalPercent", "")
+            deprec_func_pct = deprec_elem.attrib.get("_FunctionalPercent", "")
+            deprec_ext_pct = deprec_elem.attrib.get("_ExteriorPercent", "")
+            depreciation_cost = deprec_tot or deprec_phys
+
+    cost_land_val = cost_site_val
+    cost_total_cost = cost_total_new
 
     # Research and Information of Sales
     research_elem = root.find(".//RESEARCH")
@@ -1212,14 +1322,6 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     embedded_doc = root.find(".//EMBEDDED_FILE/DOCUMENT")
     if embedded_doc is not None and embedded_doc.text:
         has_embedded_pdf = True
-        try:
-            import pymupdf as fitz
-        except ImportError:
-            try:
-                import fitz
-            except ImportError:
-                fitz = None
-
         if fitz is not None:
             try:
                 pdf_bytes = base64.b64decode(embedded_doc.text.strip())
@@ -1235,23 +1337,168 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     # PUD & HOA
     pud_indicator = ""
     hoa_fee = ""
+    pud_fee_amt = ""
+    pud_fee_period = ""
+    pud_fee_month = ""
+    pud_fee_year = ""
+    dev_control = ""
+    unit_types = ""
+    legal_name = ""
+    phases = ""
+    units_total = ""
+    units_sold = ""
+    units_rented = ""
+    units_for_sale = ""
+    data_source = ""
+    conversion_ind = ""
+    conversion_date = ""
+    multi_dwelling = ""
+    complete_ind = ""
+    incomplete_desc = ""
+    leased_ind = ""
+    leased_desc = ""
+    common_elements = ""
+
+    prop_type_elem = root.find(".//PROPERTY_TYPE")
+    if prop_type_elem is not None:
+        gse_pud = prop_type_elem.attrib.get("GSE_PUDIndicator", "")
+        if gse_pud.upper() == "Y":
+            pud_indicator = "Yes"
+        elif gse_pud.upper() == "N":
+            pud_indicator = "No"
+
     proj = property_elem.find("PROJECT") if property_elem is not None else None
+    if proj is None:
+        proj = root.find(".//PROJECT")
+
     if proj is not None:
         pud_ind = proj.attrib.get("PUDIndicator", "") or proj.attrib.get("_PUDIndicator", "")
         if pud_ind.upper() == "Y":
             pud_indicator = "Yes"
-        elif pud_ind.upper() == "N":
+        elif pud_ind.upper() == "N" and not pud_indicator:
             pud_indicator = "No"
-        else:
-            p_type = proj.attrib.get("ProjectClassificationType", "")
-            if "PUD" in p_type.upper():
-                pud_indicator = "Yes"
-            elif p_type:
-                pud_indicator = "No"
         
-        fee_elem = proj.find("_PER_UNIT_FEE")
-        if fee_elem is not None:
-            hoa_fee = _clean_currency(fee_elem.attrib.get("_Amount", ""))
+        p_type = proj.attrib.get("_ClassificationType", "") or proj.attrib.get("ProjectClassificationType", "")
+        if "PUD" in p_type.upper():
+            pud_indicator = "Yes"
+        elif "CONDOMINIUM" in p_type.upper() or "COOPERATIVE" in p_type.upper():
+            if not pud_indicator or pud_indicator == "Yes":
+                pud_indicator = "No"
+
+        legal_name = proj.attrib.get("_Name", "")
+        unit_types = proj.attrib.get("_DesignType", "")
+        
+        dev_ctrl_raw = proj.attrib.get("_DeveloperControlsProjectManagementIndicator", "")
+        if dev_ctrl_raw.upper() == "Y":
+            dev_control = "Yes"
+        elif dev_ctrl_raw.upper() == "N":
+            dev_control = "No"
+        elif dev_ctrl_raw:
+            dev_control = dev_ctrl_raw
+            
+        conv_raw = proj.attrib.get("_ConversionIndicator", "")
+        if conv_raw.upper() == "Y":
+            conversion_ind = "Yes"
+        elif conv_raw.upper() == "N":
+            conversion_ind = "No"
+        elif conv_raw:
+            conversion_ind = conv_raw
+        conversion_date = proj.attrib.get("_ConversionDate", "") or proj.attrib.get("_ConversionOriginalUseDescription", "")
+        
+        multi_raw = proj.attrib.get("_ContainsMultipleDwellingUnitsIndicator", "")
+        if multi_raw.upper() == "Y":
+            multi_dwelling = "Yes"
+        elif multi_raw.upper() == "N":
+            multi_dwelling = "No"
+        elif proj.attrib.get("_ContainsMultipleDwellingUnitsDataSourceDescription", ""):
+            multi_dwelling = proj.attrib.get("_ContainsMultipleDwellingUnitsDataSourceDescription", "")
+            
+        comp_raw = proj.attrib.get("_CommonElementsCompletedIndicator", "")
+        if comp_raw.upper() == "Y":
+            complete_ind = "Yes"
+        elif comp_raw.upper() == "N":
+            complete_ind = "No"
+        elif comp_raw:
+            complete_ind = comp_raw
+        incomplete_desc = proj.attrib.get("_CommonElementsStatusDescription", "")
+        
+        lease_raw = proj.attrib.get("_CommonElementsLeasedIndicator", "")
+        if lease_raw.upper() == "Y":
+            leased_ind = "Yes"
+        elif lease_raw.upper() == "N":
+            leased_ind = "No"
+        elif lease_raw:
+            leased_ind = lease_raw
+        leased_desc = proj.attrib.get("_CommonElementsLeaseTermsDescription", "")
+        
+        common_elements = proj.attrib.get("_CommonElementsDescription", "")
+        data_source = proj.attrib.get("DataSourceDescription", "")
+        
+        for ds in proj.findall("DEVELOPMENT_STAGE"):
+            p = ds.attrib.get("_TotalPhasesCount", "")
+            if p and not phases:
+                phases = p
+            u_tot = ds.attrib.get("CompletedUnitsCount", "") or ds.attrib.get("PlannedUnitsCount", "")
+            if u_tot and u_tot != "0" and not units_total:
+                units_total = u_tot
+            u_sold = ds.attrib.get("UnitsSoldCount", "")
+            if u_sold and u_sold != "0" and not units_sold:
+                units_sold = u_sold
+            u_rent = ds.attrib.get("UnitsRentedCount", "")
+            if u_rent and u_rent != "0" and not units_rented:
+                units_rented = u_rent
+            u_sale = ds.attrib.get("UnitsForSaleCount", "")
+            if u_sale and u_sale != "0" and not units_for_sale:
+                units_for_sale = u_sale
+            src = ds.attrib.get("DataSourceDescription", "")
+            if src and not data_source:
+                data_source = src
+
+    fee_elem = proj.find("_PER_UNIT_FEE") if proj is not None else None
+    if fee_elem is None:
+        fee_elem = root.find(".//_PER_UNIT_FEE")
+        
+    if fee_elem is not None:
+        raw_amt = fee_elem.attrib.get("_Amount", "")
+        if raw_amt and raw_amt != "0":
+            pud_fee_amt = _clean_currency(raw_amt)
+            pud_fee_period = fee_elem.attrib.get("_PeriodType", "")
+            if "month" in pud_fee_period.lower():
+                pud_fee_month = pud_fee_amt
+            elif "year" in pud_fee_period.lower() or "annual" in pud_fee_period.lower():
+                pud_fee_year = pud_fee_amt
+            else:
+                pud_fee_month = pud_fee_amt
+            hoa_fee = f"${pud_fee_amt}"
+        elif raw_amt == "0":
+            hoa_fee = "0"
+            if pud_indicator == "Yes":
+                pud_fee_amt = "0"
+
+    pud_info_section = {
+        "PUD Fees $": pud_fee_amt,
+        "PUD Fees (per month)": pud_fee_month,
+        "PUD Fees (per year)": pud_fee_year,
+        "Is the developer/builder in control of the Homeowners' Association (HOA)?": dev_control,
+        "Unit type(s)": unit_types,
+        "Provide the following information for PUDs ONLY if the developer/builder is in control of the HOA and the subject property is an attached dwelling unit.": "",
+        "Legal Name of Project": legal_name,
+        "Total number of phases": phases,
+        "Total number of units": units_total,
+        "Total number of units sold": units_sold,
+        "Total number of units rented": units_rented,
+        "Total number of units for sale": units_for_sale,
+        "Data source(s)": data_source,
+        "Was the project created by the conversion of existing building(s) into a PUD?": conversion_ind,
+        " If Yes, date of conversion": conversion_date,
+        "If Yes, date of conversion": conversion_date,
+        "Does the project contain any multi-dwelling units? Yes No Data": multi_dwelling,
+        "Are the units, common elements, and recreation facilities complete?": complete_ind,
+        "If No, describe the status of completion.": incomplete_desc,
+        "Are the common elements leased to or by the Homeowners' Association?": leased_ind,
+        "If Yes, describe the rental terms and options.": leased_desc,
+        "Describe common elements and recreational facilities.": common_elements
+    }
 
     # Listing History
     offered_12m = ""
@@ -1285,14 +1532,6 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
 
     pdf_text = ""
     if embedded_doc is not None and embedded_doc.text:
-        try:
-            import pymupdf as fitz
-        except ImportError:
-            try:
-                import fitz
-            except ImportError:
-                fitz = None
-
         if fitz is not None:
             try:
                 pdf_bytes = base64.b64decode(embedded_doc.text.strip())
@@ -1330,11 +1569,48 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         smoke_comment = m_det.group(0).strip()
         co_comment = m_det.group(0).strip()
 
-    # Appraiser Fee
+    # AMC Name
+    amc_name = ""
+    mc_elem = root.find(".//MANAGEMENT_COMPANY")
+    if mc_elem is not None:
+        amc_name = mc_elem.attrib.get("GSEManagementCompanyName", "")
+
+    # Appraiser Fee & AMC License #
     appraiser_fee = ""
-    m_fee = re.search(r'Appraisal\s+Fee\s+is\s+(\$[\d,]+)', full_narrative, re.IGNORECASE)
+    amc_license = ""
+
+    # Check XML narrative & attributes
+    m_fee = re.search(r'(?:Appraisal|Appraiser(?:\'s)?)\s+Fee\s+(?:is\s+)?(\$[\d,]+(?:\.\d{2})?)', full_narrative, re.IGNORECASE)
     if m_fee:
         appraiser_fee = m_fee.group(1).strip()
+
+    m_lic = re.search(r'AMC\s+(?:License|Lic|#)\s*(?:is|#|:)?\s*([A-Za-z0-9\-]+)', full_narrative, re.IGNORECASE)
+    if m_lic:
+        amc_license = m_lic.group(1).strip()
+
+    # If not found in XML narrative, check embedded PDF (first 5 pages)
+    if (not appraiser_fee or not amc_license) and embedded_doc is not None and embedded_doc.text:
+        try:
+            pdf_bytes = base64.b64decode(embedded_doc.text.strip())
+            if fitz is not None:
+                pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                for p_idx in range(min(5, len(pdf_doc))):
+                    ptxt = pdf_doc[p_idx].get_text() or ""
+                    if not appraiser_fee:
+                        mf = re.search(r'(?:Total\s+Appraiser\s+Fee|Appraiser(?:\'s)?\s+Fee|Appraisal\s+Fee)\s*[:=\-]?\s*(\$[\d,]+(?:\.\d{2})?)', ptxt, re.IGNORECASE)
+                        if mf:
+                            appraiser_fee = mf.group(1).strip()
+                        elif "INVOICE" in ptxt.upper() and ("INVOICE TOTAL" in ptxt.upper() or "AMOUNT DUE" in ptxt.upper()):
+                            amounts = re.findall(r'\b\d{2,4}\.\d{2}\b', ptxt)
+                            pos_amounts = [a for a in amounts if float(a) > 0]
+                            if pos_amounts:
+                                appraiser_fee = f"${pos_amounts[0]}"
+                    if not amc_license:
+                        ml = re.search(r'AMC\s+License\s*[:=\-]?\s*([A-Za-z0-9\-]+)', ptxt, re.IGNORECASE)
+                        if ml:
+                            amc_license = ml.group(1).strip()
+        except Exception:
+            pass
 
     # ADU File Check
     adu_check = ""
@@ -1370,8 +1646,8 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "Occupant": prop_occupancy,
         "PUD": pud_indicator,
         "HOA $": hoa_fee,
-        "HOA(per month)": "",
-        "HOA(per year)": "",
+        "HOA(per month)": pud_fee_month,
+        "HOA(per year)": pud_fee_year,
         "Property Rights Appraised": prop_rights,
         "Assignment Type": assignment_type,
         "Lender/Client": lender_name,
@@ -1391,6 +1667,10 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "CO detector comment": co_comment,
         "Appraiser's Fee": appraiser_fee,
         "Appraiser Fee": appraiser_fee,
+        "Appraisal Fee": appraiser_fee,
+        "AMC License #": amc_license,
+        "AMC License": amc_license,
+        "AMC Name": amc_name,
         "Appraiser Name": appraiser_name,
         "Appraiser Company": appraiser_company,
         "Appraiser Address": appraiser_address,
@@ -1414,6 +1694,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     }
 
     neighborhood_section = {
+        "Neighborhood Name": nb_name,
         "Location": nb_loc,
         "Built-Up": nb_built,
         "Growth": nb_growth,
@@ -1836,7 +2117,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
 
     reconciliation_section = {
         "Indicated Value by: Sales Comparison Approach $": sales_comp_ind_val,
-        "Cost Approach (if developed)": cost_land_val,
+        "Cost Approach (if developed)": cost_indicated_val if (cost_indicated_val and cost_indicated_val != "0") else "",
         "Income Approach (if developed) $": income_ind_val,
         "Income Approach (if developed) $ Comment": f"Gross Rent Multiplier = {income_grm}" if income_grm else "",
         "opinion of the market value, as defined, of the real property that is the subject of this report is $": appraised_val,
@@ -1849,24 +2130,86 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     }
 
     income_summary = ""
-    if val_methods is not None:
+    if income_elem is not None:
+        income_summary = income_elem.attrib.get("_Comment", "")
+    if not income_summary and val_methods is not None:
         inc_analysis = val_methods.find("INCOME_ANALYSIS")
         if inc_analysis is not None:
             income_summary = inc_analysis.attrib.get("_Comment", "")
     if not income_summary and mfrs is not None:
         income_summary = mfrs.attrib.get("MarketRentalDataComment", "")
+    if not income_summary and full_narrative:
+        m_inc_comm = re.search(r'([^.?!;\n]*\bincome\s+approach\b[^.?!;\n]*(?:[.?!]|$))', full_narrative, re.IGNORECASE)
+        if m_inc_comm:
+            income_summary = m_inc_comm.group(0).strip()
 
     income_approach_section = {
         "Estimated Monthly Market Rent $": income_rent,
+        "Estimated Monthly Market Rent": income_rent,
         "X Gross Rent Multiplier  = $": income_grm,
+        "X Gross Rent Multiplier = $": income_grm,
+        "Gross Rent Multiplier": income_grm,
         "Indicated Value by Income Approach": income_ind_val,
+        "Indicated Value by Income Approach $": income_ind_val,
         "Summary of Income Approach (including support for market rent and GRM) ": income_summary,
+        "Summary of Income Approach (including support for market rent and GRM)": income_summary,
+        "Summary of Income Approach": income_summary,
     }
 
+    # Fallback to full narrative if cost approach comment is empty
+    if not cost_comment and full_narrative:
+        m_cost_comm = re.search(r'([^.?!;\n]*\bcost\s+approach\b[^.?!;\n]*(?:[.?!]|$))', full_narrative, re.IGNORECASE)
+        if m_cost_comm:
+            cost_comment = m_cost_comm.group(0).strip()
+
     cost_approach_section = {
-        "Opinion of Site Value $": cost_land_val,
-        "Estimated Replacement Cost New": cost_total_cost,
-        "Indicated Value by Cost Approach": cost_total_cost,
+        "Provide adequate information for the lender/client to replicate the below cost figures and calculations.": cost_comment,
+        "Support for the opinion of site value (summary of comparable land sales or other methods for estimating site value)": cost_site_comment,
+        "ESTIMATED COST NEW TYPE": cost_type,
+        "Estimated": cost_type,
+        "ESTIMATED/REPRODUCTION / REPLACEMENT COST NEW": cost_type,
+        "Source of Cost Data": cost_data_source,
+        "Source of cost data": cost_data_source,
+        "Quality Rating": cost_quality_rating,
+        "Quality rating from cost service": cost_quality_rating,
+        "Quality rating from cost service ": cost_quality_rating,
+        "Effective Date": cost_effective_date,
+        "Effective date of cost data": cost_effective_date,
+        "Effective date of cost data ": cost_effective_date,
+        "Comments on Cost Approach (gross living area calculations, depreciation, etc.)": cost_comment,
+        "Remaining Economic Life": cost_economic_life,
+        "Estimated Remaining Economic Life (HUD and VA only)": cost_economic_life,
+        "OPINION OF SITE VALUE": cost_site_val,
+        "OPINION OF SITE VALUE = $ ................................................": cost_site_val,
+        "Opinion of Site Value $": cost_site_val,
+        "Opinion of Site Value": cost_site_val,
+        "DWELLING": dwelling_cost,
+        "Dwelling": dwelling_cost,
+        "Basement": basement_cost,
+        "Deck": deck_cost,
+        "Garage/Carport": garage_cost,
+        "Garage/Carport ": garage_cost,
+        "Total Estimate Cost-New": cost_total_new,
+        "Total Estimate of Cost-New = $ ...................": cost_total_new,
+        " Total Estimate of Cost-New  = $ ...................": cost_total_new,
+        "Estimated Replacement Cost New": cost_total_new,
+        "Depreciation": depreciation_cost,
+        "Depreciation ": depreciation_cost,
+        "Physical Depreciation": deprec_phys_pct,
+        "Functional Depreciation": deprec_func_pct,
+        "External Depreciation": deprec_ext_pct,
+        "Total Depreciation": depreciation_cost,
+        "Depreciated Cost of Improvements": cost_depreciated,
+        "Depreciated Cost of Improvements......................................................=$ ": cost_depreciated,
+        "As-is Value Site Improvements": cost_site_as_is,
+        "As is Value Site Improvements": cost_site_as_is,
+        "“As-is” Value of Site Improvements......................................................=$": cost_site_as_is,
+        "As Is Value of Site Improvements": cost_site_as_is,
+        "INDICATED VALUE BY COST APPROACH": cost_indicated_val,
+        "Indicated Value By Cost Approach......................................................=$": cost_indicated_val,
+        "Indicated Value by Cost Approach": cost_indicated_val,
+        "Above Grade Finished Area": gla_sqft_cost,
+        "Cost Per Square Foot": price_per_sqft_cost,
     }
 
     certification_section = {
@@ -1876,7 +2219,191 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "Effective Date": effective_date,
         "Report Signed Date": signed_date,
         "Appraised Value": appraised_val,
+        "Appraiser's Fee": appraiser_fee,
+        "Appraiser Fee": appraiser_fee,
+        "Appraisal Fee": appraiser_fee,
+        "AMC License #": amc_license,
+        "AMC License": amc_license,
+        "AMC Name": amc_name,
     }
+
+    # Market Conditions Addendum (Form 1004MC)
+    market_elem = root.find(".//MARKET")
+    mc_instructions = ""
+    mc_adverse_financing = ""
+    mc_concessions_expl = ""
+    mc_foreclosure_factor = ""
+    mc_foreclosure_expl = ""
+    mc_data_source = ""
+    mc_summary_comment = ""
+    
+    mc_table_data = {}
+
+    if market_elem is not None:
+        adv_fin = market_elem.attrib.get("MarketTrendsAdverseFinancingIndicator", "")
+        if adv_fin.upper() == "Y":
+            mc_adverse_financing = "Yes"
+        elif adv_fin.upper() == "N":
+            mc_adverse_financing = "No"
+        elif adv_fin:
+            mc_adverse_financing = adv_fin
+
+        mc_concessions_expl = market_elem.attrib.get("SalesConcessionDescription", "")
+
+        fc_ind = market_elem.attrib.get("MarketTrendsForeclosureActivityIndicator", "")
+        if fc_ind.upper() == "Y":
+            mc_foreclosure_factor = "Yes"
+        elif fc_ind.upper() == "N":
+            mc_foreclosure_factor = "No"
+        elif fc_ind:
+            mc_foreclosure_factor = fc_ind
+
+        mc_foreclosure_expl = market_elem.attrib.get("NeighborhoodMarketabilityFactorsDescription", "")
+        mc_data_source = market_elem.attrib.get("DataSourceDescription", "")
+        mc_summary_comment = market_elem.attrib.get("MarketTrendsReconciliationComment", "")
+
+        type_to_labels = {
+            "TotalSales": ("Total # of Comparable Sales (Settled)", "Inventory Analysis Total # of Comparable Sales (Settled)"),
+            "AbsorptionRate": ("Absorption Rate (Total Sales/Months)", "Inventory Analysis Absorption Rate (Total Sales/Months)"),
+            "TotalListings": ("Total # of Comparable Active Listings", "Inventory Analysis Total # of Comparable Active Listings"),
+            "Supply": ("Months of Housing Supply (Total Listings/Ab.Rate)", "Inventory Analysis Months of Housing Supply (Total Listings/Ab.Rate)"),
+            "MedianSalesPrice": ("Median Comparable Sale Price", "Median Sale & List Price, DOM, Sale/List % Median Comparable Sale Price"),
+            "MedianSalesDOM": ("Median Comparable Sales Days on Market", "Median Sale & List Price, DOM, Sale/List % Median Comparable Sales Days on Market"),
+            "MedianListPrice": ("Median Comparable List Price", "Median Sale & List Price, DOM, Sale/List % Median Comparable List Price"),
+            "MedianListDOM": ("Median Comparable Listings Days on Market", "Median Sale & List Price, DOM, Sale/List % Median Comparable Listings Days on Market"),
+            "MedianSalesToListRatio": ("Median Sale Price as % of List Price", "Median Sale & List Price, DOM, Sale/List % Median Sale Price as % of List Price"),
+        }
+
+        range_to_tf = {
+            "Prior7To12Months": "Prior 7-12 Months",
+            "Prior4To6Months": "Prior 4-6 Months",
+            "Last3Months": "Current-3 Months",
+        }
+
+        for mi in market_elem.findall("MARKET_INVENTORY"):
+            m_type = mi.attrib.get("_Type", "")
+            if m_type not in type_to_labels:
+                continue
+            short_lbl, full_lbl = type_to_labels[m_type]
+            
+            m_range = mi.attrib.get("_MonthRangeType", "")
+            m_trend = mi.attrib.get("_TrendType", "")
+            
+            val = mi.attrib.get("_Count") or mi.attrib.get("_Amount") or mi.attrib.get("_Rate") or ""
+            
+            if "Price" in m_type and val:
+                val = val.strip()
+                if not val.startswith("$") and val.replace(",", "").replace(".", "").isdigit():
+                    cleaned_val = _clean_currency(val)
+                    val = f"${cleaned_val}" if cleaned_val else val
+            
+            if m_trend and not m_range:
+                tf = "Overall Trend"
+                val = m_trend
+            else:
+                tf = range_to_tf.get(m_range, m_range)
+                
+            stripped_val = val.strip()
+            if tf and stripped_val != "":
+                mc_table_data[f"{full_lbl} ({tf})"] = stripped_val
+                mc_table_data[f"{short_lbl} ({tf})"] = stripped_val
+    else:
+        m_mkt = re.search(r'(?:NEIGHBORHOOD\s+MARKET\s+CONDITIONS|MARKET\s+CONDITIONS)[\s:\-]+([^\n\r]+(?:(?!\b[A-Z\s]{4,}:)[^\n\r]+)*)', full_narrative, re.IGNORECASE)
+        if m_mkt:
+            mc_summary_comment = m_mkt.group(1).strip()
+
+    market_conditions_section = {
+        "Instructions:": mc_instructions,
+        "Seller-(developer, builder, etc.)paid financial assistance prevalent?": mc_adverse_financing,
+        "Explain in detail the seller concessions trends for the past 12 months (e.g., seller contributions increased from 3% to 5%, increasing use of buydowns, closing costs, condo fees, options, etc.).": mc_concessions_expl,
+        "Are foreclosure sales (REO sales) a factor in the market?": mc_foreclosure_factor,
+        "If yes, explain (including the trends in listings and sales of foreclosed properties).": mc_foreclosure_expl,
+        "Cite data sources for above information.": mc_data_source,
+        "Summarize the above information as support for your conclusions in the Neighborhood section of the appraisal report form. If you used any additional information, such as an analysis of pending sales and/or expired and withdrawn listings, to formulate your conclusions, provide both an explanation and support for your conclusions.": mc_summary_comment,
+        **mc_table_data
+    }
+
+    # Condo / Co-op Projects (Subject Project Data on Form 1073 / 1004MC)
+    sp_elem = root.find(".//SUBJECT_PROJECT")
+    condo_coop_section = {}
+    condo_foreclosure_section = {
+        "Are foreclosure sales (REO sales) a factor in the project?": "",
+        "If yes, indicate the number of REO listings and explain the trends in listings and sales of foreclosed properties.": "",
+        "Summarize the above trends and address the impact on the subject unit and project.": "",
+    }
+
+    condo_type_to_labels = {
+        "TotalSales": ("Total # of Comparable Sales (Settled)", "Subject Project Data Total # of Comparable Sales (Settled)"),
+        "AbsorptionRate": ("Absorption Rate (Total Sales/Months)", "Subject Project Data Absorption Rate (Total Sales/Months)"),
+        "TotalListings": ("Total # of Comparable Active Listings", "Subject Project Data Total # of Comparable Active Listings"),
+        "Supply": ("Months of Unit Supply (Total Listings/Ab.Rate)", "Subject Project Data Months of Unit Supply (Total Listings/Ab.Rate)"),
+    }
+
+    condo_range_to_tf_pairs = {
+        "Prior7To12Months": [("Prior 7–12 Months", "Prior 7-12 Months")],
+        "Prior4To6Months": [("Prior 4–6 Months", "Prior 4-6 Months")],
+        "Last3Months": [("Current – 3 Months", "Current-3 Months", "Current - 3 Months")],
+    }
+
+    # Condo Foreclosure Extraction (Subject Project & Market fallback)
+    reo_expl = sp_elem.attrib.get("NeighborhoodMarketabilityFactorsDescription", "") if sp_elem is not None else ""
+    reconcil = sp_elem.attrib.get("MarketTrendsReconciliationComment", "") if sp_elem is not None else ""
+    sp_fc_ind = sp_elem.attrib.get("MarketTrendsForeclosureActivityIndicator", "") if sp_elem is not None else ""
+
+    mkt_fc_ind = market_elem.attrib.get("MarketTrendsForeclosureActivityIndicator", "") if market_elem is not None else ""
+    mkt_expl = market_elem.attrib.get("NeighborhoodMarketabilityFactorsDescription", "") if market_elem is not None else ""
+    mkt_reconcil = market_elem.attrib.get("MarketTrendsReconciliationComment", "") if market_elem is not None else ""
+
+    if not reo_expl:
+        reo_expl = mkt_expl
+    if not reconcil:
+        reconcil = mkt_reconcil
+
+    fc_ind = sp_fc_ind or mkt_fc_ind
+    if fc_ind.upper() == "Y":
+        factor = "Yes"
+    elif fc_ind.upper() == "N":
+        factor = "No"
+    elif fc_ind:
+        factor = "Yes" if "y" in fc_ind.lower() else "No"
+    elif reo_expl or reconcil:
+        factor = "No"
+    else:
+        factor = ""
+
+    condo_foreclosure_section["Are foreclosure sales (REO sales) a factor in the project?"] = factor
+    condo_foreclosure_section["If yes, indicate the number of REO listings and explain the trends in listings and sales of foreclosed properties."] = reo_expl
+    condo_foreclosure_section["Summarize the above trends and address the impact on the subject unit and project."] = reconcil
+
+    if sp_elem is not None:
+        for mi in sp_elem.findall("MARKET_INVENTORY"):
+            m_type = mi.attrib.get("_Type", "")
+            if m_type not in condo_type_to_labels:
+                continue
+            short_lbl, full_lbl = condo_type_to_labels[m_type]
+            m_range = mi.attrib.get("_MonthRangeType", "")
+            m_trend = mi.attrib.get("_TrendType", "")
+            
+            val = mi.attrib.get("_Count") or mi.attrib.get("_Rate") or mi.attrib.get("_Amount") or ""
+            
+            if m_trend and not m_range:
+                val = m_trend
+                condo_coop_section[f"{full_lbl} (Overall Trend)"] = val
+                condo_coop_section[f"{short_lbl} (Overall Trend)"] = val
+            elif m_range in condo_range_to_tf_pairs:
+                for tf_variants in condo_range_to_tf_pairs[m_range]:
+                    for tf in tf_variants:
+                        condo_coop_section[f"{full_lbl} ({tf})"] = val
+                        condo_coop_section[f"{short_lbl} ({tf})"] = val
+
+    # Initialize default blank keys for all row and timeframe variations
+    for m_type, (short_lbl, full_lbl) in condo_type_to_labels.items():
+        for tf_variants in [("Prior 7–12 Months", "Prior 7-12 Months"), ("Prior 4–6 Months", "Prior 4-6 Months"), ("Current – 3 Months", "Current-3 Months", "Current - 3 Months"), ("Overall Trend",)]:
+            for tf in tf_variants:
+                if f"{full_lbl} ({tf})" not in condo_coop_section:
+                    condo_coop_section[f"{full_lbl} ({tf})"] = ""
+                if f"{short_lbl} ({tf})" not in condo_coop_section:
+                    condo_coop_section[f"{short_lbl} ({tf})"] = ""
 
     # Merged Subject with both sales grid comps data and subject section fields
     subj_grid = comps_dict.get("Subject", {})
@@ -1906,6 +2433,9 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
 
     # Merge Info of Sales & Prior Sale History into subject and sales grid
     merged_subject.update(info_of_sales_section)
+    merged_subject.update(pud_info_section)
+    merged_subject.update(condo_coop_section)
+    merged_subject.update(condo_foreclosure_section)
     sales_grid.update(info_of_sales_section)
     merged_info_of_sales = {**sales_grid, **info_of_sales_section}
 
@@ -1939,6 +2469,15 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "RECONCILIATION": reconciliation_section,
         "INCOME_APPROACH": income_approach_section,
         "COST_APPROACH": cost_approach_section,
+        "PUD_INFO": pud_info_section,
+        "PUD Information": pud_info_section,
+        "MARKET_CONDITIONS": market_conditions_section,
+        "Market Conditions": market_conditions_section,
+        "Market Conditions Addendum": market_conditions_section,
+        "CONDO_COOP_PROJECTS": condo_coop_section,
+        "Condo Coop Projects": condo_coop_section,
+        "CONDO_FORECLOSURE": condo_foreclosure_section,
+        "Condo Foreclosure": condo_foreclosure_section,
         "CERTIFICATION": certification_section,
         "SUBJECT_RENT_SCHEDULE": subject_rent_schedule,
         "COMPARABLE_RENTAL_DATA": comparable_rental_data,
@@ -1946,11 +2485,15 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     }
 
     # Flatten all category fields into root fields so data[field] is directly available to UI
-    for cat_dict in [subject_section, contract_section, neighborhood_section, site_section, improvements_section, reconciliation_section, income_approach_section, cost_approach_section, info_of_sales_section]:
+    for cat_dict in [subject_section, contract_section, neighborhood_section, site_section, improvements_section, reconciliation_section, income_approach_section, cost_approach_section, pud_info_section, market_conditions_section, condo_coop_section, condo_foreclosure_section, certification_section, info_of_sales_section]:
         for k, v in cat_dict.items():
             if k not in fields:
                 fields[k] = v
     fields.update(info_of_sales_section)
+    fields.update(pud_info_section)
+    fields.update(market_conditions_section)
+    fields.update(condo_coop_section)
+    fields.update(condo_foreclosure_section)
 
     # Map individual comps for Form1025 and 1004 grids without overwriting Subject
     for comp_name, comp_data in comps_dict.items():

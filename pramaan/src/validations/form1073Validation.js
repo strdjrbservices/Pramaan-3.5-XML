@@ -24,16 +24,52 @@ export const checkProjectInfoFieldsNotBlank = (field, text) => {
     return null;
 };
 
-export const checkCondoCoopProjectsTableFields = (field, text) => {
-    if (!text || String(text).trim() === '') {
-        return { isError: true, message: `'${field}' should not be blank.` };
+export const isGrayCondoProjectCell = (field) => {
+    const fieldStr = String(field || '');
+    const grayRowKeywords = [
+        "Total # of Comparable Active Listings",
+        "Total # of Active Comparable Listings",
+        "Months of Unit Supply"
+    ];
+    const isGrayRow = grayRowKeywords.some(kw => fieldStr.includes(kw));
+    const isPriorPeriod = fieldStr.includes("Prior 7-12") || fieldStr.includes("Prior 7–12") || fieldStr.includes("Prior 4-6") || fieldStr.includes("Prior 4–6");
+    return isGrayRow && isPriorPeriod;
+};
+
+export const checkCondoCoopProjectsTableFields = (field, text, allData) => {
+    if (isGrayCondoProjectCell(field)) {
+        return null;
     }
+
+    const val = String(text || '').trim();
+    if (val) {
+        return { isMatch: true };
+    }
+
+    if (allData) {
+        const formType = String(allData.formType || allData['Form Type'] || allData.form_type || '').toLowerCase();
+        const isCondoForm = formType.includes('1073') || formType.includes('condo');
+        const projectData = allData.CONDO_COOP_PROJECTS || {};
+        const hasProjectData = Object.values(projectData).some(v => typeof v === 'string' && v.trim().length > 0);
+        if (!isCondoForm && !hasProjectData) {
+            return null;
+        }
+    }
+
     return null;
 };
 
-export const checkCondoForeclosureFieldsNotBlank = (field, text) => {
-    if (!text || String(text).trim() === '') {
-        return { isError: true, message: `'${field}' should not be blank.` };
+export const checkCondoForeclosureFieldsNotBlank = (field, text, allData) => {
+    const val = String(text || '').trim();
+    if (val) {
+        return { isMatch: true };
+    }
+    if (allData) {
+        const formType = String(allData.formType || allData['Form Type'] || allData.form_type || '').toLowerCase();
+        const isCondoForm = formType.includes('1073') || formType.includes('condo');
+        if (!isCondoForm) {
+            return null;
+        }
     }
     return null;
 };

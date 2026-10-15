@@ -30,10 +30,21 @@ export const checkSourceOfCostData = (field, text) => {
 
 export const checkIndicatedValueByCostApproach = (field, text, data) => {
     if (field !== 'Indicated Value By Cost Approach......................................................=$') return null;
+    const formType = String(data?.formType || data?.['From Type'] || data?.['Form Type'] || '').trim();
+    if (formType === '1073') {
+        return { isMatch: true };
+    }
     const value = String(text || '').trim();
-    const comments = String(data?.['Comments on Cost Approach (gross living area calculations, depreciation, etc.)'] || '').toLowerCase();
+    const comments = String(
+        data?.['Comments on Cost Approach (gross living area calculations, depreciation, etc.)'] || 
+        data?.COST_APPROACH?.['Comments on Cost Approach (gross living area calculations, depreciation, etc.)'] || 
+        data?.RECONCILIATION?.['Cost Approach (if developed) Comment'] || ''
+    ).toLowerCase();
 
-    if (!value && !comments.includes('why cost approach cannot be developed')) {
+    const hasNotDevelopedComment = comments.includes('why cost approach cannot be developed') || 
+        (comments.includes('cost approach') && (comments.includes('not') || comments.includes('omitted') || comments.includes('unreliable') || comments.includes('less reliable') || comments.includes('applicable') || comments.includes('developed') || comments.includes('analyzed')));
+
+    if ((!value || value === '0') && !hasNotDevelopedComment) {
         return { isError: true, message: "If 'Indicated Value by Cost Approach' is blank, a comment explaining why it was not developed is required." };
     }
     return { isMatch: true };
