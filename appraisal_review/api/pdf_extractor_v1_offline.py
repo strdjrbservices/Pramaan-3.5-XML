@@ -695,6 +695,16 @@ def extract_v1_summary_section(page_p1, page_p2, page_p3, doc, full_doc_text: st
         if m_legal:
             summary["Legal Description"] = clean_text_value(m_legal.group(1))
 
+    # FHA Case Number
+    m_fha = re.search(r'(?:FHA(?:\s*\/[A-Za-z]+)?\s*Case\s*(?:No\.?|Number|#)?\s*[:\-]?\s*)(\d{3}-\d{7})', spatial_p1, re.I) or \
+            re.search(r'(?:FHA(?:\s*\/[A-Za-z]+)?\s*Case\s*(?:No\.?|Number|#)?\s*[:\-]?\s*)(\d{3}-\d{7})', full_doc_text, re.I)
+    if not m_fha and ("fha" in (spatial_p1 + " " + full_doc_text).lower() or "hud" in (spatial_p1 + " " + full_doc_text).lower()):
+        m_fha = re.search(r'\b(\d{3}-\d{7})\b', spatial_p1[:2500])
+    fha_val = m_fha.group(1).strip() if m_fha else ""
+    summary["FHA Case No."] = fha_val
+    summary["FHA Case #"] = fha_val
+    summary["FHA Case Number"] = fha_val
+
     return summary
 
 
@@ -727,6 +737,9 @@ def extract_v1_subject_section(summary: Dict[str, Any]) -> Dict[str, Any]:
     Zero hardcoded values: all attributes dynamically extracted from summary.
     """
     subject: Dict[str, Any] = {
+        "FHA Case No.": summary.get("FHA Case No.", ""),
+        "FHA Case #": summary.get("FHA Case #", ""),
+        "FHA Case Number": summary.get("FHA Case Number", ""),
         "Client/Lender Company Name": summary.get("Client/Lender Company Name", ""),
         "Client/Lender Company Address": summary.get("Client/Lender Company Address", ""),
         "Appraisal Management Company Name": summary.get("Appraisal Management Company Name", ""),

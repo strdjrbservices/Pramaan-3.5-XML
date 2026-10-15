@@ -140,7 +140,7 @@ const Version1 = ({
     'Apparent Defects, Damages, Deficiencies Requiring Action',
     'Appraisal Version',
     'Appraiser Reference ID',
-
+    'FHA Case #',
   ];
 
   const version1SalesComparisonAdditionalInfoFields = [

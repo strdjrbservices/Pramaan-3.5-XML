@@ -104,6 +104,21 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
         ?? allData?.['Effective Date'];
       if (asOfVal) return renderValue(asOfVal);
     }
+    if (field === 'FHA Case #' || field === 'FHA Case No.' || field === 'FHA Case Number') {
+      const fhaVal = data?.['FHA Case No.']
+        ?? data?.['FHA Case #']
+        ?? data?.['FHA Case Number']
+        ?? data?.SUBJECT?.['FHA Case No.']
+        ?? data?.SUBJECT?.['FHA Case #']
+        ?? data?.Subject?.['FHA Case No.']
+        ?? allData?.['FHA Case No.']
+        ?? allData?.['FHA Case #']
+        ?? allData?.['FHA Case Number']
+        ?? allData?.SUBJECT?.['FHA Case No.']
+        ?? allData?.SUBJECT?.['FHA Case #']
+        ?? allData?.Subject?.['FHA Case No.'];
+      if (fhaVal) return renderValue(fhaVal);
+    }
     const val = data?.[field] 
       ?? data?.CONTRACT?.[field] 
       ?? data?.NEIGHBORHOOD?.[field] 

@@ -1282,13 +1282,16 @@ def extract_appraiser_fee_from_doc(doc=None, full_doc_text=""):
         re.compile(r'(?:Total\s*Fee|Agreed\s*Fee|Professional\s*Fee|Fee\s*Charged|Fee\s*Amount)[^0-9\$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?', re.IGNORECASE),
         re.compile(r'(?:Invoice\s*Amount|Invoice\s*Total|Total\s*Amount\s*Due|TOTAL\s*DUE|Amount\s*Due)[^0-9\$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?', re.IGNORECASE),
         re.compile(r'(?:FULL\s+RESIDENTIAL\s+APPRAISAL|Appraisal\s+of\s+single\s+family\s+home)[^0-9\$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?', re.IGNORECASE),
-        re.compile(r'\bFee\b[^0-9\$\n]{0,25}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?', re.IGNORECASE),
+        re.compile(r'(?<!Fee\s)\bFee\s*[:=]\s*\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?', re.IGNORECASE),
     ]
 
-    for txt in candidate_texts:
-        for pat in fee_patterns:
+    for pat in fee_patterns:
+        for txt in candidate_texts:
             m = pat.search(txt)
             if m and m.group(1):
+                matched_str = m.group(0).lower()
+                if "simple" in matched_str or "sf" in matched_str or "sq ft" in matched_str:
+                    continue
                 raw_num = m.group(1).replace(",", "").strip()
                 try:
                     num_val = float(raw_num)
@@ -1326,9 +1329,11 @@ def extract_amc_info_from_doc(doc=None, full_doc_text=""):
                 amc_name = "COAST TO COAST APPRAISAL SERVICES, INC"
 
         if not amc_lic:
-            m_lic = re.search(r'(?:Registration\s+No\.?|Registration\s+#|AMC\s+License\s*#?|AMC\s+Reg\s*#?)\s*[:\-]?\s*([A-Za-z0-9\.\-]+)', txt, re.IGNORECASE)
+            m_lic = re.search(r'(?:AMC\s*(?:Reg|License|Registration)(?:\.|\s)*#?|Registration\s*(?:No\.?|#)|AMC\s*#)\s*[:\-]?\s*([A-Za-z0-9\-]+)', txt, re.IGNORECASE)
             if m_lic:
-                amc_lic = m_lic.group(1).strip()
+                raw_lic = m_lic.group(1).strip()
+                if len(re.sub(r'[^A-Za-z0-9]', '', raw_lic)) >= 2:
+                    amc_lic = raw_lic
 
     return {
         "amc_name": amc_name,
@@ -1494,6 +1499,17 @@ def extract_page_1_fields(page, full_doc_text="", fitz_page=None):
             subject["Zip Code"] = z_m.group(1).strip()
 
     subject["Full Address"] = f"{subject['Property Address']}, {subject['City']}, {subject['State']} {subject['Zip Code']}".strip(", ")
+
+    # FHA Case Number
+    m_fha = re.search(r'(?:FHA(?:\s*\/[A-Za-z]+)?\s*Case\s*(?:No\.?|Number|#)?\s*[:\-]?\s*)(\d{3}-\d{7})', txt, re.IGNORECASE)
+    if not m_fha and full_doc_text:
+        m_fha = re.search(r'(?:FHA(?:\s*\/[A-Za-z]+)?\s*Case\s*(?:No\.?|Number|#)?\s*[:\-]?\s*)(\d{3}-\d{7})', full_doc_text, re.IGNORECASE)
+    if not m_fha and ("fha" in (txt + " " + full_doc_text).lower() or "hud" in (txt + " " + full_doc_text).lower()):
+        m_fha = re.search(r'\b(\d{3}-\d{7})\b', txt[:2500])
+    fha_val = m_fha.group(1).strip() if m_fha else ""
+    subject["FHA Case No."] = fha_val
+    subject["FHA Case #"] = fha_val
+    subject["FHA Case Number"] = fha_val
 
     val_borrower = get_val(50, y_borrower - 4, 220, y_borrower + 10)
     subject["Borrower"] = re.sub(r'^(?:Borrower\s*[:\-]*\s*)', '', val_borrower, flags=re.IGNORECASE).strip()
@@ -6026,6 +6042,10 @@ def extract_fields_from_pdf_offline(pdf_path):
 
             # Subject section and Sales Grid are two distinct sections (do not merge Sales Grid into Subject)
             subj_section = dict(clean_data.get("SUBJECT") or {})
+            if subj_section.get("FHA Case No."):
+                unified_fields["FHA Case No."] = subj_section["FHA Case No."]
+                unified_fields["FHA Case #"] = subj_section["FHA Case No."]
+                unified_fields["FHA Case Number"] = subj_section["FHA Case No."]
             unified_fields["Subject"] = subj_section
             unified_fields["SUBJECT"] = subj_section
             unified_fields["Sales Grid"] = clean_sales_grid

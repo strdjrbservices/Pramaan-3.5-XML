@@ -52,6 +52,81 @@ def _format_date(val: Any) -> str:
     return val_str
 
 
+def _extract_fha_case_number(root: ET.Element, report: Optional[ET.Element] = None, full_narrative: str = "") -> str:
+    r"""
+    Extracts the FHA Case Number from MISMO XML.
+    FHA Case numbers follow standard HUD format: 3 digits, dash, 7 digits (e.g., '353-0891067').
+    Checks:
+    1. <REPORT> AppraiserAdditionalFileIdentifier and AppraiserAdditionalFileIdentifierName
+    2. XML attributes mentioning FHA or matching \d{3}-\d{7}
+    3. Narrative text / comments mentioning 'FHA Case' or matching \d{3}-\d{7}
+    4. Base64 embedded PDF stream (if present)
+    """
+    if report is not None:
+        add_id = report.attrib.get("AppraiserAdditionalFileIdentifier", "").strip()
+        add_name = report.attrib.get("AppraiserAdditionalFileIdentifierName", "").strip()
+        file_id = report.attrib.get("AppraiserFileIdentifier", "").strip()
+
+        # Direct match: e.g. "353-0891067" (standard FHA 3 digits - 7 digits)
+        m_fha = re.search(r'\b(\d{3}-\d{7})\b', add_id)
+        if m_fha:
+            return m_fha.group(1)
+
+        if "fha" in add_name.lower():
+            m = re.search(r'(\d{3}[-\s]?\d{7})', add_id)
+            if m:
+                return m.group(1).replace(" ", "-")
+
+        m_fid = re.search(r'\b(\d{3}-\d{7})\b', file_id)
+        if m_fid and any(term in (add_name + " " + full_narrative).lower() for term in ["fha", "hud"]):
+            return m_fid.group(1)
+
+    for elem in root.iter():
+        for attr, val in elem.attrib.items():
+            val_str = val.strip()
+            if "fha" in attr.lower() or "case" in attr.lower():
+                m = re.search(r'\b(\d{3}-\d{7})\b', val_str)
+                if m:
+                    return m.group(1)
+
+    for elem in root.iter():
+        if elem.tag.endswith("DOCUMENT"):
+            continue
+        txt = elem.text or ""
+        if "fha" in txt.lower() or "hud" in txt.lower():
+            m = re.search(r'(?:fha(?:\s*\/[A-Za-z]+)?\s*(?:case)?\s*(?:no\.?|number|#)?\s*[:\-]?\s*)(\d{3}-\d{7})', txt, re.I)
+            if m:
+                return m.group(1)
+
+    if full_narrative:
+        m = re.search(r'(?:fha(?:\s*\/[A-Za-z]+)?\s*(?:case)?\s*(?:no\.?|number|#)?\s*[:\-]?\s*)(\d{3}-\d{7})', full_narrative, re.I)
+        if m:
+            return m.group(1)
+
+    # Embedded PDF fallback
+    doc_elem = root.find(".//DOCUMENT")
+    if doc_elem is not None and doc_elem.text and fitz is not None:
+        try:
+            pdf_bytes = base64.b64decode(doc_elem.text.strip())
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            if len(doc) > 0:
+                p1_text = doc[0].get_text("text") or ""
+                m_pdf = re.search(r'(?:fha(?:\s*\/[A-Za-z]+)?\s*case\s*(?:no\.?|number|#)?\s*[:\-]?\s*)(\d{3}-\d{7})', p1_text, re.I)
+                if m_pdf:
+                    doc.close()
+                    return m_pdf.group(1)
+                if "fha" in p1_text.lower() or "hud" in p1_text.lower():
+                    m_gen = re.search(r'\b(\d{3}-\d{7})\b', p1_text[:2500])
+                    if m_gen:
+                        doc.close()
+                        return m_gen.group(1)
+            doc.close()
+        except Exception:
+            pass
+
+    return ""
+
+
 def _detect_form_type_from_xml(root: ET.Element) -> str:
     """
     Dynamically identifies the exact appraisal form type from MISMO XML DOM elements.
@@ -85,6 +160,14 @@ def _detect_form_type_from_xml(root: ET.Element) -> str:
     ct = combined_text.upper()
     
     has_1007 = any("1007" in f.upper() or "SINGLE FAMILY RENT" in f.upper() for f in all_form_names)
+    if not has_1007:
+        income_elem = root.find(".//INCOME_ANALYSIS")
+        if income_elem is not None:
+            rent_val = income_elem.attrib.get("EstimatedMarketMonthlyRentAmount", "").strip()
+            grm_val = income_elem.attrib.get("GrossRentMultiplierFactor", "").strip()
+            income_val = income_elem.attrib.get("ValueIndicatedByIncomeApproachAmount", "").strip()
+            if rent_val or (grm_val and income_val):
+                has_1007 = True
     
     # Check 1025 (Small Residential Income Property / 2-4 Unit)
     if "1025" in ct or "SMALL RESIDENTIAL" in ct or "2-4 UNIT" in ct or "FRE72" in ct:
@@ -1724,8 +1807,14 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
             elif adu_ind:
                 adu_check = adu_ind
 
+    # FHA Case Number
+    fha_case_no = _extract_fha_case_number(root, report, full_narrative=full_narrative)
+
     # Build standard sections matching UI
     subject_section = {
+        "FHA Case No.": fha_case_no,
+        "FHA Case #": fha_case_no,
+        "FHA Case Number": fha_case_no,
         "Full Address": full_addr,
         "Property Address": prop_addr,
         "City": prop_city,
@@ -2198,8 +2287,8 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
 
     improvements_section = {
         # General Description
-        "Units": living_units,
-        "One with Accessory Unit": "Yes" if "accessory" in living_units.lower() else "No",
+        "Units": "One with Accessory Unit" if adu_check == "Yes" else living_units,
+        "One with Accessory Unit": adu_check if adu_check else "No",
         "# of Stories": stories,
         "Type": struct_type_val,
         "Property Type": struct_type_val,
@@ -2779,6 +2868,9 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "as of date": effective_date,
         "File #": file_id,
         "Loan #": loan_num,
+        "FHA Case No.": fha_case_no,
+        "FHA Case #": fha_case_no,
+        "FHA Case Number": fha_case_no,
         "Subject": clean_subject,
         "SUBJECT": clean_subject,
         "CONTRACT": contract_section,

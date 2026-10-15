@@ -100,6 +100,7 @@ import * as priorSaleHistoryValidation from '../../validations/priorSaleHistoryV
 import * as htmlDataValidation from '../../validations/htmldatavaliadtion';
 import * as infoOfSalesValidation from '../../validations/infoOfSalesValidation';
 import * as version1Validation from './Version1/version1Validation';
+import { checkUnpaidLenderStatus } from '../../utils/unpaidLenders';
 
 import PremiumLogo from '../auth/logo';
 import { SUBJECT_REVISION_PROMPTS, CONTRACT_REVISION_PROMPTS, NEIGHBORHOOD_REVISION_PROMPTS, SITE_REVISION_PROMPTS, IMPROVEMENTS_REVISION_PROMPTS, SALES_GRID_REVISION_PROMPTS, RECONCILIATION_REVISION_PROMPTS, COST_APPROACH_REVISION_PROMPTS, CERTIFICATION_REVISION_PROMPTS, ADDENDUM_GENERAL_REVISION_PROMPTS, FORM_1007_REVISION_PROMPTS } from '../tools/revisionPrompts';
@@ -802,28 +803,10 @@ function Subject({ defaultFormType }) {
     setIsNotepadOpen(true);
   };
 
-  const unpaidOkLenders = [
-    'PRMG', 'Paramount Residential Mortgage Group',
-    'CARDINAL FINANCIAL COMPANY',
-    'Ice Lender Holdings LLC',
-    'NP Inc', 'NQM Funding, LLC',
-    'East Coast Capital',
-    'Guaranteed Rate. Inc',
-    'Commercial Lender, LLC',
-    'LoanDepot.com',
-    'Direct Lending Partners',
-    'CIVIC',
-    'CV3',
-    'United Faith Mortgage',
-    'Arixa Capital', 'Crosswind Financial', 'Western Alliance Bank',
-    'RCN Capital, LLC',
-    'Aura Mortgage Advisors, LLC', 'Blue Hub Capital',
-    'Nations Direct Mortgage LLC',
-    'Sierra Pacific Mortgage Company Inc',
-    'Champions Funding LLC'
-  ].map(l => l.toLowerCase());
-
-  const isUnpaidOkLender = data['Lender/Client'] && unpaidOkLenders.some(lender => data['Lender/Client'].toLowerCase().includes(lender));
+  const unpaidLenderStatus = checkUnpaidLenderStatus(data);
+  const isUnpaidOkLender = unpaidLenderStatus.isUnpaidOkLender;
+  const unpaidLenderComment = unpaidLenderStatus.comment;
+  const unpaidLenderName = unpaidLenderStatus.matchedLender;
 
   const buildValidationRegistry = () => {
     const registry = {
@@ -885,6 +868,8 @@ function Subject({ defaultFormType }) {
       'Prior service comment': [subjectValidation.checkPresence],
       'ADU File Check': [subjectValidation.checkPresence],
       'FHA Case No.': [subjectValidation.checkFhaCaseNo],
+      'FHA Case #': [subjectValidation.checkFhaCaseNo],
+      'FHA Case Number': [subjectValidation.checkFhaCaseNo],
       'Tax Year': [subjectValidation.checkTaxYear],
       'R.E. Taxes $': [subjectValidation.checkRETaxes],
       'Special Assessments $': [subjectValidation.checkSpecialAssessments],
@@ -1869,8 +1854,8 @@ function Subject({ defaultFormType }) {
   const handleGenerateErrorLog = () => {
     const enrichedData = {
       ...data,
-      'Unpaid OK': data['Unpaid OK'] || (isUnpaidOkLender ? 'Proceed with review' : (data['Lender/Client'] ? 'Unpaid OK cannot proceed with review (Check lender requirement)' : 'Check lender requirement')),
-      'FHA Case No.': data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number'] || '',
+      'Unpaid OK': data['Unpaid OK'] || (isUnpaidOkLender ? (unpaidLenderComment || `Unpaid lender found in the list:- ${unpaidLenderName}`) : (unpaidLenderStatus.lender ? 'Unpaid OK cannot proceed with review (Check lender requirement)' : 'Check lender requirement')),
+      'FHA Case No.': data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number'] || data?.Subject?.['FHA Case No.'] || data?.Subject?.['FHA Case #'] || data?.Subject?.['FHA Case Number'] || data?.SUBJECT?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case #'] || data?.SUBJECT?.['FHA Case Number'] || '',
       'Prior service comment': data['Prior service comment'] || data['Prior Service Comment'] || data['Prior Service'] || ''
     };
 
@@ -2278,6 +2263,7 @@ function Subject({ defaultFormType }) {
   ];
 
   const subjectFields = [
+    // 'FHA Case #',
     'Full Address',
     'Property Address',
     'City',
@@ -3776,6 +3762,9 @@ function Subject({ defaultFormType }) {
 
     setLoading(false);
     if (timerRef.current) clearInterval(timerRef.current);
+    setTimeout(() => {
+      handleStateRequirementCheck(true);
+    }, 400);
   };
 
   const handlePromptAnalysis = async (prompt) => {
@@ -3840,8 +3829,9 @@ function Subject({ defaultFormType }) {
   };
 
   const handleStateRequirementCheck = async (forceReload = false) => {
-    if (!selectedFile) {
-      setStateReqError('Please select a PDF file first.');
+    const activeFile = selectedFile || xmlFile;
+    if (!activeFile) {
+      setStateReqError('Please select a PDF or XML file first.');
       return;
     }
 
@@ -3850,10 +3840,13 @@ function Subject({ defaultFormType }) {
     setStateReqResponse(null);
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    formData.append('file', activeFile);
     formData.append('form_type', selectedFormType);
     formData.append('comment', STATE_REQUIREMENTS_PROMPT);
     formData.append('category', 'STATE_REQUIREMENT_CHECK');
+    if (data && Object.keys(data).length > 0) {
+      formData.append('extracted_data', JSON.stringify(data));
+    }
 
     try {
       const res = await fetchWithRetry(`${API_BASE_URL}/api/extract/`, {
@@ -3878,8 +3871,9 @@ function Subject({ defaultFormType }) {
   };
 
   const handleUnpaidOkCheck = async (forceReload = false) => {
-    if (!selectedFile) {
-      setUnpaidOkError('Please select a PDF file first.');
+    const activeFile = selectedFile || xmlFile;
+    if (!activeFile) {
+      setUnpaidOkError('Please select a PDF or XML file first.');
       return;
     }
     if (unpaidOkResponse && !forceReload) {
@@ -3904,9 +3898,14 @@ function Subject({ defaultFormType }) {
     setIsCheckModalOpen(true);
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    formData.append('file', activeFile);
     formData.append('form_type', selectedFormType);
     formData.append('comment', UNPAID_OK_PROMPT);
+    formData.append('category', 'UNPAID_OK_CHECK');
+    if (data && Object.keys(data).length > 0) {
+      formData.append('extracted_data', JSON.stringify(data));
+    }
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/extract/`, {
         method: 'POST',
@@ -3940,8 +3939,9 @@ function Subject({ defaultFormType }) {
   };
 
   const handleClientRequirementCheck = async (forceReload = false) => {
-    if (!selectedFile) {
-      setClientReqError('Please select a PDF file first.');
+    const activeFile = selectedFile || xmlFile;
+    if (!activeFile) {
+      setClientReqError('Please select a PDF or XML file first.');
       return;
     }
 
@@ -3950,10 +3950,13 @@ function Subject({ defaultFormType }) {
     setClientReqResponse(null);
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    formData.append('file', activeFile);
     formData.append('form_type', selectedFormType);
     formData.append('comment', CLIENT_REQUIREMENT_PROMPT);
     formData.append('category', 'CLIENT_REQUIREMENT_CHECK');
+    if (data && Object.keys(data).length > 0) {
+      formData.append('extracted_data', JSON.stringify(data));
+    }
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/extract/`, {
@@ -3978,8 +3981,9 @@ function Subject({ defaultFormType }) {
   };
 
   const handleFhaCheck = async (forceReload = false) => {
-    if (!selectedFile) {
-      setFhaError('Please select a PDF file first.');
+    const activeFile = selectedFile || xmlFile;
+    if (!activeFile) {
+      setFhaError('Please select a PDF or XML file first.');
       return;
     }
 
@@ -4005,9 +4009,12 @@ function Subject({ defaultFormType }) {
     setIsCheckModalOpen(true);
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    formData.append('file', activeFile);
     formData.append('form_type', selectedFormType);
     formData.append('comment', FHA_REQUIREMENTS_PROMPT);
+    if (data && Object.keys(data).length > 0) {
+      formData.append('extracted_data', JSON.stringify(data));
+    }
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/extract/`, {
@@ -4042,8 +4049,9 @@ function Subject({ defaultFormType }) {
   };
 
   const handleADUCheck = async (forceReload = false) => {
-    if (!selectedFile) {
-      setADUError('Please select a PDF file first.');
+    const activeFile = selectedFile || xmlFile;
+    if (!activeFile) {
+      setADUError('Please select a PDF or XML file first.');
       return;
     }
 
@@ -4069,9 +4077,13 @@ function Subject({ defaultFormType }) {
     setIsCheckModalOpen(true);
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    formData.append('file', activeFile);
     formData.append('form_type', selectedFormType);
     formData.append('comment', ADU_REQUIREMENTS_PROMPT);
+    formData.append('category', 'ADU_CHECK');
+    if (data && Object.keys(data).length > 0) {
+      formData.append('extracted_data', JSON.stringify(data));
+    }
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/extract/`, {
@@ -4104,9 +4116,11 @@ function Subject({ defaultFormType }) {
       setLoading(false);
     }
   };
+
   const handleEscalationCheck = async (forceReload = false) => {
-    if (!selectedFile) {
-      setEscalationError('Please select a PDF file first.');
+    const activeFile = selectedFile || xmlFile;
+    if (!activeFile) {
+      setEscalationError('Please select a PDF or XML file first.');
       return;
     }
 
@@ -4115,9 +4129,13 @@ function Subject({ defaultFormType }) {
     setEscalationResponse(null);
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    formData.append('file', activeFile);
     formData.append('form_type', selectedFormType);
     formData.append('comment', ESCALATION_CHECK_PROMPT);
+    formData.append('category', 'ESCALATION_CHECK');
+    if (data && Object.keys(data).length > 0) {
+      formData.append('extracted_data', JSON.stringify(data));
+    }
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/extract/`, {
@@ -6571,9 +6589,9 @@ function Subject({ defaultFormType }) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    mb: (!isValidationSectionMinimized && selectedFile) ? 2 : 0,
-                    pb: (!isValidationSectionMinimized && selectedFile) ? 1 : 0,
-                    borderBottom: (!isValidationSectionMinimized && selectedFile) ? '1px solid' : 'none',
+                    mb: (!isValidationSectionMinimized && (selectedFile || xmlFile || (data && Object.keys(data).length > 0))) ? 2 : 0,
+                    pb: (!isValidationSectionMinimized && (selectedFile || xmlFile || (data && Object.keys(data).length > 0))) ? 1 : 0,
+                    borderBottom: (!isValidationSectionMinimized && (selectedFile || xmlFile || (data && Object.keys(data).length > 0))) ? '1px solid' : 'none',
                     borderColor: 'divider',
                     cursor: 'pointer'
                   }}
@@ -6589,7 +6607,7 @@ function Subject({ defaultFormType }) {
                     {isValidationSectionMinimized ? <KeyboardArrowDownIcon /> : <KeyboardArrowUpIcon />}
                   </IconButton>
                 </Box>
-                {!isValidationSectionMinimized && selectedFile && (
+                {!isValidationSectionMinimized && (selectedFile || xmlFile || (data && Object.keys(data).length > 0)) && (
                   <Stack spacing={2}>
                     {data['From Type'] && (
                       <Alert
@@ -6617,12 +6635,12 @@ function Subject({ defaultFormType }) {
                     )}
 
                     <Grid container spacing={2}>
-                      {(data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number']) && (
+                      {(data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number'] || data?.Subject?.['FHA Case No.'] || data?.Subject?.['FHA Case #'] || data?.Subject?.['FHA Case Number'] || data?.SUBJECT?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case #'] || data?.SUBJECT?.['FHA Case Number']) && (
                         <Grid item xs={12} sm={6} md={4}>
-                          <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%', borderColor: (data['FHA Case No.'] === '000-0000000' || data['FHA Case #'] === '000-0000000') ? 'error.main' : 'divider', bgcolor: (data['FHA Case No.'] === '000-0000000' || data['FHA Case #'] === '000-0000000') ? '#fff5f5' : 'background.paper' }}>
+                          <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%', borderColor: ((data['FHA Case No.'] || data['FHA Case #'] || data?.Subject?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case No.']) === '000-0000000') ? 'error.main' : 'divider', bgcolor: ((data['FHA Case No.'] || data['FHA Case #'] || data?.Subject?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case No.']) === '000-0000000') ? '#fff5f5' : 'background.paper' }}>
                             <Box sx={{ overflow: 'hidden' }}>
                               <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>FHA Case #</Typography>
-                              <EditableField fieldPath={['FHA Case No.']} value={data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number'] || ''} onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField} isEditable={isEditable} allData={data} />
+                              <EditableField fieldPath={['FHA Case No.']} value={data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number'] || data?.Subject?.['FHA Case No.'] || data?.Subject?.['FHA Case #'] || data?.Subject?.['FHA Case Number'] || data?.SUBJECT?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case #'] || data?.SUBJECT?.['FHA Case Number'] || ''} onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField} isEditable={isEditable} allData={data} />
                             </Box>
                             <Tooltip title="Check FHA Requirements">
                               <IconButton onClick={handleFhaCheck} size="small" color="info">
@@ -6679,7 +6697,7 @@ function Subject({ defaultFormType }) {
 
                     {isUnpaidOkLender && (
                       <Alert severity="success" variant="standard" sx={{ fontWeight: 'bold' }}>
-                        Unpaid OK can proceed with review
+                        {unpaidLenderComment || `Unpaid lender in the list found :- ${unpaidLenderName || data['Lender/Client']}`}
                       </Alert>
                     )}
                     {!isUnpaidOkLender && (

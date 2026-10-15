@@ -190,7 +190,17 @@ export const checkPropertyRightsInconsistency = (field, text, data) => {
 
 export const checkAnsi = (field, text, data) => {
     if (field !== 'ANSI') return null;
-    const isFha = data && data['FHA Case No.'] && String(data['FHA Case No.']).trim() !== '';
+    const isFha = data && (
+        (data['FHA Case No.'] && String(data['FHA Case No.']).trim() !== '') ||
+        (data['FHA Case #'] && String(data['FHA Case #']).trim() !== '') ||
+        (data['FHA Case Number'] && String(data['FHA Case Number']).trim() !== '') ||
+        (data?.Subject?.['FHA Case No.'] && String(data.Subject['FHA Case No.']).trim() !== '') ||
+        (data?.Subject?.['FHA Case #'] && String(data.Subject['FHA Case #']).trim() !== '') ||
+        (data?.Subject?.['FHA Case Number'] && String(data.Subject['FHA Case Number']).trim() !== '') ||
+        (data?.SUBJECT?.['FHA Case No.'] && String(data.SUBJECT['FHA Case No.']).trim() !== '') ||
+        (data?.SUBJECT?.['FHA Case #'] && String(data.SUBJECT['FHA Case #']).trim() !== '') ||
+        (data?.SUBJECT?.['FHA Case Number'] && String(data.SUBJECT['FHA Case Number']).trim() !== '')
+    );
     const ansiComment = String(text || '').trim();
     if (ansiComment.toUpperCase().includes('GX001')) {
         return { isError: true, message: "ANSI comment must not include code 'GX001'." };
@@ -235,7 +245,7 @@ export const checkPresence = (field, text) => {
 };
 
 export const checkFhaCaseNo = (field, text) => {
-    if (field !== 'FHA Case No.') return null;
+    if (field !== 'FHA Case No.' && field !== 'FHA Case #' && field !== 'FHA Case Number') return null;
     const value = String(text || '').trim();
     if (value === '000-0000000') {
         return { isError: true, message: "FHA Case No. cannot be 000-0000000." };

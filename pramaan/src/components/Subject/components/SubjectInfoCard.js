@@ -17,6 +17,8 @@ export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, 
       candidateKeys.push('HOA $', 'HOA', 'PUD Fees $', 'Monthly Amount');
     } else if (field === 'as of' || (typeof field === 'string' && field.trim().toLowerCase() === 'as of')) {
       candidateKeys.push('as of', 'as of date', 'Appraisal Effective Date', 'Effective Date of Appraisal', 'Effective Date');
+    } else if (field === 'FHA Case #' || field === 'FHA Case No.' || field === 'FHA Case Number') {
+      candidateKeys.push('FHA Case #', 'FHA Case No.', 'FHA Case Number');
     }
 
     for (const k of candidateKeys) {

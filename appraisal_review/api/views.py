@@ -747,6 +747,54 @@ def extract_pdf(request):
         tmp_path = _save_temp_file(file)
 
         try:
+            # Parse extracted_data if provided by client
+            extracted_data_raw = request.data.get("extracted_data")
+            extracted_data_obj = None
+            if extracted_data_raw:
+                if isinstance(extracted_data_raw, dict):
+                    extracted_data_obj = extracted_data_raw
+                elif isinstance(extracted_data_raw, str):
+                    try:
+                        import json
+                        extracted_data_obj = json.loads(extracted_data_raw)
+                    except Exception:
+                        pass
+
+            category_clean = str(category or "").strip().upper()
+            prompt_lower = str(custom_prompt or "").lower()
+
+            # 1. State Requirement Check (Supports both PDF and XML)
+            if category_clean in ["STATE_REQUIREMENT_CHECK", "STATE_REQUIREMENTS"] or any(
+                term in prompt_lower for term in [
+                    "state-specific", "state specific", "state requirement", "state req",
+                    "appraiser’s fee disclosure", "appraiser's fee disclosure", "fee disclosure",
+                    "amc license", "amc #", "1455.245"
+                ]
+            ):
+                return Response(evaluate_state_requirements(tmp_path, extracted_data=extracted_data_obj))
+
+            # 2. Client Requirement Check (Supports both PDF and XML)
+            elif category_clean in ["CLIENT_REQUIREMENT_CHECK", "CLIENT_REQUIREMENTS"] or any(
+                term in prompt_lower for term in [
+                    "client requirement", "client-specific", "client specific", "lender/client",
+                    "lenders/clients", "bpl mortgage", "visio lending", "ice lender", "equity wave"
+                ]
+            ):
+                return Response(evaluate_client_requirements(tmp_path, extracted_data=extracted_data_obj))
+
+            # 3. Unpaid OK Lender Check (Supports both PDF and XML)
+            elif category_clean == "UNPAID_OK_CHECK" or "unpaid ok" in prompt_lower or ("unpaid" in prompt_lower and "lender" in prompt_lower):
+                return Response(evaluate_unpaid_ok(tmp_path, extracted_data=extracted_data_obj))
+
+            # 4. ADU Check (Supports both PDF and XML)
+            elif category_clean == "ADU_CHECK" or "accessory dwelling unit" in prompt_lower or "adu requirements" in prompt_lower or "adu" in prompt_lower:
+                return Response(evaluate_adu_requirements(tmp_path, extracted_data=extracted_data_obj))
+
+            # 5. Escalation Check (Supports both PDF and XML)
+            elif category_clean == "ESCALATION_CHECK" or "escalation" in prompt_lower:
+                return Response(evaluate_escalation_check(tmp_path, extracted_data=extracted_data_obj))
+
+            # 6. XML Field Extraction (When not a specialized check request)
             if is_xml:
                 xml_result = extract_fields_from_xml(tmp_path)
                 if xml_result.get("status") == "success":
@@ -756,12 +804,7 @@ def extract_pdf(request):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
-            category_clean = str(category or "").strip().upper()
-            if category_clean in ["CLIENT_REQUIREMENT_CHECK", "CLIENT_REQUIREMENTS"]:
-                return Response(evaluate_client_requirements(tmp_path))
-            elif category_clean in ["STATE_REQUIREMENT_CHECK", "STATE_REQUIREMENTS"]:
-                return Response(evaluate_state_requirements(tmp_path))
-
+            # 7. PDF Field Extraction (Offline & Model pipelines)
             form_type_str = str(form_type or "").strip().upper()
             if not custom_prompt:
                 # 100% Offline Pure Python Extraction (Fast & $0.00 cost)
@@ -788,23 +831,6 @@ def extract_pdf(request):
                 offline_data = extract_fields_from_pdf_ecr_offline(tmp_path)
                 if offline_data.get("status") == "success":
                     return Response(offline_data)
-            else:
-                prompt_lower = str(custom_prompt or "").lower()
-                if any(term in prompt_lower for term in ["client requirement", "client-specific", "client specific", "lender/client", "lenders/clients", "bpl mortgage", "visio lending", "ice lender", "equity wave"]):
-                    res_offline = evaluate_client_requirements(tmp_path)
-                    return Response(res_offline)
-                elif any(term in prompt_lower for term in ["state-specific", "state specific", "state requirement", "state req", "appraiser’s fee disclosure", "appraiser's fee disclosure", "fee disclosure", "amc license", "amc #", "1455.245"]):
-                    res_offline = evaluate_state_requirements(tmp_path)
-                    return Response(res_offline)
-                elif "unpaid ok" in prompt_lower or ("unpaid" in prompt_lower and "lender" in prompt_lower):
-                    res_offline = evaluate_unpaid_ok(tmp_path)
-                    return Response(res_offline)
-                elif "accessory dwelling unit" in prompt_lower or "adu requirements" in prompt_lower or "adu" in prompt_lower:
-                    res_offline = evaluate_adu_requirements(tmp_path)
-                    return Response(res_offline)
-                elif "escalation" in prompt_lower:
-                    res_offline = evaluate_escalation_check(tmp_path)
-                    return Response(res_offline)
 
             prompt_type = "checklist" if revision_request else "direct"
             data = extract_fields_from_pdf(

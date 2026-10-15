@@ -1,3 +1,5 @@
+import { findUnpaidLenderMatch } from '../utils/unpaidLenders';
+
 const checkNotBlank = (field, text, fieldName) => {
     if (field === fieldName) {
         if (!text || String(text).trim() === '') {
@@ -476,4 +478,22 @@ export const checkSupervisoryAppraiserFields = (field, text, allData, fieldPath)
         return { isMatch: true };
     }
 };
+
+export const checkUnpaidLender = (field, text, data) => {
+    const relevantFields = ['Lender/Client', 'Client/Lender Company Name', 'LENDER/CLIENT Name', 'Lender/Client Company Name', 'Client Name', 'Client/Lender on Report'];
+    if (!relevantFields.includes(field) || !text) return null;
+
+    const lender = String(text || '').trim();
+    if (!lender) return null;
+
+    const match = findUnpaidLenderMatch(lender, data);
+    if (match) {
+        return {
+            isMatch: true,
+            message: `Unpaid lender in the list found :- ${match.lenderName || match.configName}`
+        };
+    }
+    return null;
+};
+
 

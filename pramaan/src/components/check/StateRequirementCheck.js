@@ -25,32 +25,21 @@ Your output must be a single, clean JSON object. Do not include any text outside
 The JSON object must have a "summary" (a one to two-line overview of findings) and a "details" array.
 Each object in the "details" array represents a requirement and must have the following keys:
 - "requirement": A string describing the state-specific rule being checked.
-- "status": A string, which must be one of 'Fulfilled', 'Not Fulfilled', or 'Not Applicable'.
-- "value_or_comment": A string containing the extracted value or a brief comment explaining the status. If a value is extracted, also include the page number.
+- "status": A string, which must be one of 'Fulfilled', 'Not Fulfilled', 'Needs Review', or 'Not Applicable'.
+- "value_or_comment": A string containing the extracted value or comment formatted only in words (e.g., "Appraiser fee = $395.00" or "AMC License/Registration number = 26529dfhghsk."). Do not include page numbers.
 
 State-Specific Requirements:
-- **Appraiser’s Fee Disclosure**: Required for AZ, CO, CT, GA, IL, LA, NJ, NV, NM, ND, OH, UT, VA, VT, WV.
-- **AMC License # Inclusion**: Required for GA, IL, MT, NJ, OH, VT.
-- **AMC License # and Expiration Date**: Required for IL (e.g., "558000312, Exp: 12/31/2026").
-- **AMC Fee Inclusion**: Required for NV, NM, UT.
-- **California (CA)**:
-  - Comment on smoke/CO detectors.
-  - Comment on double-strapped water heater.
-  - For properties built after 2008, a specific CO detector comment is needed.
-- **Illinois (IL)**:
-  - AMC License # must be '558000312' with expiration '12/31/2026'.
-  - Appraiser must disclose their fee.
-  - Addendum must include the "Illinois Administrative Code 1455.245" statement.
-  - Report must comment on Carbon Monoxide detector presence and include photos.
-- **Utah (UT)**:
-  - Comment on double-strapped water heaters.
-  - AMC fee must be included.
-  - Appraiser’s fee must be disclosed.
-- **Virginia (VA)**: Confirm if smoke and CO detectors are installed.
-- **Wisconsin (WI)**:
-  - A copy of the invoice must be attached.
-  - Confirm CO detector installation per Wis. Stat. Ann. § 101.647.
-- **New York (NY)**: A copy of the invoice should be included (unless the client is Plaza Home Mortgage).
+1. Appraiser fee disclosed in report body: Required for AZ, CO, CT, GA, IL, LA, NJ, NV, NM, ND, OH, UT, VA, VT, WV.
+2. AMC license/registration number included: Required for GA, IL, MT, NJ, OH, VT.
+3. AMC number and expiration date included: Required for IL (e.g., 558000312, Exp: 12/31/2026).
+4. AMC fee included in report: Required for NV, NM, UT.
+5. Smoke/CO detector presence and legal requirement addressed: Required for CA.
+6. Water heater double-strapping addressed: Required for CA; UT for Averra Financial LLC.
+7. CO detector presence confirmed; photos provided: Required for IL.
+8. Invoice attached to report: Required for NY (except Plaza Home Mortgage); WI.
+9. Invoice included or omitted without rejection: Required for OK (Pass/Fulfilled).
+10. Philadelphia report escalation: Required for PA: escalate only if value seems high; no escalation for 1004D.
+11. Smoke/CO detector installation confirmed: Required for VA.
 `;
 
 const StateRequirementCheck = ({ onPromptSubmit, loading, response, error }) => {
@@ -84,7 +73,7 @@ const StateRequirementCheck = ({ onPromptSubmit, loading, response, error }) => 
 
     const filteredDetails = parsedDetails.filter(item => {
       if (filterValue === 'passed') return isGreen(item.status);
-      if (filterValue === 'failed') return !isGreen(item.status);
+      if (filterValue === 'failed') return !isGreen(item.status) && item.status !== 'Not Applicable';
       return true;
     });
 
@@ -142,11 +131,49 @@ const StateRequirementCheck = ({ onPromptSubmit, loading, response, error }) => 
                 <TableBody>
                   {sortedDetails.length > 0 ? (
                     sortedDetails.map((item, index) => {
-                      const isInvalid = ['Not Applicable', 'Not Fulfilled'].includes(item.status);
-                      const statusStyle = isInvalid
-                        ? { backgroundColor: '#ff0000', color: '#ffffff', padding: '4px 8px', borderRadius: '4px', display: 'inline-block', cursor: 'pointer' }
-                        : { backgroundColor: '#91ff00ff', color: '#000000', padding: '4px 8px', borderRadius: '4px', display: 'inline-block' };
+                      const normStatus = String(item.status || '').trim().toLowerCase();
+                      const isFulfilled = ['fulfilled', 'ok', 'pass', 'passed', 'yes'].includes(normStatus);
+                      const isNA = ['not applicable', 'n/a', 'na'].includes(normStatus);
+                      const isNeedsReview = ['needs review', 'review', 'escalate'].includes(normStatus);
+                      
+                      let statusStyle = {
+                        backgroundColor: '#ff0000',
+                        color: '#ffffff',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        display: 'inline-block',
+                        cursor: 'pointer',
+                        fontWeight: 'bold'
+                      };
+                      if (isFulfilled) {
+                        statusStyle = {
+                          backgroundColor: '#91ff00ff',
+                          color: '#000000',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          display: 'inline-block',
+                          fontWeight: 'bold'
+                        };
+                      } else if (isNA) {
+                        statusStyle = {
+                          backgroundColor: '#e0e0e0',
+                          color: '#555555',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          display: 'inline-block'
+                        };
+                      } else if (isNeedsReview) {
+                        statusStyle = {
+                          backgroundColor: '#ffc107',
+                          color: '#000000',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          display: 'inline-block',
+                          fontWeight: 'bold'
+                        };
+                      }
 
+                      const isInvalid = !isFulfilled && !isNA;
                       let tooltipContent = '';
                       if (isInvalid) {
                         if (typeof item.value_or_comment === 'object' && item.value_or_comment !== null) {
@@ -169,16 +196,7 @@ const StateRequirementCheck = ({ onPromptSubmit, loading, response, error }) => 
                           </TableCell>
                           <TableCell>
                             {typeof item.value_or_comment === 'object' && item.value_or_comment !== null ? (
-                              <>
-                                {item.value_or_comment.value && (
-                                  <Typography variant="body2">{item.value_or_comment.value}</Typography>
-                                )}
-                                {item.value_or_comment.page_no && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    Page: {item.value_or_comment.page_no}
-                                  </Typography>
-                                )}
-                              </>
+                              <Typography variant="body2">{item.value_or_comment.value || JSON.stringify(item.value_or_comment)}</Typography>
                             ) : (
                               item.value_or_comment
                             )}

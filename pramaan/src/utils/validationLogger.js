@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { generateVersion1ValidationLogPDF } from './version1ValidationLogger';
+import { checkUnpaidLenderStatus } from './unpaidLenders';
 
 export const generateValidationLogPDF = (params) => {
   const {
@@ -644,16 +645,8 @@ export const generateValidationLogPDF = (params) => {
       val = data['ADU File Check'] || data['ADU'] || ADUResponse?.summary || ADUResponse?.status || '';
     }
     if ((field === 'Unpaid OK' || field === 'Unpaid Ok') && (!val || val === '')) {
-      const unpaidOkLenders = [
-        'PRMG', 'Paramount Residential Mortgage Group', 'CARDINAL FINANCIAL COMPANY', 'Ice Lender Holdings LLC',
-        'NP Inc', 'NQM Funding, LLC', 'East Coast Capital', 'Guaranteed Rate. Inc', 'Commercial Lender, LLC',
-        'LoanDepot.com', 'Direct Lending Partners', 'CIVIC', 'CV3', 'United Faith Mortgage', 'Arixa Capital',
-        'Crosswind Financial', 'Western Alliance Bank', 'RCN Capital, LLC', 'Aura Mortgage Advisors, LLC',
-        'Blue Hub Capital', 'Nations Direct Mortgage LLC', 'Sierra Pacific Mortgage Company Inc', 'Champions Funding LLC'
-      ].map(l => l.toLowerCase());
-      const lender = data['Lender/Client'] || data.Subject?.['Lender/Client'] || '';
-      const isUnpaidOkLender = lender && unpaidOkLenders.some(l => lender.toLowerCase().includes(l));
-      val = data['Unpaid OK'] || unpaidOkResponse?.summary || unpaidOkResponse?.status || (isUnpaidOkLender ? 'Proceed with review' : (lender ? 'Unpaid OK cannot proceed with review (Check lender requirement)' : 'Check lender requirement')) || '';
+      const { isUnpaidOkLender, comment, lender } = checkUnpaidLenderStatus(data);
+      val = data['Unpaid OK'] || unpaidOkResponse?.summary || unpaidOkResponse?.status || (isUnpaidOkLender ? (comment || 'Proceed with review') : (lender ? 'Unpaid OK cannot proceed with review (Check lender requirement)' : 'Check lender requirement')) || '';
     }
     if ((field === 'FHA Case #' || field === 'FHA Case No.' || field === 'FHA Case Number') && (!val || val === '')) {
       val = data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number'] || fhaResponse?.summary || data.Subject?.['FHA Case No.'] || data.Subject?.['FHA Case #'] || '';

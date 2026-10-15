@@ -7,7 +7,7 @@ import { checkHousingPriceAndAge, checkNeighborhoodUsageConsistency, checkSingle
 import { checkUnits, checkAccessoryUnit, checkNumberOfStories, checkPropertyType, checkConstructionStatusAndReconciliation, checkDesignStyle, checkYearBuilt, checkEffectiveAge, checkAdditionalFeatures, checkPropertyConditionDescription, checkPhysicalDeficienciesImprovements, checkNeighborhoodConformity, checkFoundationType, checkBasementDetails, checkEvidenceOf, checkMaterialCondition, checkHeatingFuel, checkCarStorage, checkImprovementsFieldsNotBlank } from '../../../validations/improvementsValidation';
 import { checkConditionAdjustment, checkBedroomsAdjustment, checkBathsAdjustment, checkQualityOfConstructionAdjustment, checkProximityToSubject, checkSiteAdjustment, checkGrossLivingAreaAdjustment, checkSubjectAddressInconsistency, checkDesignStyleAdjustment, checkFunctionalUtilityAdjustment, checkEnergyEfficientItemsAdjustment, checkPorchPatioDeckAdjustment, checkHeatingCoolingAdjustment, checkDataSourceDOM, checkActualAgeAdjustment, checkLeaseholdFeeSimpleConsistency, checkDateOfSale, checkLocationConsistency, checkSalePrice, checkSubjectAgeConsistency, checkViewAdjustment } from '../../../validations/salesComparisonValidation';
 import { checkFinalValueConsistency, checkCostApproachDeveloped, checkAppraisalCondition, checkAsOfDate, checkFinalValueBracketing, checkReconciliationFieldsNotBlank, checkFiveValuesConsistency, checkEffectiveDatesConsistency, checkPropertyQualityConsistency, checkPropertyConditionConsistency, checkHbuConsistency, checkCostApproachConsistency, checkAttachmentTypeConsistency, checkPropertyRightsConsistency, checkAppraiserCredentialLevelConsistency } from '../../../validations/reconciliationValidation';
-import { checkLenderAddressInconsistency, checkLenderNameInconsistency, checkAppraiserFieldsNotBlank, checkLicenseNumberConsistency as checkAppraiserLicenseConsistency, checkDateGreaterThanToday, checkClientNameHtmlConsistency, checkClientAddressHtmlConsistency, checkBorrowerHtmlConsistency, checkPropertyAddressHtmlConsistency, checkAppraiserVendorNameConsistency, checkSupervisoryAppraiserFields, checkAppraiserLicenseGroup } from '../../../validations/appraiserLenderValidation';
+import { checkLenderAddressInconsistency, checkLenderNameInconsistency, checkUnpaidLender, checkAppraiserFieldsNotBlank, checkLicenseNumberConsistency as checkAppraiserLicenseConsistency, checkDateGreaterThanToday, checkClientNameHtmlConsistency, checkClientAddressHtmlConsistency, checkBorrowerHtmlConsistency, checkPropertyAddressHtmlConsistency, checkAppraiserVendorNameConsistency, checkSupervisoryAppraiserFields, checkAppraiserLicenseGroup } from '../../../validations/appraiserLenderValidation';
 import { checkCostNew, checkSourceOfCostData, checkIndicatedValueByCostApproach, checkCostApproachFieldsNotBlank } from '../../../validations/costApproachValidation';
 import { checkResearchHistory, checkSubjectPriorSales, checkComparablePriorSales, checkDataSourceNotBlank, checkEffectiveDateIsCurrentYear, checkSubjectPriorSaleDate, checkCompPriorSaleDate } from '../../../validations/salesHistoryValidation';
 import { checkStateRequirements } from '../../../validations/stateValidation';
@@ -115,6 +115,8 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'Prior service comment': [checkPresence],
     'ADU File Check': [checkPresence],
     'FHA Case No.': [checkFhaCaseNo],
+    'FHA Case #': [checkFhaCaseNo],
+    'FHA Case Number': [checkFhaCaseNo],
     'Tax Year': [checkTaxYear],
     'R.E. Taxes $': [checkRETaxes],
     'Special Assessments $': [checkSpecialAssessments],
@@ -139,7 +141,8 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'Occupant': [checkSubjectFieldsNotBlank, checkOccupancy],
     'Occupancy': [checkOccupancy],
     'Property Rights Appraised': [checkSubjectFieldsNotBlank],
-    'Lender/Client': [checkSubjectLenderNameVsHtml, checkLenderNameInconsistency, checkSubjectFieldsNotBlank],
+    'Lender/Client': [checkSubjectLenderNameVsHtml, checkLenderNameInconsistency, checkUnpaidLender, checkSubjectFieldsNotBlank],
+    'Client/Lender Company Name': [checkUnpaidLender, checkClientNameHtmlConsistency, checkLenderNameInconsistency],
     'Name': [checkAppraiserVendorNameConsistency],
     'Address (Lender/Client)': [checkLenderAddressHtmlInconsistency, checkLenderAddressInconsistency, checkSubjectFieldsNotBlank],
 
@@ -391,7 +394,7 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
   });
 
   validationRegistry['Lender/Client Company Address'].push(checkLenderAddressInconsistency);
-  validationRegistry['LENDER/CLIENT Name'].push(checkLenderNameInconsistency, checkClientNameHtmlConsistency);
+  validationRegistry['LENDER/CLIENT Name'].push(checkLenderNameInconsistency, checkClientNameHtmlConsistency, checkUnpaidLender);
   validationRegistry['LICENSE/REGISTRATION/CERTIFICATION #'] = [checkAppraiserLicenseConsistency];
 
   // HTML Data Validations

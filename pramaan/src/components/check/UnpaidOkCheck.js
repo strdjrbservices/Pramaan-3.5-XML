@@ -16,11 +16,11 @@ import {
 
 export const UNPAID_OK_PROMPT = `
 Based on the Lender/Client name in the document, verify if it matches any of the following "Unpaid OK" lenders.
-The output must be a JSON object with a "summary" (a one to two-line overview stating if the lender is on the 'Unpaid OK' list and what the lender name is) and a "details" array. The "details" array should contain one object with "requirement", "status", and "value_or_comment" keys.
+The output must be a JSON object with a "summary" (a one to two-line overview stating if the lender is on the 'Unpaid OK' list and what the lender name is) and a "details" array. The "details" array should contain one object with "requirement", "status", and "value_or_comment" keys. If found, include the comment: "Unpaid lender in the list found :- <lender name>".
 
 "Unpaid OK" Lender List:
 - PRMG (Paramount Residential Mortgage Group)
-- CARDINAL FINANCIAL COMPANY
+- CARDINAL FINANCIAL COMPANY/Cardinal Financial Company, LP
 - Ice Lender Holdings LLC
 - NP Inc / NQM Funding, LLC
 - East Coast Capital
@@ -35,8 +35,9 @@ The output must be a JSON object with a "summary" (a one to two-line overview st
 - RCN Capital, LLC
 - Aura Mortgage Advisors, LLC/Blue Hub Capital
 - Nations Direct Mortgage LLC
-- Sierra Pacific Mortgage Company Inc
+- Sierra Pacific Mortgage Company Inc(Union Home Mortgage-SP)
 - Champions Funding LLC
+- Vontive
 `;
 
 const UnpaidOkCheck = ({ onPromptSubmit, loading, response, error }) => {
