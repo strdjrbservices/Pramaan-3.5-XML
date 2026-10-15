@@ -85,31 +85,37 @@ export const checkHeatingFuel = (field, text) => {
 
 export const checkCarStorage = (field, text, data) => {
     if (field !== 'Car Storage' || !data) return null;
-    const carStorageValue = String(text || data['Car Storage'] || data.IMPROVEMENTS?.['Car Storage'] || '').trim().toLowerCase();
+    const carStorageValue = String(text || data['Car Storage'] || data.IMPROVEMENTS?.['Car Storage'] || data.Improvements?.['Car Storage'] || '').trim().toLowerCase();
 
     if (!carStorageValue || carStorageValue === 'none' || carStorageValue === 'n/a') return null;
 
     const drivewayCarsStr = String(
         data['Driveway # of Cars'] ||
         data.IMPROVEMENTS?.['Driveway # of Cars'] ||
+        data.Improvements?.['Driveway # of Cars'] ||
         data['Driveway'] ||
         data.IMPROVEMENTS?.['Driveway'] ||
+        data.Improvements?.['Driveway'] ||
         ''
     ).trim();
 
     const garageCarsStr = String(
         data['Garage # of Cars'] ||
         data.IMPROVEMENTS?.['Garage # of Cars'] ||
+        data.Improvements?.['Garage # of Cars'] ||
         data['Garage'] ||
         data.IMPROVEMENTS?.['Garage'] ||
+        data.Improvements?.['Garage'] ||
         ''
     ).trim();
 
     const carportCarsStr = String(
         data['Carport # of Cars'] ||
         data.IMPROVEMENTS?.['Carport # of Cars'] ||
+        data.Improvements?.['Carport # of Cars'] ||
         data['Carport'] ||
         data.IMPROVEMENTS?.['Carport'] ||
+        data.Improvements?.['Carport'] ||
         ''
     ).trim();
 
@@ -123,8 +129,11 @@ export const checkCarStorage = (field, text, data) => {
         data['ATT./DET./BUILT-IN'] ||
         data['Garage Type'] ||
         data.IMPROVEMENTS?.['Att./Det./Built-in'] ||
+        data.Improvements?.['Att./Det./Built-in'] ||
         data.IMPROVEMENTS?.['Garage Att./Det./Built-in'] ||
+        data.Improvements?.['Garage Att./Det./Built-in'] ||
         data.IMPROVEMENTS?.['ATT./DET./BUILT-IN'] ||
+        data.Improvements?.['ATT./DET./BUILT-IN'] ||
         ''
     ).trim();
 

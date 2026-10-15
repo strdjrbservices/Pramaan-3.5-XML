@@ -6,13 +6,34 @@ import { EditableField } from './EditableField';
 export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, onDataChange, isEditable = true, editingField, setEditingField, highlightedFields, allData, comparisonData, getComparisonStyle, loading, loadingSection, contractExtracted, setContractExtracted, handleExtract, manualValidations, handleManualValidation, onRevisionButtonClick, revisionHandlers, hideEmptyFields = false }) => {
 
   const getFieldValue = (field) => {
-    if (data && data[field] !== undefined && data[field] !== null && data[field] !== '') return data[field];
-    if (data && data.Subject && data.Subject[field] !== undefined && data.Subject[field] !== null && data.Subject[field] !== '') return data.Subject[field];
-    if (data && data.SUBJECT && data.SUBJECT[field] !== undefined && data.SUBJECT[field] !== null && data.SUBJECT[field] !== '') return data.SUBJECT[field];
-    if (allData && allData[field] !== undefined && allData[field] !== null && allData[field] !== '') return allData[field];
-    if (allData && allData.Subject && allData.Subject[field] !== undefined && allData.Subject[field] !== null && allData.Subject[field] !== '') return allData.Subject[field];
-    if (allData && allData.SUBJECT && allData.SUBJECT[field] !== undefined && allData.SUBJECT[field] !== null && allData.SUBJECT[field] !== '') return allData.SUBJECT[field];
-    if (allData && allData.RECONCILIATION && allData.RECONCILIATION[field] !== undefined && allData.RECONCILIATION[field] !== null && allData.RECONCILIATION[field] !== '') return allData.RECONCILIATION[field];
+    const candidateKeys = [field];
+    if (field === 'HOA(per month)' || field === 'HOA (per month)') {
+      candidateKeys.push('HOA(per month)', 'HOA (per month)', 'PUD Fees (per month)', 'per month');
+    } else if (field === 'HOA(per year)' || field === 'HOA (per year)') {
+      candidateKeys.push('HOA(per year)', 'HOA (per year)', 'PUD Fees (per year)', 'per year');
+    } else if (field === 'PUD') {
+      candidateKeys.push('PUD', 'Planned Unit Development (PUD)');
+    } else if (field === 'HOA $') {
+      candidateKeys.push('HOA $', 'HOA', 'PUD Fees $', 'Monthly Amount');
+    } else if (field === 'as of' || (typeof field === 'string' && field.trim().toLowerCase() === 'as of')) {
+      candidateKeys.push('as of', 'as of date', 'Appraisal Effective Date', 'Effective Date of Appraisal', 'Effective Date');
+    }
+
+    for (const k of candidateKeys) {
+      if (data && data[k] !== undefined && data[k] !== null && data[k] !== '') return data[k];
+      if (data && data.Subject && data.Subject[k] !== undefined && data.Subject[k] !== null && data.Subject[k] !== '') return data.Subject[k];
+      if (data && data.SUBJECT && data.SUBJECT[k] !== undefined && data.SUBJECT[k] !== null && data.SUBJECT[k] !== '') return data.SUBJECT[k];
+      if (data && data.RECONCILIATION && data.RECONCILIATION[k] !== undefined && data.RECONCILIATION[k] !== null && data.RECONCILIATION[k] !== '') return data.RECONCILIATION[k];
+      if (data && data.Reconciliation && data.Reconciliation[k] !== undefined && data.Reconciliation[k] !== null && data.Reconciliation[k] !== '') return data.Reconciliation[k];
+      if (allData && allData[k] !== undefined && allData[k] !== null && allData[k] !== '') return allData[k];
+      if (allData && allData.Subject && allData.Subject[k] !== undefined && allData.Subject[k] !== null && allData.Subject[k] !== '') return allData.Subject[k];
+      if (allData && allData.SUBJECT && allData.SUBJECT[k] !== undefined && allData.SUBJECT[k] !== null && allData.SUBJECT[k] !== '') return allData.SUBJECT[k];
+      if (allData && allData.PUD_INFO && allData.PUD_INFO[k] !== undefined && allData.PUD_INFO[k] !== null && allData.PUD_INFO[k] !== '') return allData.PUD_INFO[k];
+      if (allData && allData.RECONCILIATION && allData.RECONCILIATION[k] !== undefined && allData.RECONCILIATION[k] !== null && allData.RECONCILIATION[k] !== '') return allData.RECONCILIATION[k];
+      if (allData && allData.Reconciliation && allData.Reconciliation[k] !== undefined && allData.Reconciliation[k] !== null && allData.Reconciliation[k] !== '') return allData.Reconciliation[k];
+      if (allData && allData.CERTIFICATION && allData.CERTIFICATION[k] !== undefined && allData.CERTIFICATION[k] !== null && allData.CERTIFICATION[k] !== '') return allData.CERTIFICATION[k];
+      if (allData && allData.Certification && allData.Certification[k] !== undefined && allData.Certification[k] !== null && allData.Certification[k] !== '') return allData.Certification[k];
+    }
     return '';
   };
 
@@ -44,17 +65,12 @@ export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, 
 
     const comparisonStyle = getComparisonStyle ? getComparisonStyle(field, displayValue, comparisonData?.[field]) : {};
 
-    if (field === 'PUD') {
-      const perMonth = data['PUD Fees (per month)'] || allData?.['PUD Fees (per month)'];
-      const perYear = data['PUD Fees (per year)'] || allData?.['PUD Fees (per year)'];
-      if (perMonth) {
-        displayValue = `${displayValue} per month`;
-      } else if (perYear) {
-        displayValue = `${displayValue} per year`;
-      }
-    }
-
     const isLongCommentField = ['ANSI', 'Exposure Comment', 'Prior Service Comment'].includes(field);
+    const displayLabel = (field === 'HOA(per month)' || field === 'HOA (per month)')
+      ? 'HOA (per month)'
+      : (field === 'HOA(per year)' || field === 'HOA (per year)')
+      ? 'HOA (per year)'
+      : field;
 
     return (
       <div 
@@ -72,7 +88,7 @@ export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, 
           onClick={() => isEditable !== false && setEditingField && setEditingField(fieldPath)}
           style={{ cursor: isEditable !== false ? 'pointer' : 'default', userSelect: 'none' }}
         >
-          {field}
+          {displayLabel}
         </span>
 
         <EditableField
@@ -112,10 +128,6 @@ export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, 
       <Box className="card-body subject-grid-container" sx={{ p: 2 }}>
         {fields
           .filter(field =>
-            field !== 'HOA(per month)' &&
-            field !== 'HOA(per year)' &&
-            field !== 'PUD Fees (per month)' &&
-            field !== 'PUD Fees (per year)' &&
             (!hideEmptyFields || (getFieldValue(field) !== undefined && getFieldValue(field) !== null && String(getFieldValue(field)).trim() !== ''))
           )
           .map(field => renderGridItem(field))

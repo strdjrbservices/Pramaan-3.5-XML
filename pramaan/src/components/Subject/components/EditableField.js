@@ -1,6 +1,6 @@
 import React from 'react';
 import { checkContractFieldsMandatory, checkFinancialAssistanceInconsistency, checkContractAnalysisConsistency, checkYesNoOnly } from '../../../validations/contractValidation';
-import { checkTaxYear, checkRETaxes, checkSpecialAssessments, checkPUD, checkHOA, checkOfferedForSale, checkAnsi, checkFullAddressConsistency, checkPresence, checkAssignmentTypeConsistency, checkSubjectFieldsNotBlank, checkFhaCaseNo, checkOccupancy } from '../../../validations/subjectValidation';
+import { checkTaxYear, checkRETaxes, checkSpecialAssessments, checkPUD, checkHOA, checkHOAFrequency, checkOfferedForSale, checkAnsi, checkFullAddressConsistency, checkPresence, checkAssignmentTypeConsistency, checkSubjectFieldsNotBlank, checkFhaCaseNo, checkOccupancy } from '../../../validations/subjectValidation';
 import { checkZoning, checkZoningDescription, checkSpecificZoningClassification, checkHighestAndBestUse, checkFemaInconsistency, checkFemaFieldsConsistency, checkSiteSectionBlank, checkArea, checkYesNoWithComment, checkUtilities } from '../../../validations/siteValidation';
 import { checkVersion1UtilitySubfields, checkZoningClassificationDescription, checkSiteSizesConsistency, checkVersion1EffectiveDatesConsistency, checkAboveGradeFinishedAreaConsistency, checkYearBuiltConsistency, checkAppraiserNameConsistency, checkVersion1ComparableListingStatusConsistency, checkVersion1ComparableTransferTermsConsistency, checkVersion1YearBuiltAdjustmentConsistency, checkVersion1ConstructionMethodAdjustmentConsistency, checkVersion1SiteSizeAdjustmentConsistency, checkVersion1LocationAdjustmentConsistency, checkVersion1AttachedDetachedAdjustmentConsistency, checkVersion1HeatingAdjustmentConsistency, checkVersion1AmenitiesAdjustmentConsistency, checkVersion1QualityConditionConsistency, checkVersion1AreaAdjustmentConsistency, checkVersion1OverallQualityConditionAdjustmentConsistency, checkVersion1VehicleStorageAdjustmentConsistency } from '../Version1/version1Validation';
 import { checkHousingPriceAndAge, checkNeighborhoodUsageConsistency, checkSingleChoiceFields, checkNeighborhoodBoundaries, checkNeighborhoodFieldsNotBlank, checkOtherLandUseComment, checkOtherLandUse, checkSearchCriteriaDescription, checkNeighborhoodListPricesConsistency, checkNeighborhoodSalePricesConsistency, checkLocation, checkBuiltUp, checkGrowth, checkPropertyValues, checkDemandSupply } from '../../../validations/neighborhoodValidation';
@@ -120,6 +120,10 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'Special Assessments $': [checkSpecialAssessments],
     'PUD': [checkPUD, checkHOA],
     'HOA $': [checkHOA],
+    'HOA(per month)': [checkHOAFrequency],
+    'HOA (per month)': [checkHOAFrequency],
+    'HOA(per year)': [checkHOAFrequency],
+    'HOA (per year)': [checkHOAFrequency],
     'Offered for Sale in Last 12 Months': [checkOfferedForSale],
     'ANSI': [checkAnsi],
     'State': [checkStateRequirements],

@@ -103,14 +103,39 @@ export const checkAppraisalCondition = (field, text) => {
     return { isMatch: true };
 };
 
+const normalizeDateStr = (d) => {
+    if (!d) return '';
+    const s = String(d).trim();
+    const mIso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (mIso) {
+        return `${mIso[2].padStart(2, '0')}/${mIso[3].padStart(2, '0')}/${mIso[1]}`;
+    }
+    const mUs = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (mUs) {
+        return `${mUs[1].padStart(2, '0')}/${mUs[2].padStart(2, '0')}/${mUs[3]}`;
+    }
+    return s.toLowerCase();
+};
+
 export const checkAsOfDate = (field, text, allData) => {
     if (field !== 'as of') return null;
     if (!text || String(text).trim() === '') {
         return { isError: true, message: "'as of' date cannot be blank." };
     }
-    const effectiveDate = allData.CERTIFICATION?.['Effective Date of Appraisal'];
-    if (effectiveDate && String(text).trim() !== String(effectiveDate).trim()) {
-        return { isError: true, message: `Date mismatch: 'as of' date (${text}) does not match 'Effective Date of Appraisal' (${effectiveDate}) in the signature section.` };
+    const effectiveDate = allData?.CERTIFICATION?.['Effective Date of Appraisal']
+        || allData?.Certification?.['Effective Date of Appraisal']
+        || allData?.CERTIFICATION?.['Effective Date']
+        || allData?.Certification?.['Effective Date']
+        || allData?.RECONCILIATION?.['Appraisal Effective Date']
+        || allData?.Reconciliation?.['Appraisal Effective Date']
+        || allData?.['Effective Date of Appraisal']
+        || allData?.['Effective Date'];
+    if (effectiveDate) {
+        const normText = normalizeDateStr(text);
+        const normEff = normalizeDateStr(effectiveDate);
+        if (normText && normEff && normText !== normEff) {
+            return { isError: true, message: `Date mismatch: 'as of' date (${text}) does not match 'Effective Date of Appraisal' (${effectiveDate}) in the signature section.` };
+        }
     }
     return { isMatch: true };
 };

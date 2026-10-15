@@ -40,6 +40,18 @@ def _clean_currency(val: Any) -> str:
         return val_str
 
 
+def _format_date(val: Any) -> str:
+    if val is None:
+        return ""
+    val_str = str(val).strip()
+    if not val_str:
+        return ""
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", val_str)
+    if m:
+        return f"{m.group(2)}/{m.group(3)}/{m.group(1)}"
+    return val_str
+
+
 def _detect_form_type_from_xml(root: ET.Element) -> str:
     """
     Dynamically identifies the exact appraisal form type from MISMO XML DOM elements.
@@ -212,7 +224,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         mismo_form_type = report.attrib.get("AppraisalFormType", "")
         file_id = report.attrib.get("AppraiserFileIdentifier", "")
         loan_num = report.attrib.get("AppraiserAdditionalFileIdentifier", "")
-        signed_date = report.attrib.get("AppraiserReportSignedDate", "")
+        signed_date = _format_date(report.attrib.get("AppraiserReportSignedDate", ""))
         purpose = report.attrib.get("AppraisalPurposeType", "")
 
     form_type = _detect_form_type_from_xml(root)
@@ -221,21 +233,116 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     appraiser_name = ""
     appraiser_company = ""
     appraiser_address = ""
+    appraiser_phone = ""
+    appraiser_email = ""
+    lic_type = ""
+    lic_id = ""
+    lic_state = ""
+    lic_exp = ""
+    appr_state = ""
+    state_cert_no = ""
+    state_lic_no = ""
+    
     lender_name = ""
     lender_address = ""
+    lender_email = ""
     borrower_name = ""
 
+    appraiser_elem = parties.find("APPRAISER") if parties is not None else None
+    if appraiser_elem is None:
+        appraiser_elem = root.find(".//APPRAISER")
+
+    if appraiser_elem is not None:
+        appraiser_name = appraiser_elem.attrib.get("_Name", "")
+        appraiser_company = appraiser_elem.attrib.get("_CompanyName", "")
+        appr_st = appraiser_elem.attrib.get("_StreetAddress", "")
+        appr_st2 = appraiser_elem.attrib.get("_StreetAddress2", "")
+        appr_city = appraiser_elem.attrib.get("_City", "")
+        appr_state = appraiser_elem.attrib.get("_State", "")
+        appr_zip = appraiser_elem.attrib.get("_PostalCode", "")
+        st_full = ", ".join([p for p in [appr_st, appr_st2] if p])
+        cz_full = f"{appr_city}, {appr_state} {appr_zip}".strip(", ")
+        appraiser_address = f"{st_full}, {cz_full}".strip(", ") if st_full and cz_full else (st_full or cz_full)
+
+        for cp in appraiser_elem.findall(".//CONTACT_POINT"):
+            t = cp.attrib.get("_Type", "").lower()
+            val = cp.attrib.get("_Value", "")
+            if ("phone" in t or "tel" in t) and not appraiser_phone:
+                appraiser_phone = val
+            elif "email" in t and not appraiser_email:
+                appraiser_email = val
+
+        appr_lic_elem = appraiser_elem.find("APPRAISER_LICENSE")
+        if appr_lic_elem is None:
+            appr_lic_elem = root.find(".//APPRAISER/APPRAISER_LICENSE")
+
+        if appr_lic_elem is not None:
+            lic_type = appr_lic_elem.attrib.get("_Type", "")
+            lic_id = appr_lic_elem.attrib.get("_Identifier", "")
+            lic_state = appr_lic_elem.attrib.get("_State", "") or appr_state
+            lic_exp = _format_date(appr_lic_elem.attrib.get("_ExpirationDate", ""))
+
+            if "lic" in lic_type.lower():
+                state_lic_no = lic_id
+            elif "cert" in lic_type.lower():
+                state_cert_no = lic_id
+            elif "lic" in lic_id.lower():
+                state_lic_no = lic_id
+            else:
+                state_cert_no = lic_id
+
+    # Supervisory Appraiser
+    supervisor_elem = parties.find("SUPERVISOR") if parties is not None else None
+    if supervisor_elem is None and parties is not None:
+        supervisor_elem = parties.find("SUPERVISORY_APPRAISER")
+    if supervisor_elem is None:
+        supervisor_elem = root.find(".//SUPERVISOR")
+    if supervisor_elem is None:
+        supervisor_elem = root.find(".//SUPERVISORY_APPRAISER")
+
+    sup_name = supervisor_elem.attrib.get("_Name", "") if supervisor_elem is not None else ""
+    sup_company = supervisor_elem.attrib.get("_CompanyName", "") if supervisor_elem is not None else ""
+    sup_st = supervisor_elem.attrib.get("_StreetAddress", "") if supervisor_elem is not None else ""
+    sup_city = supervisor_elem.attrib.get("_City", "") if supervisor_elem is not None else ""
+    sup_st_code = supervisor_elem.attrib.get("_State", "") if supervisor_elem is not None else ""
+    sup_zip = supervisor_elem.attrib.get("_PostalCode", "") if supervisor_elem is not None else ""
+    sup_address = f"{sup_st}, {sup_city}, {sup_st_code} {sup_zip}".strip(", ") if sup_st or sup_city else ""
+
+    sup_phone = ""
+    sup_email = ""
+    if supervisor_elem is not None:
+        for cp in supervisor_elem.findall(".//CONTACT_POINT"):
+            t = cp.attrib.get("_Type", "").lower()
+            val = cp.attrib.get("_Value", "")
+            if ("phone" in t or "tel" in t) and not sup_phone:
+                sup_phone = val
+            elif "email" in t and not sup_email:
+                sup_email = val
+
+    sup_lic_elem = supervisor_elem.find("APPRAISER_LICENSE") if supervisor_elem is not None else None
+    sup_lic_type = sup_lic_elem.attrib.get("_Type", "") if sup_lic_elem is not None else ""
+    sup_lic_id = sup_lic_elem.attrib.get("_Identifier", "") if sup_lic_elem is not None else ""
+    sup_lic_state = sup_lic_elem.attrib.get("_State", "") if sup_lic_elem is not None else ""
+    sup_lic_exp = _format_date(sup_lic_elem.attrib.get("_ExpirationDate", "")) if sup_lic_elem is not None else ""
+
+    sup_cert_no = ""
+    sup_lic_no = ""
+    if "cert" in sup_lic_type.lower():
+        sup_cert_no = sup_lic_id
+    elif "lic" in sup_lic_type.lower():
+        sup_lic_no = sup_lic_id
+    elif sup_lic_id:
+        sup_cert_no = sup_lic_id
+
+    # Lender & Borrower
     if parties is not None:
-        appraiser_elem = parties.find("APPRAISER")
-        if appraiser_elem is not None:
-            appraiser_name = appraiser_elem.attrib.get("_Name", "")
-            appraiser_company = appraiser_elem.attrib.get("_CompanyName", "")
-            appraiser_address = f"{appraiser_elem.attrib.get('_StreetAddress', '')}, {appraiser_elem.attrib.get('_StreetAddress2', '')}".strip(", ")
-        
         lender_elem = parties.find("LENDER")
         if lender_elem is not None:
             lender_name = lender_elem.attrib.get("_UnparsedName", "")
             lender_address = lender_elem.attrib.get("AppraisalFormsUnparsedAddress", "") or f"{lender_elem.attrib.get('_StreetAddress', '')}, {lender_elem.attrib.get('_StreetAddress2', '')}".strip(", ")
+            for cp in lender_elem.findall(".//CONTACT_POINT"):
+                if "email" in cp.attrib.get("_Type", "").lower() and not lender_email:
+                    lender_email = cp.attrib.get("_Value", "")
 
         borrower_elem = parties.find("BORROWER")
         if borrower_elem is not None:
@@ -525,11 +632,11 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     nb_desc = ""
     nb_mkt = ""
 
-    one_unit = "0%"
-    two_four_unit = "0%"
-    multi_family = "0%"
-    commercial = "0%"
-    other_use = "0%"
+    one_unit = ""
+    two_four_unit = ""
+    multi_family = ""
+    commercial = ""
+    other_use = ""
     other_desc = ""
 
     housing_price = ""
@@ -618,7 +725,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
             ptype = plu.attrib.get("_Type", "")
             ppercent = plu.attrib.get("_Percent", "").strip()
             pdesc = plu.attrib.get("_TypeOtherDescription", "").strip()
-            pval = f"{ppercent}%" if ppercent else "0%"
+            pval = f"{ppercent}%" if ppercent else ""
             
             if ptype == "SingleFamily":
                 one_unit = pval
@@ -729,16 +836,6 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         elif concessions == "No":
             concessions_text = "0"
 
-    # Default values for Refinance transactions
-    if is_refinance:
-        if not contract_comment:
-            contract_comment = "Did not"
-        if not seller_is_owner:
-            seller_is_owner = "N/A"
-        if not concessions:
-            concessions = "N/A"
-        if not concessions_text:
-            concessions_text = "N/A"
 
 
     # Valuation / Reconciliation
@@ -746,7 +843,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     effective_date = ""
     if valuation is not None:
         appraised_val = _clean_currency(valuation.attrib.get("PropertyAppraisedValueAmount", ""))
-        effective_date = valuation.attrib.get("AppraisalEffectiveDate", "")
+        effective_date = _format_date(valuation.attrib.get("AppraisalEffectiveDate", ""))
 
     sales_comp_ind_val = ""
     sales_comp_comment = ""
@@ -1230,11 +1327,8 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
                 sales_grid["Subject Sale Price"] = comp_data["Sale Price"]
             else:
                 comp_aliases = [
-                    f"COMPARABLE SALE #{seq}",
-                    f"COMPARABLE SALE # {seq}",
                     f"Comparable #{seq}",
-                    f"Comp {seq}",
-                    f"COMP {seq}",
+                    f"COMPARABLE SALE #{seq}",
                 ]
                 for alias in comp_aliases:
                     comps_dict[alias] = comp_data
@@ -1464,12 +1558,17 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
             pud_fee_amt = _clean_currency(raw_amt)
             pud_fee_period = fee_elem.attrib.get("_PeriodType", "")
             if "month" in pud_fee_period.lower():
-                pud_fee_month = pud_fee_amt
+                pud_fee_month = "Yes"
+                pud_fee_year = ""
             elif "year" in pud_fee_period.lower() or "annual" in pud_fee_period.lower():
-                pud_fee_year = pud_fee_amt
+                pud_fee_year = "Yes"
+                pud_fee_month = ""
             else:
-                pud_fee_month = pud_fee_amt
+                pud_fee_month = "Yes"
+                pud_fee_year = ""
             hoa_fee = f"${pud_fee_amt}"
+            if not pud_indicator:
+                pud_indicator = "Yes"
         elif raw_amt == "0":
             hoa_fee = "0"
             if pud_indicator == "Yes":
@@ -1477,8 +1576,8 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
 
     pud_info_section = {
         "PUD Fees $": pud_fee_amt,
-        "PUD Fees (per month)": pud_fee_month,
-        "PUD Fees (per year)": pud_fee_year,
+        "PUD Fees (per month)": pud_fee_amt if pud_fee_month == "Yes" else "",
+        "PUD Fees (per year)": pud_fee_amt if pud_fee_year == "Yes" else "",
         "Is the developer/builder in control of the Homeowners' Association (HOA)?": dev_control,
         "Unit type(s)": unit_types,
         "Provide the following information for PUDs ONLY if the developer/builder is in control of the HOA and the subject property is an attached dwelling unit.": "",
@@ -1647,7 +1746,9 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "PUD": pud_indicator,
         "HOA $": hoa_fee,
         "HOA(per month)": pud_fee_month,
+        "HOA (per month)": pud_fee_month,
         "HOA(per year)": pud_fee_year,
+        "HOA (per year)": pud_fee_year,
         "Property Rights Appraised": prop_rights,
         "Assignment Type": assignment_type,
         "Lender/Client": lender_name,
@@ -1837,32 +1938,50 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         for h in struct_elem.findall("HEATING"):
             if not ht_raw and h.attrib.get("_Type"): ht_raw = h.attrib.get("_Type")
             if not hf_raw and h.attrib.get("_FuelDescription"): hf_raw = h.attrib.get("_FuelDescription")
-    ht_val = "FWA" if "warm" in ht_raw.lower() or "forced" in ht_raw.lower() else (
-        "HWBB" if "baseboard" in ht_raw.lower() else (
-            "Radiant" if "radiant" in ht_raw.lower() else (ht_raw or "FWA")
-        )
-    )
-    if "gas" in hf_raw.lower(): hf_val = "Gas"
-    elif "elec" in hf_raw.lower(): hf_val = "Electric"
-    elif "oil" in hf_raw.lower(): hf_val = "Oil"
-    else: hf_val = hf_raw.title() if hf_raw else "Gas"
+    ht_val = ""
+    if ht_raw:
+        if "warm" in ht_raw.lower() or "forced" in ht_raw.lower():
+            ht_val = "FWA"
+        elif "baseboard" in ht_raw.lower():
+            ht_val = "HWBB"
+        elif "radiant" in ht_raw.lower():
+            ht_val = "Radiant"
+        else:
+            ht_val = ht_raw
+
+    hf_val = ""
+    if hf_raw:
+        if "gas" in hf_raw.lower():
+            hf_val = "Gas"
+        elif "elec" in hf_raw.lower():
+            hf_val = "Electric"
+        elif "oil" in hf_raw.lower():
+            hf_val = "Oil"
+        else:
+            hf_val = hf_raw.title()
 
     cooling_elem = struct_elem.find("COOLING") if struct_elem is not None else None
-    c_central = cooling_elem.attrib.get("_CentralizedIndicator", "N") if cooling_elem is not None else "N"
-    c_indiv = cooling_elem.attrib.get("_IndividualIndicator", "N") if cooling_elem is not None else "N"
-    if c_central == "Y": cooling_val = "Central Air Conditioning"
-    elif c_indiv == "Y": cooling_val = "Individual"
-    else: cooling_val = "Other"
+    cooling_val = ""
+    if cooling_elem is not None:
+        c_central = cooling_elem.attrib.get("_CentralizedIndicator", "N")
+        c_indiv = cooling_elem.attrib.get("_IndividualIndicator", "N")
+        c_desc = cooling_elem.attrib.get("_Description", "") or cooling_elem.attrib.get("_Type", "")
+        if c_central == "Y":
+            cooling_val = "Central Air Conditioning"
+        elif c_indiv == "Y":
+            cooling_val = "Individual"
+        elif c_desc:
+            cooling_val = c_desc
 
     # Exterior Features (Material / Condition)
     ext_dict = {ef.attrib.get("_Type", ""): ef.attrib.get("_Description", "") for ef in struct_elem.findall("EXTERIOR_FEATURE")} if struct_elem is not None else {}
-    found_walls = _format_mat_cond(ext_dict.get("Foundation", "Concrete/Average"))
-    ext_walls = _format_mat_cond(ext_dict.get("Walls", "Vinyl/Average"))
-    roof_surf = _format_mat_cond(ext_dict.get("RoofSurface", "Asphalt/Average"))
-    gutters = _format_mat_cond(ext_dict.get("GuttersAndDownspouts", "Aluminum/Average"))
-    window_type = _format_mat_cond(ext_dict.get("WindowType", "Double Hung/Average"))
-    storm_sash = ext_dict.get("WindowStormSash", "Thermal/Average") or "None"
-    screens = ext_dict.get("WindowScreens", "Yes/Average") or "None"
+    found_walls = _format_mat_cond(ext_dict.get("Foundation", ""))
+    ext_walls = _format_mat_cond(ext_dict.get("Walls", ""))
+    roof_surf = _format_mat_cond(ext_dict.get("RoofSurface", ""))
+    gutters = _format_mat_cond(ext_dict.get("GuttersAndDownspouts", ""))
+    window_type = _format_mat_cond(ext_dict.get("WindowType", ""))
+    storm_sash = ext_dict.get("WindowStormSash", "") or "None"
+    screens = ext_dict.get("WindowScreens", "") or "None"
 
     # Amenities
     amenities_list = []
@@ -1881,49 +2000,104 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
                 amenity_details["Fireplace(s) #"] = cnt if cnt not in ["0", ""] else "1"
             elif at == "Fence" and (ex == "Y" or (desc and desc.lower() != "none")):
                 amenities_list.append("Fence")
-                amenity_details["Fence"] = desc if desc else "Wood"
+                amenity_details["Fence"] = desc if desc else "Yes"
             elif at in ["Patio", "Deck"] and (ex == "Y" or (desc and desc.lower() != "none")):
                 amenities_list.append("Patio/Deck")
                 amenity_details["Patio/Deck"] = desc if desc else at
             elif at == "Porch" and (ex == "Y" or (desc and desc.lower() != "none")):
                 amenities_list.append("Porch")
-                amenity_details["Porch"] = desc if desc else "Covered"
+                amenity_details["Porch"] = desc if desc else at
             elif at == "Pool" and (ex == "Y" or (desc and desc.lower() != "none")):
                 amenities_list.append("Pool")
-                amenity_details["Pool"] = desc if desc else "Inground"
+                amenity_details["Pool"] = desc if desc else "Yes"
     amenities_val = ", ".join(dict.fromkeys(amenities_list)) if amenities_list else "None"
 
     # Interior Features (Material / Condition)
     int_dict = {ifeat.attrib.get("_Type", ""): ifeat.attrib.get("_ConditionDescription", "") for ifeat in struct_elem.findall("INTERIOR_FEATURE")} if struct_elem is not None else {}
-    floors = _format_mat_cond(int_dict.get("Floors", "Hardwood/Average"))
-    walls = _format_mat_cond(int_dict.get("Walls", "Drywall/Average"))
-    trim = _format_mat_cond(int_dict.get("TrimAndFinish", "Wood/Average"))
-    bath_floor = _format_mat_cond(int_dict.get("BathroomFloors", "Tile/Average"))
-    bath_wainscot = _format_mat_cond(int_dict.get("BathroomWainscot", "Tile/Average"))
+    floors = _format_mat_cond(int_dict.get("Floors", ""))
+    walls = _format_mat_cond(int_dict.get("Walls", ""))
+    trim = _format_mat_cond(int_dict.get("TrimAndFinish", ""))
+    bath_floor = _format_mat_cond(int_dict.get("BathroomFloors", ""))
+    bath_wainscot = _format_mat_cond(int_dict.get("BathroomWainscot", ""))
 
     # Car Storage
     driveway_cars = "0"
     garage_cars = "0"
     carport_cars = "0"
     garage_att = ""
-    if struct_elem is not None:
-        for cs in struct_elem.findall("CAR_STORAGE"):
-            att = cs.attrib.get("_AttachmentType", "")
-            if att: garage_att = "Built-in" if "built" in att.lower() else att
-            for loc in cs.findall("CAR_STORAGE_LOCATION"):
-                lt = loc.attrib.get("_Type", "")
-                cnt = loc.attrib.get("ParkingSpacesCount", "0")
-                ex = loc.attrib.get("_ExistsIndicator", "Y")
-                if lt == "Driveway" and ex != "N": driveway_cars = cnt if cnt != "0" else "1"
-                elif lt == "Garage" and ex != "N": garage_cars = cnt
-                elif lt == "Carport" and ex != "N": carport_cars = cnt
+
+    # Check all CAR_STORAGE elements in the entire XML tree
+    for cs in root.findall(".//CAR_STORAGE"):
+        att = cs.attrib.get("_AttachmentType", "") or cs.attrib.get("AttachmentType", "")
+        if att and not garage_att:
+            a_low = att.lower()
+            if "built" in a_low:
+                garage_att = "Built-in"
+            elif "att" in a_low:
+                garage_att = "Attached"
+            elif "det" in a_low:
+                garage_att = "Detached"
+            else:
+                garage_att = att
+
+        for loc in cs.findall("CAR_STORAGE_LOCATION"):
+            lt = loc.attrib.get("_Type", "")
+            cnt = loc.attrib.get("ParkingSpacesCount", "0")
+            ex = loc.attrib.get("_ExistsIndicator", "Y")
+            loc_att = loc.attrib.get("_AttachmentType", "") or loc.attrib.get("AttachmentType", "")
+            if loc_att and not garage_att:
+                la_low = loc_att.lower()
+                if "built" in la_low:
+                    garage_att = "Built-in"
+                elif "att" in la_low:
+                    garage_att = "Attached"
+                elif "det" in la_low:
+                    garage_att = "Detached"
+            if lt == "Driveway" and ex != "N":
+                driveway_cars = cnt if cnt != "0" else "1"
+            elif lt == "Garage" and ex != "N":
+                garage_cars = cnt
+            elif lt == "Carport" and ex != "N":
+                carport_cars = cnt
+
+    # If garage_att still empty, check STRUCTURE AttachmentType
+    if not garage_att:
+        for st in root.findall(".//STRUCTURE"):
+            st_att = st.attrib.get("AttachmentType", "") or st.attrib.get("_AttachmentType", "")
+            if st_att:
+                sa_low = st_att.lower()
+                if "built" in sa_low:
+                    garage_att = "Built-in"
+                    break
+                elif "att" in sa_low:
+                    garage_att = "Attached"
+                    break
+                elif "det" in sa_low:
+                    garage_att = "Detached"
+                    break
+
+    # If garage_att still empty, check sales grid subject car storage feature adjustment
+    if not garage_att:
+        for feat in root.findall(".//_FEATURE_ADJUSTMENT"):
+            ft = (feat.attrib.get("_Type", "") or "").lower()
+            if "carstorage" in ft or "garage" in ft:
+                desc = (feat.attrib.get("_Description", "") or "").lower()
+                if "att" in desc or re.search(r'\d+ga\b', desc):
+                    garage_att = "Attached"
+                    break
+                elif "det" in desc or re.search(r'\d+gd\b', desc):
+                    garage_att = "Detached"
+                    break
+                elif "built" in desc or re.search(r'\d+gbi\b', desc):
+                    garage_att = "Built-in"
+                    break
 
     driveway_surface = ""
     for sf in root.findall(".//SITE_FEATURE"):
         if sf.attrib.get("_Type") == "Driveway":
             driveway_surface = sf.attrib.get("_Comment", "")
     if not driveway_surface:
-        driveway_surface = "Asphalt" if int(float(driveway_cars or "0")) > 0 else "None"
+        driveway_surface = "None"
     else:
         if "/" in driveway_surface:
             driveway_surface = driveway_surface.split("/")[0].strip()
@@ -1931,12 +2105,25 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
             driveway_surface = "Concrete"
 
     cs_types = []
-    if int(float(driveway_cars or "0")) > 0: cs_types.append("Driveway")
-    if int(float(garage_cars or "0")) > 0:
+    try:
+        d_cnt = int(float(driveway_cars or "0"))
+    except Exception:
+        d_cnt = 0
+    try:
+        g_cnt = int(float(garage_cars or "0"))
+    except Exception:
+        g_cnt = 0
+    try:
+        c_cnt = int(float(carport_cars or "0"))
+    except Exception:
+        c_cnt = 0
+
+    if d_cnt > 0:
+        cs_types.append("Driveway")
+    if g_cnt > 0:
         cs_types.append("Garage")
-        if not garage_att:
-            garage_att = "Attached" if "att" in struct_type_val.lower() else "Detached"
-    if int(float(carport_cars or "0")) > 0: cs_types.append("Carport")
+    if c_cnt > 0:
+        cs_types.append("Carport")
     car_storage_val = ", ".join(cs_types) if cs_types else "None"
 
     # Additional Features & Narratives
@@ -1944,51 +2131,63 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     cond_comment = ""
     phys_comment = ""
     conf_comment = ""
-    phys_ex = "N"
-    conf_ex = "Y"
+    phys_ex = ""
+    conf_ex = ""
     for pa in root.findall(".//PROPERTY_ANALYSIS"):
         pat = pa.attrib.get("_Type", "")
         if pat == "AdditionalFeatures": add_features = pa.attrib.get("_Comment", "")
         elif pat == "QualityAndAppearance" and not cond_comment: cond_comment = pa.attrib.get("_Comment", "")
         elif pat == "PropertyCondition" and not cond_comment: cond_comment = pa.attrib.get("_Comment", "")
         elif pat == "PhysicalDeficiency":
-            phys_ex = pa.attrib.get("_ExistsIndicator", "N")
+            phys_ex = pa.attrib.get("_ExistsIndicator", "")
             phys_comment = pa.attrib.get("_Comment", "")
         elif pat == "ConformsToNeighborhood":
-            conf_ex = pa.attrib.get("_ExistsIndicator", "Y")
+            conf_ex = pa.attrib.get("_ExistsIndicator", "")
             conf_comment = pa.attrib.get("_Comment", "")
 
-    # Ensure condition starts with C1-C4
+    # Condition rating for Subject from sales comparison grid
     cond_rating = ""
-    for cd in root.findall(".//COMPARISON_DETAIL"):
-        r = cd.attrib.get("GSEOverallConditionType", "")
-        if r in ["C1", "C2", "C3", "C4"]:
-            cond_rating = r
+    for cs in root.findall(".//COMPARABLE_SALE"):
+        if cs.attrib.get("PropertySequenceIdentifier") == "0":
+            cd = cs.find(".//COMPARISON_DETAIL")
+            if cd is not None:
+                r = cd.attrib.get("GSEOverallConditionType", "")
+                if re.match(r"^C[1-6]$", r, re.IGNORECASE):
+                    cond_rating = r.upper()
             break
-    if not cond_rating:
-        for adj in root.findall(".//SALE_PRICE_ADJUSTMENT"):
-            if adj.attrib.get("_Type") == "Condition":
-                d = adj.attrib.get("_Description", "")
-                if d in ["C1", "C2", "C3", "C4"]:
-                    cond_rating = d
-                    break
-    if not cond_rating:
-        cond_rating = "C4"
+    if not cond_rating and cond_comment:
+        m = re.match(r"^(C[1-6])\b", cond_comment.strip(), re.IGNORECASE)
+        if m:
+            cond_rating = m.group(1).upper()
 
     if cond_comment:
-        m = re.match(r"^(C[1-4])\b", cond_comment.strip(), re.IGNORECASE)
+        m = re.match(r"^(C[1-6])\b", cond_comment.strip(), re.IGNORECASE)
         if m:
             cond_desc = cond_comment.strip()
-        else:
+        elif cond_rating:
             cond_desc = f"{cond_rating}; {cond_comment.strip()}"
+        else:
+            cond_desc = cond_comment.strip()
+    elif cond_rating:
+        cond_desc = cond_rating
     else:
-        cond_desc = f"{cond_rating}; The subject property is in good condition overall."
+        cond_desc = ""
 
-    phys_desc = f"No. {phys_comment}".strip() if phys_ex == "N" else f"Yes: {phys_comment}".strip()
-    if not phys_desc: phys_desc = "No"
+    phys_desc = ""
+    if phys_ex == "N":
+        phys_desc = f"No. {phys_comment}".strip(". ") if phys_comment else "No"
+    elif phys_ex == "Y":
+        phys_desc = f"Yes: {phys_comment}".strip(". ") if phys_comment else "Yes"
+    elif phys_comment:
+        phys_desc = phys_comment
 
-    conf_desc = f"Yes. {conf_comment}".strip() if conf_ex == "Y" else f"No: {conf_comment}".strip()
-    if not conf_desc: conf_desc = "Yes"
+    conf_desc = ""
+    if conf_ex == "Y":
+        conf_desc = f"Yes. {conf_comment}".strip(". ") if conf_comment else "Yes"
+    elif conf_ex == "N":
+        conf_desc = f"No: {conf_comment}".strip(". ") if conf_comment else "No"
+    elif conf_comment:
+        conf_desc = conf_comment
 
     coa = root.find(".//_CONDITION_OF_APPRAISAL")
     reconcil_status = "As Is"
@@ -2122,7 +2321,11 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "Income Approach (if developed) $ Comment": f"Gross Rent Multiplier = {income_grm}" if income_grm else "",
         "opinion of the market value, as defined, of the real property that is the subject of this report is $": appraised_val,
         "Final Value $": appraised_val,
+        "as of": effective_date,
+        "as of date": effective_date,
         "Appraisal Effective Date": effective_date,
+        "Effective Date of Appraisal": effective_date,
+        "Effective Date": effective_date,
         "Appraiser Name": appraiser_name,
         "Signature Date": signed_date,
         reconciliation_long_key: reconcil_status,
@@ -2212,13 +2415,109 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "Cost Per Square Foot": price_per_sqft_cost,
     }
 
+    insp_elem = appraiser_elem.find("INSPECTION") if appraiser_elem is not None else root.find(".//INSPECTION")
+    insp_date = insp_elem.attrib.get("InspectionDate", "") if insp_elem is not None else effective_date
+
+    # Supervisory inspection details (strictly from XML)
+    sup_insp_none = ""
+    sup_insp_ext = ""
+    sup_insp_ext_date = ""
+    sup_insp_int_ext = ""
+    sup_insp_int_ext_date = ""
+    sup_comp_none = ""
+    sup_comp_yes = ""
+    sup_comp_date = ""
+
+    if sup_name.strip() and supervisor_elem is not None:
+        for insp in supervisor_elem.findall(".//INSPECTION"):
+            pt = insp.attrib.get("AppraisalInspectionPropertyType", "")
+            idate = insp.attrib.get("InspectionDate", "")
+            if pt == "Subject":
+                if idate:
+                    sup_insp_int_ext = "Yes"
+                    sup_insp_int_ext_date = idate
+                    sup_insp_none = "No"
+                    sup_insp_ext = "No"
+                else:
+                    sup_insp_none = "Yes"
+                    sup_insp_ext = "No"
+                    sup_insp_int_ext = "No"
+            elif pt == "Comparable":
+                sup_comp_yes = "Yes"
+                sup_comp_none = "No"
+                if idate:
+                    sup_comp_date = idate
+
     certification_section = {
+        # Appraiser Fields
+        "Signature": appraiser_name,
+        "Name": appraiser_name,
         "Appraiser Name": appraiser_name,
         "Company Name": appraiser_company,
         "Company Address": appraiser_address,
-        "Effective Date": effective_date,
+        "Telephone Number": appraiser_phone,
+        "Email Address": appraiser_email,
+        "Date of Signature": signed_date,
+        "Date of Signature and Report": signed_date,
         "Report Signed Date": signed_date,
+        "Effective Date": effective_date,
+        "Effective Date of Appraisal": effective_date,
+        "State Certification #": state_cert_no,
+        "or State License #": state_lic_no,
+        "or Other (describe)": "",
+        "State #": "",
+        "State": lic_state or appr_state,
+        "Expiration Date": lic_exp,
+        "Expiration Date of Certification or License": lic_exp,
+        
+        # Supervisory Appraiser Fields
+        "Supervisory Signature": sup_name if sup_name.strip() else "",
+        "Supervisory Name": sup_name,
+        "Supervisory Company Name": sup_company,
+        "Supervisory Company Address": sup_address,
+        "Supervisory Telephone Number": sup_phone,
+        "Supervisory Email Address": sup_email,
+        "Supervisory Date of Signature": signed_date if sup_name.strip() else "",
+        "Supervisory State Certification #": sup_cert_no,
+        "Supervisory or State License #": sup_lic_no,
+        "Supervisory State": sup_lic_state,
+        "Supervisory Expiration Date of Certification or License": sup_lic_exp,
+
+        # Property Appraised & Appraised Value
+        "Address": full_addr,
+        "ADDRESS OF PROPERTY APPRAISED": full_addr,
+        "Appraised Value $": appraised_val,
+        "APPRAISED VALUE OF SUBJECT PROPERTY $": appraised_val,
         "Appraised Value": appraised_val,
+
+        # Lender / Client
+        "LENDER/CLIENT Name": lender_name,
+        "Lender Name": lender_name,
+        "Lender/Client Company Name": lender_name,
+        "Lender/Client Company Address": lender_address,
+        "Lender/Client Email Address": lender_email,
+
+        # Subject Property Inspection (Supervisory Appraiser)
+        "Did not inspect subject property": sup_insp_none,
+        "Did inspect exterior of subject property from street": sup_insp_ext,
+        "Subject Property Date of Inspection (Exterior)": sup_insp_ext_date,
+        "Did inspect interior and exterior of subject property": sup_insp_int_ext,
+        "Subject Property Date of Inspection (Interior/Exterior)": sup_insp_int_ext_date,
+
+        # Comparable Sales Inspection (Supervisory Appraiser)
+        "Did not inspect exterior of comparable sales from street": sup_comp_none,
+        "Did inspect exterior of comparable sales from street": sup_comp_yes,
+        "Comparable Sales Date of Inspection": sup_comp_date,
+
+        # Additional Info & E&O Insurance
+        "Appraiser License": lic_id,
+        "E&O Insurance": "",
+        "Policy Period From": "",
+        "Policy Period To": "",
+        "License Valid To": lic_exp,
+        "LICENSE/REGISTRATION/CERTIFICATION #": lic_id,
+
+        # Fees & AMC
         "Appraiser's Fee": appraiser_fee,
         "Appraiser Fee": appraiser_fee,
         "Appraisal Fee": appraiser_fee,
@@ -2405,39 +2704,59 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
                 if f"{short_lbl} ({tf})" not in condo_coop_section:
                     condo_coop_section[f"{short_lbl} ({tf})"] = ""
 
-    # Merged Subject with both sales grid comps data and subject section fields
-    subj_grid = comps_dict.get("Subject", {})
-    merged_subject = {**subject_section, **subj_grid}
-    if not merged_subject.get("Address"):
-        merged_subject["Address"] = prop_addr
-    if not merged_subject.get("Heating/Cooling"):
-        merged_subject["Heating/Cooling"] = ht_val
-    if not merged_subject.get("Porch/Patio/Deck"):
-        merged_subject["Porch/Patio/Deck"] = amenities_val
-    if not merged_subject.get("Basement Description"):
-        merged_subject["Basement Description"] = found_val
-    if not merged_subject.get("Basement Finished Rooms"):
-        merged_subject["Basement Finished Rooms"] = f"{bm_finish}%" if bm_finish else ""
-    if not merged_subject.get("Condition"):
-        merged_subject["Condition"] = prop_condition
-    sales_grid["Subject"] = merged_subject
-    sales_grid["SUBJECT"] = merged_subject
-    comps_dict["Subject"] = merged_subject
-    comps_dict["SUBJECT"] = merged_subject
-    if not merged_subject.get("Basement & Finished Rooms Below Grade"):
-        merged_subject["Basement & Finished Rooms Below Grade"] = bm_details or found_val
-    if not merged_subject.get("Garage/Carport"):
-        merged_subject["Garage/Carport"] = car_storage_val
-    if not merged_subject.get("Parking On/Off Site"):
-        merged_subject["Parking On/Off Site"] = car_storage_val
+    # Subject property's column in the Sales Grid (strictly sales comparison grid fields)
+    subj_grid = dict(comps_dict.get("Subject", {}))
+    if not subj_grid.get("Address"):
+        subj_grid["Address"] = prop_addr
+    if not subj_grid.get("Heating/Cooling"):
+        subj_grid["Heating/Cooling"] = ht_val
+    if not subj_grid.get("Porch/Patio/Deck"):
+        subj_grid["Porch/Patio/Deck"] = amenities_val
+    if not subj_grid.get("Basement Description"):
+        subj_grid["Basement Description"] = found_val
+    if not subj_grid.get("Basement Finished Rooms"):
+        subj_grid["Basement Finished Rooms"] = f"{bm_finish}%" if bm_finish else ""
+    if not subj_grid.get("Condition"):
+        subj_grid["Condition"] = prop_condition
+    if not subj_grid.get("Basement & Finished Rooms Below Grade"):
+        subj_grid["Basement & Finished Rooms Below Grade"] = bm_details or found_val
+    if not subj_grid.get("Garage/Carport"):
+        subj_grid["Garage/Carport"] = car_storage_val
+    if not subj_grid.get("Parking On/Off Site"):
+        subj_grid["Parking On/Off Site"] = car_storage_val
 
-    # Merge Info of Sales & Prior Sale History into subject and sales grid
-    merged_subject.update(info_of_sales_section)
-    merged_subject.update(pud_info_section)
-    merged_subject.update(condo_coop_section)
-    merged_subject.update(condo_foreclosure_section)
+    # Sales Grid Subject column is strictly the sales comparison data for subject
+    sales_grid["Subject"] = subj_grid
+    sales_grid["SUBJECT"] = subj_grid
+    comps_dict["Subject"] = subj_grid
+    comps_dict["SUBJECT"] = subj_grid
+
+    # Subject Section is strictly Page 1 subject property identification (separate from Sales Grid)
+    clean_subject = dict(subject_section)
+    if not clean_subject.get("Property Address"):
+        clean_subject["Property Address"] = prop_addr
+    if not clean_subject.get("Full Address"):
+        clean_subject["Full Address"] = full_addr
+    if not clean_subject.get("City"):
+        clean_subject["City"] = prop_city
+    if not clean_subject.get("State"):
+        clean_subject["State"] = prop_state
+    if not clean_subject.get("Zip Code"):
+        clean_subject["Zip Code"] = prop_zip
+    if not clean_subject.get("County"):
+        clean_subject["County"] = prop_county
+
     sales_grid.update(info_of_sales_section)
     merged_info_of_sales = {**sales_grid, **info_of_sales_section}
+
+    # Clean structured Sales Grid containing Subject column and Comps 1..N
+    clean_sales_grid = {}
+    if "Subject" in sales_grid and isinstance(sales_grid["Subject"], dict):
+        clean_sales_grid["Subject"] = subj_grid
+    for i in range(1, 10):
+        c_val = sales_grid.get(f"Comparable #{i}") or sales_grid.get(f"COMPARABLE SALE #{i}")
+        if isinstance(c_val, dict):
+            clean_sales_grid[f"Comparable Sale {i}"] = c_val
 
     # Combined master fields object
     fields = {
@@ -2455,61 +2774,84 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "Owner of Public Record": owner_name,
         "Appraised Value": appraised_val,
         "Effective Date": effective_date,
+        "opinion of the market value, as defined, of the real property that is the subject of this report is $": appraised_val,
+        "as of": effective_date,
+        "as of date": effective_date,
         "File #": file_id,
         "Loan #": loan_num,
-        "SUBJECT": subject_section,
-        "Subject": merged_subject,
+        "Subject": clean_subject,
+        "SUBJECT": clean_subject,
         "CONTRACT": contract_section,
         "NEIGHBORHOOD": neighborhood_section,
         "SITE": site_section,
         "IMPROVEMENTS": improvements_section,
         "SALES_GRID": sales_grid,
-        "SALES_COMPARISON": comps_dict,
+        "Sales Grid": clean_sales_grid,
         "INFO_OF_SALES": merged_info_of_sales,
         "RECONCILIATION": reconciliation_section,
         "INCOME_APPROACH": income_approach_section,
         "COST_APPROACH": cost_approach_section,
         "PUD_INFO": pud_info_section,
-        "PUD Information": pud_info_section,
         "MARKET_CONDITIONS": market_conditions_section,
-        "Market Conditions": market_conditions_section,
-        "Market Conditions Addendum": market_conditions_section,
         "CONDO_COOP_PROJECTS": condo_coop_section,
-        "Condo Coop Projects": condo_coop_section,
         "CONDO_FORECLOSURE": condo_foreclosure_section,
-        "Condo Foreclosure": condo_foreclosure_section,
         "CERTIFICATION": certification_section,
         "SUBJECT_RENT_SCHEDULE": subject_rent_schedule,
         "COMPARABLE_RENTAL_DATA": comparable_rental_data,
         "EXTRACTED_PHOTOS": extracted_photos,
     }
 
-    # Flatten all category fields into root fields so data[field] is directly available to UI
-    for cat_dict in [subject_section, contract_section, neighborhood_section, site_section, improvements_section, reconciliation_section, income_approach_section, cost_approach_section, pud_info_section, market_conditions_section, condo_coop_section, condo_foreclosure_section, certification_section, info_of_sales_section]:
+    # Flatten category fields into root fields so data[field] is directly available to UI
+    for cat_dict in [clean_subject, contract_section, neighborhood_section, site_section, improvements_section, reconciliation_section, income_approach_section, cost_approach_section, pud_info_section, market_conditions_section, condo_coop_section, condo_foreclosure_section, certification_section, info_of_sales_section]:
         for k, v in cat_dict.items():
             if k not in fields:
                 fields[k] = v
-    fields.update(info_of_sales_section)
-    fields.update(pud_info_section)
-    fields.update(market_conditions_section)
-    fields.update(condo_coop_section)
-    fields.update(condo_foreclosure_section)
 
     # Map individual comps for Form1025 and 1004 grids without overwriting Subject
     for comp_name, comp_data in comps_dict.items():
-        if comp_name not in ("Subject", "SUBJECT"):
+        if comp_name not in ("Subject", "SUBJECT") and comp_name not in fields:
             fields[comp_name] = comp_data
-            fields[comp_name.upper()] = comp_data
 
     # Map individual rentals for Form1025
     for rent_name, rent_data in comparable_rental_data.items():
-        fields[rent_name] = rent_data
+        if rent_name not in fields:
+            fields[rent_name] = rent_data
+
+    # Clean structured appraisal data dictionary (single clean section hierarchy where Subject and Sales Grid are distinct)
+    clean_data = {
+        "Form Type": form_type,
+        "Subject": clean_subject,
+        "Contract": contract_section,
+        "Neighborhood": neighborhood_section,
+        "Site": site_section,
+        "Improvements": improvements_section,
+        "Sales Grid": clean_sales_grid,
+        "Reconciliation": reconciliation_section,
+    }
+    if cost_approach_section and any(cost_approach_section.values()):
+        clean_data["Cost Approach"] = cost_approach_section
+    if income_approach_section and any(income_approach_section.values()):
+        clean_data["Income Approach"] = income_approach_section
+    if pud_info_section and any(pud_info_section.values()):
+        clean_data["PUD Information"] = pud_info_section
+    if market_conditions_section and any(market_conditions_section.values()):
+        clean_data["Market Conditions Addendum"] = market_conditions_section
+    if condo_coop_section and any(condo_coop_section.values()):
+        clean_data["Condo / Coop Projects"] = condo_coop_section
+    if condo_foreclosure_section and any(condo_foreclosure_section.values()):
+        clean_data["Condo Foreclosure"] = condo_foreclosure_section
+    if subject_rent_schedule and any(subject_rent_schedule.values()):
+        clean_data["Subject Rent Schedule"] = subject_rent_schedule
+    if comparable_rental_data and any(comparable_rental_data.values()):
+        clean_data["Comparable Rental Data"] = comparable_rental_data
+    if certification_section and any(certification_section.values()):
+        clean_data["Certification"] = certification_section
 
     return {
         "status": "success",
         "form_type": form_type,
         "fields": fields,
         "unified_fields": fields,
-        "clean_data": fields,
+        "clean_data": clean_data,
         "has_embedded_pdf": has_embedded_pdf,
     }

@@ -122,8 +122,10 @@ export const checkSpecialAssessments = (field, text) => {
 };
 
 export const checkPUD = (field, text) => {
-    if (field !== 'PUD') return null;
-    const value = String(text || '').trim().toLowerCase();
+    if (field !== 'PUD' && field !== 'Planned Unit Development (PUD)') return null;
+    let value = String(text || '').trim().toLowerCase();
+    if (value.startsWith('yes')) value = 'yes';
+    else if (value.startsWith('no')) value = 'no';
     if (value !== 'yes' && value !== 'no') {
         return { isError: true, message: "PUD must be 'Yes' or 'No'." };
     }
@@ -131,17 +133,26 @@ export const checkPUD = (field, text) => {
 };
 
 export const checkHOA = (field, text, data) => {
-    if (field !== 'HOA $') return null;
-    const pudValue = String(data['PUD'] || '').trim().toLowerCase();
-    if (pudValue === 'yes') {
+    if (field !== 'HOA $' && field !== 'HOA') return null;
+    const pudValue = String(data?.['PUD'] || data?.['Planned Unit Development (PUD)'] || '').trim().toLowerCase();
+    if (pudValue.startsWith('yes')) {
         const hoaValue = parseFloat(String(text || '').replace(/[^0-9.-]+/g, ""));
         if (isNaN(hoaValue) || hoaValue <= 0) {
             return { isError: true, message: 'HOA $ must be greater than 0 if PUD is Yes.' };
         }
-        if (!data['HOA(per year)'] && !data['HOA(per month)']) {
+        const hasPerYear = data?.['HOA(per year)'] || data?.['HOA (per year)'] || data?.['PUD Fees (per year)'];
+        const hasPerMonth = data?.['HOA(per month)'] || data?.['HOA (per month)'] || data?.['PUD Fees (per month)'];
+        if (!hasPerYear && !hasPerMonth) {
             return { isError: true, message: "If PUD is 'Yes', at least one of 'HOA (per year)' or 'HOA (per month)' must be specified." };
         }
     }
+    return { isMatch: true };
+};
+
+export const checkHOAFrequency = (field, text, data) => {
+    if (field !== 'HOA(per month)' && field !== 'HOA (per month)' && field !== 'HOA(per year)' && field !== 'HOA (per year)') return null;
+    const val = String(text || '').trim();
+    if (!val) return null;
     return { isMatch: true };
 };
 export const checkOfferedForSale = (field, text, data) => {
@@ -170,7 +181,7 @@ export const checkOfferedForSale = (field, text, data) => {
 export const checkPropertyRightsInconsistency = (field, text, data) => {
     if (field !== 'Property Rights Appraised' || !data.Subject) return null;
     const subjectPropertyRights = String(text || '').trim();
-    const salesGridPropertyRights = String(data.Subject['Leasehold/Fee Simple'] || '').trim();
+    const salesGridPropertyRights = String(data.SALES_GRID?.Subject?.['Leasehold/Fee Simple'] || data['Sales Grid']?.Subject?.['Leasehold/Fee Simple'] || data.Subject?.['Leasehold/Fee Simple'] || '').trim();
     if (subjectPropertyRights && salesGridPropertyRights && subjectPropertyRights !== salesGridPropertyRights) {
         return { isError: true, message: `Property Rights mismatch: Subject section has '${subjectPropertyRights}', but Sales Comparison has '${salesGridPropertyRights}'.` };
     }

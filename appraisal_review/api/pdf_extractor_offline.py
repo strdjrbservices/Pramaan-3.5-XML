@@ -1553,10 +1553,45 @@ def extract_page_1_fields(page, full_doc_text="", fitz_page=None):
     sa_comm_m = re.search(r'([^.?!;\n]*\b(?:special\s*assessments?|assessments?)\b[^.?!;\n]*[.?!]?)', full_doc_text, re.IGNORECASE)
     subject["Special Assessments Comment"] = sa_comm_m.group(1).strip() if sa_comm_m else ""
 
-    pud_yes = is_box_checked(388, y_occ - 4, 405, y_occ + 6, "PUD")
-    subject["PUD"] = "Yes" if pud_yes else ""
-    val_hoa = get_val(440, y_occ - 4, 510, y_occ + 10)
+    # PUD Yes/No checkboxes and text fallback
+    pud_yes = is_box_checked(385, y_occ - 4, 405, y_occ + 6, "PUD Yes")
+    pud_no = is_box_checked(405, y_occ - 4, 428, y_occ + 6, "PUD No")
+    if pud_yes:
+        subject["PUD"] = "Yes"
+    elif pud_no:
+        subject["PUD"] = "No"
+    else:
+        row_pud_txt = get_words_in_box(words, 375, y_occ - 6, 435, y_occ + 8, strip_labels=False)
+        if re.search(r'(?:\[[Xx8]\]|[\u2611\u2612\u2713\u2714\u25a0\uf078\uf0fc\uf0fe]|[Xx8])\s*Yes', row_pud_txt, re.I):
+            subject["PUD"] = "Yes"
+        elif re.search(r'(?:\[[Xx8]\]|[\u2611\u2612\u2713\u2714\u25a0\uf078\uf0fc\uf0fe]|[Xx8])\s*No', row_pud_txt, re.I):
+            subject["PUD"] = "No"
+        else:
+            subject["PUD"] = ""
+
+    val_hoa = get_val(435, y_occ - 4, 510, y_occ + 10)
     subject["HOA $"] = re.sub(r'^(?:HOA\s*\$?\s*[:\-]*\s*)', '', val_hoa, flags=re.IGNORECASE).strip()
+
+    # HOA payment frequency: per year and per month
+    per_yr_chk = is_box_checked(505, y_occ - 4, 545, y_occ + 6, "per year")
+    per_mo_chk = is_box_checked(545, y_occ - 4, 585, y_occ + 6, "per month")
+    freq_txt = get_words_in_box(words, 500, y_occ - 6, 585, y_occ + 8, strip_labels=False)
+
+    if per_mo_chk or re.search(r'(?:\[[Xx8]\]|[\u2611\u2612\u2713\u2714\u25a0\uf078\uf0fc\uf0fe]|[Xx8])\s*(?:per\s*month|mo)', freq_txt, re.I):
+        subject["HOA(per month)"] = "Yes"
+        subject["HOA (per month)"] = "Yes"
+        subject["HOA(per year)"] = ""
+        subject["HOA (per year)"] = ""
+    elif per_yr_chk or re.search(r'(?:\[[Xx8]\]|[\u2611\u2612\u2713\u2714\u25a0\uf078\uf0fc\uf0fe]|[Xx8])\s*(?:per\s*year|yr)', freq_txt, re.I):
+        subject["HOA(per year)"] = "Yes"
+        subject["HOA (per year)"] = "Yes"
+        subject["HOA(per month)"] = ""
+        subject["HOA (per month)"] = ""
+    else:
+        subject["HOA(per month)"] = ""
+        subject["HOA (per month)"] = ""
+        subject["HOA(per year)"] = ""
+        subject["HOA (per year)"] = ""
 
     # Property Rights with strict vertical band + vector graphics & text fallback
     band_pr = ((y_occ + y_pr) / 2.0, (y_pr + y_asgn) / 2.0)
@@ -2585,14 +2620,53 @@ def extract_page_1_fields(page, full_doc_text="", fitz_page=None):
 
     cs_att_det = extract_choice_from_row(words, y_r11, [("Attached", ["Att.", "Att"], (440, 480)), ("Detached", ["Det.", "Det"], (480, 525)), ("Built-in", ["Built-in", "Built"], (525, 570))], 430, 580, default_val="", page=page, fitz_page=fitz_page)
     att_det_str = cs_att_det or ""
+
+    # Checkmark anchor fallback for Att. / Det. / Built-in
+    if not att_det_str:
+        for w in words:
+            if abs(w['top'] - y_r11) <= 7.0:
+                t = w['text']
+                if is_glyph_check(t) or t in ["[X]", "[x]", "X", "x"]:
+                    if 440 <= w['x0'] <= 480:
+                        att_det_str = "Attached"; break
+                    elif 480 <= w['x0'] <= 525:
+                        att_det_str = "Detached"; break
+                    elif 525 <= w['x0'] <= 575:
+                        att_det_str = "Built-in"; break
+
+    # Sales grid and commentary fallback if garage exists
+    if not att_det_str:
+        m_gar_grid = re.search(r'\b(?:Subject|\b)\s*[:\-]?\s*(\d+)g(a|d|bi)\b', full_doc_text, re.IGNORECASE)
+        if m_gar_grid:
+            code = m_gar_grid.group(2).lower()
+            if code == "a": att_det_str = "Attached"
+            elif code == "d": att_det_str = "Detached"
+            elif code == "bi": att_det_str = "Built-in"
+
+    if not att_det_str:
+        if re.search(r'\b(?:an?\s+)?attached\s+(?:\w+\s+)?(?:car\s+)?garage\b', full_doc_text, re.IGNORECASE):
+            att_det_str = "Attached"
+        elif re.search(r'\b(?:an?\s+)?detached\s+(?:\w+\s+)?(?:car\s+)?garage\b', full_doc_text, re.IGNORECASE):
+            att_det_str = "Detached"
+        elif re.search(r'\b(?:an?\s+)?built[\s\-]in\s+(?:\w+\s+)?(?:car\s+)?garage\b', full_doc_text, re.IGNORECASE):
+            att_det_str = "Built-in"
+
     imp["Att./Det./Built-in"] = att_det_str
 
+    has_drive = (cs_drive and str(imp["Driveway # of Cars"]).strip() not in ["0", "0.0"]) or (imp["Driveway # of Cars"] and str(imp["Driveway # of Cars"]).strip() not in ["0", "0.0", "None", ""])
+    has_gar = (cs_garage and str(imp["Garage # of Cars"]).strip() not in ["0", "0.0"]) or (imp["Garage # of Cars"] and str(imp["Garage # of Cars"]).strip() not in ["0", "0.0", "None", ""])
+    has_cp = (cs_carport and str(imp["Carport # of Cars"]).strip() not in ["0", "0.0"]) or (imp["Carport # of Cars"] and str(imp["Carport # of Cars"]).strip() not in ["0", "0.0", "None", ""])
+
     cs_items = []
-    if cs_none: cs_items.append("None")
-    if cs_drive or (imp["Driveway # of Cars"] and imp["Driveway # of Cars"] != "0"): cs_items.append("Driveway")
-    if cs_garage or (imp["Garage # of Cars"] and imp["Garage # of Cars"] != "0"): cs_items.append("Garage")
-    if cs_carport or (imp["Carport # of Cars"] and imp["Carport # of Cars"] != "0"): cs_items.append("Carport")
-    if not cs_items and att_det_str: cs_items.append(att_det_str)
+    if has_drive: cs_items.append("Driveway")
+    if has_gar: cs_items.append("Garage")
+    if has_cp: cs_items.append("Carport")
+
+    if cs_items:
+        cs_none = False
+    elif cs_none or not cs_items:
+        cs_items = ["None"]
+
     imp["Car Storage"] = ", ".join(cs_items)
 
     # -------------------------------------------------------------------------
@@ -3199,6 +3273,9 @@ def extract_page_2_sales_grid_and_reconciliation(page_p2, page_extra_comps=None,
         m_date = re.search(r'(?:as\s*of|effective\s*date(?:\s*of\s*appraisal)?)\s*([\d/]+)', txt, re.IGNORECASE)
         v_date = m_date.group(1) if m_date else ""
     recon["as of"] = v_date
+    recon["as of date"] = v_date
+    recon["Appraisal Effective Date"] = v_date
+    recon["Final Value $"] = v_val_clean or v_val
 
     return grid, recon
 
@@ -5723,6 +5800,12 @@ def extract_fields_from_pdf_offline(pdf_path):
 
             data["CERTIFICATION"] = extract_certification_section(pdf_path, full_doc_text)
 
+            if not recon.get("as of") and data.get("CERTIFICATION", {}).get("Effective Date of Appraisal"):
+                cert_eff = data["CERTIFICATION"]["Effective Date of Appraisal"]
+                recon["as of"] = cert_eff
+                recon["as of date"] = cert_eff
+                recon["Appraisal Effective Date"] = cert_eff
+
             data["MARKET_CONDITIONS"] = extract_market_conditions_section(pdf_path, full_doc_text)
 
             data["CONDO"] = extract_condo_section(pdf_path, full_doc_text)
@@ -5730,6 +5813,84 @@ def extract_fields_from_pdf_offline(pdf_path):
 
             data["SALES_TRANSFER"] = extract_sales_transfer_section(p2, full_doc_text, fitz_page=fitz_p2)
             data["PRIOR_SALE_HISTORY"] = extract_prior_sale_history_section(p2, full_doc_text, fitz_page=fitz_p2)
+
+            # Document-wide fallback and cross-section enrichment for PUD, HOA $, and payment frequency
+            subj_sec = data.get("SUBJECT")
+            pud_sec = data.get("PUD_INFO")
+            if isinstance(subj_sec, dict):
+                # 1. Check if PUD indicator is detected in document
+                if not subj_sec.get("PUD") or subj_sec["PUD"] not in ["Yes", "No"]:
+                    pud_detected = False
+                    if doc:
+                        for page_scan in doc[:6]:
+                            scan_w = page_scan.get_text("words")
+                            p_word = next((w for w in scan_w if "(PUD)" in w[4] or "Planned Unit" in w[4]), None)
+                            if p_word:
+                                checks = [w for w in scan_w if abs(w[1] - p_word[1]) < 14 and w[4] in ["\uf0fc", "", "[X]", "X"]]
+                                for chk in checks:
+                                    if chk[0] < 280:
+                                        subj_sec["PUD"] = "Yes"
+                                        pud_detected = True
+                                        break
+                                    elif chk[0] >= 280:
+                                        subj_sec["PUD"] = "No"
+                                        pud_detected = True
+                                        break
+                            if pud_detected:
+                                break
+                    if not pud_detected:
+                        if pud_sec and any(pud_sec.values()):
+                            subj_sec["PUD"] = "Yes"
+                        elif re.search(r'Planned\s+Unit\s+Development\s*\(\s*PUD\s*\)\s*Yes', full_doc_text, re.I):
+                            subj_sec["PUD"] = "Yes"
+
+                # 2. Check if HOA fee / Monthly Amount is found
+                if not subj_sec.get("HOA $") or str(subj_sec["HOA $"]).strip() in ["", "0"]:
+                    m_mfee = re.search(r'(?:Monthly\s+Amount|Monthly\s+HOA\s+Fees?[:\s]*|Monthly\s+Assessment[:\s]*)\s*\n*\$?\s*([\d,]+(?:\.\d{2})?)', full_doc_text, re.IGNORECASE)
+                    if m_mfee:
+                        clean_mfee = m_mfee.group(1).replace(",", "")
+                        subj_sec["HOA $"] = clean_mfee
+                        subj_sec["HOA(per month)"] = "Yes"
+                        subj_sec["HOA (per month)"] = "Yes"
+                        subj_sec["HOA(per year)"] = ""
+                        subj_sec["HOA (per year)"] = ""
+                        if not subj_sec.get("PUD"):
+                            subj_sec["PUD"] = "Yes"
+                    else:
+                        m_afee = re.search(r'(?:Annual\s+Amount|Annual\s+HOA\s+Fees?[:\s]*|Annual\s+Assessment[:\s]*)\s*\n*\$?\s*([\d,]+(?:\.\d{2})?)', full_doc_text, re.IGNORECASE)
+                        if m_afee:
+                            clean_afee = m_afee.group(1).replace(",", "")
+                            subj_sec["HOA $"] = clean_afee
+                            subj_sec["HOA(per year)"] = "Yes"
+                            subj_sec["HOA (per year)"] = "Yes"
+                            subj_sec["HOA(per month)"] = ""
+                            subj_sec["HOA (per month)"] = ""
+                            if not subj_sec.get("PUD"):
+                                subj_sec["PUD"] = "Yes"
+
+                # If HOA fee exists, ensure payment frequency is populated
+                hoa_num = re.sub(r'[^0-9.]', '', str(subj_sec.get("HOA $", "")))
+                if hoa_num and float(hoa_num or 0) > 0:
+                    if not subj_sec.get("HOA(per month)") and not subj_sec.get("HOA(per year)"):
+                        if re.search(r'HOA[^\n]*(?:annual|per\s*year|\/yr)', full_doc_text, re.I):
+                            subj_sec["HOA(per year)"] = "Yes"
+                            subj_sec["HOA (per year)"] = "Yes"
+                            subj_sec["HOA(per month)"] = ""
+                            subj_sec["HOA (per month)"] = ""
+                        else:
+                            subj_sec["HOA(per month)"] = "Yes"
+                            subj_sec["HOA (per month)"] = "Yes"
+                            subj_sec["HOA(per year)"] = ""
+                            subj_sec["HOA (per year)"] = ""
+
+                # Sync into PUD_INFO section
+                if isinstance(pud_sec, dict):
+                    if subj_sec.get("HOA $") and not pud_sec.get("PUD Fees $"):
+                        pud_sec["PUD Fees $"] = subj_sec["HOA $"]
+                    if subj_sec.get("HOA(per month)") and not pud_sec.get("PUD Fees (per month)"):
+                        pud_sec["PUD Fees (per month)"] = subj_sec["HOA $"] if subj_sec.get("HOA $") else "Yes"
+                    if subj_sec.get("HOA(per year)") and not pud_sec.get("PUD Fees (per year)"):
+                        pud_sec["PUD Fees (per year)"] = subj_sec["HOA $"] if subj_sec.get("HOA $") else "Yes"
 
             # Extract Photo Addenda
             extracted_photos = extract_photos_and_captions(doc, pdf_path)
@@ -5838,15 +5999,20 @@ def extract_fields_from_pdf_offline(pdf_path):
                     for k, v in cat_dict.items():
                         unified_fields[k] = v
 
-            # Expose SALES_GRID comps and Subject at top level of unified_fields
+            # Clean structured Sales Grid containing Subject column and Comps 1..N
+            clean_sales_grid: Dict[str, Any] = {}
             if "SALES_GRID" in clean_data and isinstance(clean_data["SALES_GRID"], dict):
                 grid = clean_data["SALES_GRID"]
+                if "Subject" in grid and isinstance(grid["Subject"], dict):
+                    clean_sales_grid["Subject"] = grid["Subject"]
+                comp_num_map: Dict[int, Any] = {}
                 for comp_k, comp_v in grid.items():
-                    if isinstance(comp_v, dict):
-                        unified_fields[comp_k] = comp_v
-                        m_comp = re.search(r'#\s*(\d+)', comp_k)
+                    if isinstance(comp_v, dict) and not comp_k.lower().startswith("subject"):
+                        m_comp = re.search(r'(\d+)', comp_k)
                         if m_comp:
-                            c_num = m_comp.group(1)
+                            c_num = int(m_comp.group(1))
+                            if c_num not in comp_num_map:
+                                comp_num_map[c_num] = comp_v
                             unified_fields[f"COMPARABLE SALE #{c_num}"] = comp_v
                             unified_fields[f"COMPARABLE SALE # {c_num}"] = comp_v
                             unified_fields[f"COMPARABLE #{c_num}"] = comp_v
@@ -5854,18 +6020,15 @@ def extract_fields_from_pdf_offline(pdf_path):
                             unified_fields[f"Comparable Sale #{c_num}"] = comp_v
                             unified_fields[f"Comp {c_num}"] = comp_v
                             unified_fields[f"COMP {c_num}"] = comp_v
+                        unified_fields[comp_k] = comp_v
+                for c_num in sorted(comp_num_map.keys()):
+                    clean_sales_grid[f"Comparable Sale {c_num}"] = comp_num_map[c_num]
 
-                # Merge Subject sales grid data into top-level Subject & SUBJECT
-                if "Subject" in grid and isinstance(grid["Subject"], dict):
-                    subj_data = unified_fields.get("Subject") or {}
-                    if not isinstance(subj_data, dict):
-                        subj_data = {}
-                    subj_upper = unified_fields.get("SUBJECT") or {}
-                    if not isinstance(subj_upper, dict):
-                        subj_upper = {}
-                    merged_subj = {**subj_upper, **subj_data, **grid["Subject"]}
-                    unified_fields["Subject"] = merged_subj
-                    unified_fields["SUBJECT"] = merged_subj
+            # Subject section and Sales Grid are two distinct sections (do not merge Sales Grid into Subject)
+            subj_section = dict(clean_data.get("SUBJECT") or {})
+            unified_fields["Subject"] = subj_section
+            unified_fields["SUBJECT"] = subj_section
+            unified_fields["Sales Grid"] = clean_sales_grid
 
             # Expose COMPARABLE_RENTAL_DATA at top level of unified_fields
             if "COMPARABLE_RENTAL_DATA" in clean_data and isinstance(clean_data["COMPARABLE_RENTAL_DATA"], dict):
@@ -5882,13 +6045,41 @@ def extract_fields_from_pdf_offline(pdf_path):
                             unified_fields[f"RENTAL #{r_num}"] = rent_v
                             unified_fields[f"Rental {r_num}"] = rent_v
 
+            # Build clean, human-readable section dictionary where Subject and Sales Grid are distinct
+            clean_section_data = {
+                "Form Type": "1004",
+                "Subject": subj_section,
+                "Contract": clean_data.get("CONTRACT") or {},
+                "Neighborhood": clean_data.get("NEIGHBORHOOD") or {},
+                "Site": clean_data.get("SITE") or {},
+                "Improvements": clean_data.get("IMPROVEMENTS") or {},
+                "Sales Grid": clean_sales_grid,
+                "Reconciliation": clean_data.get("RECONCILIATION") or {},
+            }
+            if clean_data.get("COST_APPROACH") and any(clean_data["COST_APPROACH"].values()):
+                clean_section_data["Cost Approach"] = clean_data["COST_APPROACH"]
+            if clean_data.get("INCOME_APPROACH") and any(clean_data["INCOME_APPROACH"].values()):
+                clean_section_data["Income Approach"] = clean_data["INCOME_APPROACH"]
+            if clean_data.get("PUD_INFO") and any(clean_data["PUD_INFO"].values()):
+                clean_section_data["PUD Information"] = clean_data["PUD_INFO"]
+            if clean_data.get("MARKET_CONDITIONS") and any(clean_data["MARKET_CONDITIONS"].values()):
+                clean_section_data["Market Conditions Addendum"] = clean_data["MARKET_CONDITIONS"]
+            if clean_data.get("CONDO") and any(clean_data["CONDO"].values()):
+                clean_section_data["Condo / Coop Projects"] = clean_data["CONDO"]
+            if clean_data.get("CONDO_FORECLOSURE") and any(clean_data["CONDO_FORECLOSURE"].values()):
+                clean_section_data["Condo Foreclosure"] = clean_data["CONDO_FORECLOSURE"]
+            if clean_data.get("CERTIFICATION") and any(clean_data["CERTIFICATION"].values()):
+                clean_section_data["Certification"] = clean_data["CERTIFICATION"]
+            if clean_data.get("COMPARABLE_RENTAL_DATA") and any(clean_data["COMPARABLE_RENTAL_DATA"].values()):
+                clean_section_data["Comparable Rental Data"] = clean_data["COMPARABLE_RENTAL_DATA"]
+
             raw_json_str = json.dumps(unified_fields, indent=2)
             unified_fields["raw"] = raw_json_str
 
             return {
                 "fields": unified_fields,
                 "unified_fields": unified_fields,
-                "clean_data": clean_data,
+                "clean_data": clean_section_data,
                 "raw": raw_json_str,
                 "pages_detected": page_indices,
                 "extracted_photos": extracted_photos,

@@ -1512,7 +1512,14 @@ def extract_v1_improvements_section(doc, full_doc_text: str, summary: Dict[str, 
         "Occupancy": "",
         "Total Bedrooms": "",
         "Total Bathrooms - Full": "",
-        "Total Bathrooms - Half": ""
+        "Total Bathrooms - Half": "",
+        "Car Storage": "",
+        "Driveway # of Cars": "",
+        "Driveway Surface": "",
+        "Garage # of Cars": "",
+        "Carport # of Cars": "",
+        "Att./Det./Built-in": "",
+        "Garage Att./Det./Built-in": ""
     }
 
     # Aggregate text of Dwelling Exterior, Unit Interior, Quality and Condition, Mechanical, Sketch
@@ -1695,11 +1702,74 @@ def extract_v1_improvements_section(doc, full_doc_text: str, summary: Dict[str, 
         imp["Apparent Defects, Damages, Deficiencies (Unit Interior)"] = clean_text_value(m_def_int.group(1))
 
     # Vehicle Storage
-    m_vs_type = re.search(r"Vehicle\s+Storage[\s\S]*?Storage\s+Number\s+of\s+Parking\s+Spaces\s+Detail\s*\n\s*([A-Za-z0-9\s]+?)\s+(\d+)\s+([A-Za-z0-9\s\.\n]+?)(?=Apparent|\Z)", dw_text, re.I)
-    if m_vs_type:
-        imp["Vehicle Storage Type"] = clean_text_value(m_vs_type.group(1))
-        imp["Vehicle Storage Spaces"] = m_vs_type.group(2).strip()
-        imp["Vehicle Storage Detail"] = clean_text_value(m_vs_type.group(3))
+    driveway_cars = "0"
+    driveway_surface = ""
+    garage_cars = "0"
+    carport_cars = "0"
+    att_type = ""
+    cs_items = []
+
+    all_txt = dw_text + "\n" + full_doc_text
+    vs_text = ""
+    for p in doc:
+        pt = p.get_text("text")
+        if "Vehicle Storage" in pt:
+            vs_text = pt
+            break
+    if not vs_text:
+        vs_text = all_txt
+
+    m_vs = re.search(r"Vehicle\s+Storage[\s\S]*?Storage\s+Number\s+of\s+Parking\s+Spaces\s+Detail([\s\S]*?)(?=Apparent|\n\n[A-Z]|\Z)", vs_text, re.I)
+    if m_vs:
+        table_text = m_vs.group(1).strip()
+        lines = [l.strip() for l in table_text.split("\n") if l.strip()]
+        i = 0
+        while i < len(lines):
+            l_lower = lines[i].lower()
+            if l_lower == "garage":
+                cs_items.append("Garage")
+                if i + 1 < len(lines) and re.match(r"^\d+$", lines[i + 1]):
+                    garage_cars = lines[i + 1]
+                    i += 1
+                if i + 1 < len(lines):
+                    nxt = lines[i + 1].lower()
+                    if "att" in nxt: att_type = "Attached"; i += 1
+                    elif "det" in nxt: att_type = "Detached"; i += 1
+                    elif "built" in nxt: att_type = "Built-in"; i += 1
+            elif l_lower == "driveway":
+                cs_items.append("Driveway")
+                if i + 1 < len(lines) and re.match(r"^\d+$", lines[i + 1]):
+                    driveway_cars = lines[i + 1]
+                    i += 1
+                if i + 1 < len(lines) and not re.match(r"^\d+$", lines[i + 1]) and lines[i + 1].lower() not in ["garage", "carport", "vehicle", "apparent"]:
+                    driveway_surface = lines[i + 1]
+                    i += 1
+            elif l_lower == "carport":
+                cs_items.append("Carport")
+                if i + 1 < len(lines) and re.match(r"^\d+$", lines[i + 1]):
+                    carport_cars = lines[i + 1]
+                    i += 1
+            i += 1
+
+    if not att_type:
+        if re.search(r"\battached\s+(?:\w+\s+)?(?:car\s+)?garage\b", all_txt, re.I):
+            att_type = "Attached"
+        elif re.search(r"\bdetached\s+(?:\w+\s+)?(?:car\s+)?garage\b", all_txt, re.I):
+            att_type = "Detached"
+        elif re.search(r"\bbuilt[\s\-]in\s+(?:\w+\s+)?(?:car\s+)?garage\b", all_txt, re.I):
+            att_type = "Built-in"
+
+    cs_val = ", ".join(dict.fromkeys(cs_items)) if cs_items else "None"
+    imp["Car Storage"] = cs_val
+    imp["Driveway # of Cars"] = driveway_cars if (driveway_cars != "0" or "Driveway" in cs_val) else ""
+    imp["Driveway Surface"] = driveway_surface
+    imp["Garage # of Cars"] = garage_cars if (garage_cars != "0" or "Garage" in cs_val) else ""
+    imp["Carport # of Cars"] = carport_cars if (carport_cars != "0" or "Carport" in cs_val) else ""
+    imp["Att./Det./Built-in"] = att_type
+    imp["Garage Att./Det./Built-in"] = att_type
+    imp["Vehicle Storage Type"] = cs_val
+    imp["Vehicle Storage Spaces"] = garage_cars if garage_cars != "0" else driveway_cars
+    imp["Vehicle Storage Detail"] = att_type or driveway_surface
 
     m_def_vs = re.search(r"Apparent\s+Defects,\s+Damages,\s+Deficiencies\s*\(Vehicle\s+Storage\)\s*\n\s*([^\n\r]+)", dw_text, re.I)
     if m_def_vs:
@@ -2582,12 +2652,20 @@ def extract_v1_reconciliation_section(doc, full_doc_text: str, summary: Dict[str
 
     # Aliases matching various UI components
     val_sca_final = rec.get("Sales Comparison Approach Indicated Value") or summary.get("Opinion of Market Value", "")
+    omv = rec.get("Opinion of Market Value") or summary.get("Opinion of Market Value", "")
+    eff_date = rec.get("Effective Date of Appraisal") or summary.get("Effective Date of Appraisal", "") or summary.get("Appraisal Effective Date", "")
     rec["Sales Comparison Approach Indicated Value"] = val_sca_final
     rec["Indicated Value by Sales Comparison Approach"] = val_sca_final
     rec["Indicated Value by Sales Comparison Approach Indicated"] = val_sca_final
     rec["Indicated Value by Sales Comparison Approach $"] = val_sca_final
     rec["Indicated Value by Cost Approach"] = rec.get("Cost Approach Indicated Value", "")
     rec["Indicated Value by Income Approach"] = rec.get("Income Approach Indicated Value", "")
+    rec["opinion of the market value, as defined, of the real property that is the subject of this report is $"] = omv
+    rec["Final Value $"] = omv
+    rec["as of"] = eff_date
+    rec["as of date"] = eff_date
+    rec["Appraisal Effective Date"] = eff_date
+    rec["Effective Date of Appraisal"] = eff_date
 
     return rec
 
@@ -3157,27 +3235,68 @@ def extract_fields_from_pdf_v1_offline(pdf_path: str) -> Dict[str, Any]:
     # 4. Extract visual photos and exhibits
     extracted_photos = extract_photos_and_exhibits(doc)
 
-    # 5. Build clean data dictionary
-    clean_data = {
-        "SUMMARY": summary_data,
-        "CONTRACT": contract_data,
-        "SUBJECT": subject_data,
-        "SITE": site_data,
-        "IMPROVEMENTS": improvements_data,
-        "NEIGHBORHOOD": neighborhood_data,
-        "PROJECT_INFO": project_info_data,
-        "PUD_INFO": project_info_data,
-        "PRIOR_SALE_HISTORY": prior_sale_history_data,
-        "SALES_GRID": sales_grid_data,
-        "Subject": sales_grid_data.get("Subject", {}),
-        "COMPARABLE SALE #1": sales_grid_data.get("COMPARABLE SALE #1", {}),
-        "COMPARABLE SALE #2": sales_grid_data.get("COMPARABLE SALE #2", {}),
-        "COMPARABLE SALE #3": sales_grid_data.get("COMPARABLE SALE #3", {}),
-        "COST_APPROACH": cost_approach_data,
-        "RECONCILIATION": reconciliation_data,
-        "CERTIFICATION": certification_data,
-        "EXTRACTED_PHOTOS": extracted_photos
+    # 5. Build clean sales grid and section dictionary (strictly separate Subject and Sales Grid)
+    clean_sales_grid: Dict[str, Any] = {}
+    if "Subject" in sales_grid_data and isinstance(sales_grid_data["Subject"], dict):
+        clean_sales_grid["Subject"] = sales_grid_data["Subject"]
+    comp_num_map_v1: Dict[int, Any] = {}
+    for comp_k, comp_v in sales_grid_data.items():
+        if isinstance(comp_v, dict) and not comp_k.lower().startswith("subject"):
+            m_comp = re.search(r'(\d+)', comp_k)
+            if m_comp:
+                comp_num_map_v1[int(m_comp.group(1))] = comp_v
+            else:
+                clean_sales_grid[comp_k] = comp_v
+    for c_num in sorted(comp_num_map_v1.keys()):
+        clean_sales_grid[f"Comparable Sale {c_num}"] = comp_num_map_v1[c_num]
+
+    # Map PUD and HOA fields to subject_data
+    is_pud = (
+        project_info_data.get("Planned Unit Development (PUD)") == "Yes" or
+        subject_data.get("Planned Unit Development (PUD)") == "Yes" or
+        summary_data.get("Planned Unit Development (PUD)") == "Yes"
+    )
+    if is_pud:
+        subject_data["PUD"] = "Yes"
+    elif not subject_data.get("PUD"):
+        subject_data["PUD"] = "No"
+
+    hoa_fee_str = project_info_data.get("Monthly Amount") or ""
+    if hoa_fee_str:
+        clean_hoa = re.sub(r'[^\d.]', '', hoa_fee_str)
+        subject_data["HOA $"] = clean_hoa
+        subject_data["HOA(per month)"] = "Yes"
+        subject_data["HOA (per month)"] = "Yes"
+        subject_data["HOA(per year)"] = ""
+        subject_data["HOA (per year)"] = ""
+        project_info_data["PUD Fees $"] = clean_hoa
+        project_info_data["PUD Fees (per month)"] = clean_hoa
+        project_info_data["PUD Fees (per year)"] = ""
+    else:
+        subject_data.setdefault("HOA $", "")
+        subject_data.setdefault("HOA(per month)", "")
+        subject_data.setdefault("HOA (per month)", "")
+        subject_data.setdefault("HOA(per year)", "")
+        subject_data.setdefault("HOA (per year)", "")
+
+    clean_section_data = {
+        "Form Type": "Appraisal Version #1",
+        "Subject": subject_data,
+        "Contract": contract_data,
+        "Neighborhood": neighborhood_data,
+        "Site": site_data,
+        "Improvements": improvements_data,
+        "Sales Grid": clean_sales_grid,
+        "Reconciliation": reconciliation_data,
     }
+    if cost_approach_data and any(cost_approach_data.values()):
+        clean_section_data["Cost Approach"] = cost_approach_data
+    if project_info_data and any(project_info_data.values()):
+        clean_section_data["Project Information"] = project_info_data
+    if prior_sale_history_data and any(prior_sale_history_data.values()):
+        clean_section_data["Prior Sale History"] = prior_sale_history_data
+    if certification_data and any(certification_data.values()):
+        clean_section_data["Certification"] = certification_data
 
     val_ind_sca = reconciliation_data.get("Sales Comparison Approach Indicated Value") or summary_data.get("Opinion of Market Value", "")
     sales_transfer = {
@@ -3186,7 +3305,6 @@ def extract_fields_from_pdf_v1_offline(pdf_path: str) -> Dict[str, Any]:
         "Indicated Value by Sales Comparison Approach Indicated": val_ind_sca,
         "Sales Comparison Approach Indicated Value": val_ind_sca
     }
-    clean_data["SALES_TRANSFER"] = sales_transfer
 
     # Combined flat fields dictionary for legacy component consumption
     combined_fields = {}
@@ -3204,15 +3322,20 @@ def extract_fields_from_pdf_v1_offline(pdf_path: str) -> Dict[str, Any]:
     combined_fields.update(reconciliation_data)
     combined_fields.update(certification_data)
 
-    # Flat comp mappings for direct access by SalesComparisonSection & GridInfoCards
-    if "Subject" in sales_grid_data:
-        combined_fields["Subject"] = sales_grid_data["Subject"]
-    if "COMPARABLE SALE #1" in sales_grid_data:
-        combined_fields["COMPARABLE SALE #1"] = sales_grid_data["COMPARABLE SALE #1"]
-    if "COMPARABLE SALE #2" in sales_grid_data:
-        combined_fields["COMPARABLE SALE #2"] = sales_grid_data["COMPARABLE SALE #2"]
-    if "COMPARABLE SALE #3" in sales_grid_data:
-        combined_fields["COMPARABLE SALE #3"] = sales_grid_data["COMPARABLE SALE #3"]
+    # Subject and Sales Grid are two distinct sections (do not overwrite Subject with Sales Grid)
+    combined_fields["Subject"] = subject_data
+    combined_fields["SUBJECT"] = subject_data
+    combined_fields["Sales Grid"] = clean_sales_grid
+    combined_fields["SALES_GRID"] = sales_grid_data
+    combined_fields["RECONCILIATION"] = reconciliation_data
+    combined_fields["Reconciliation"] = reconciliation_data
+
+    # Map individual comps
+    for c_num, c_data in comp_num_map_v1.items():
+        combined_fields[f"COMPARABLE SALE #{c_num}"] = c_data
+        combined_fields[f"COMPARABLE SALE # {c_num}"] = c_data
+        combined_fields[f"Comparable Sale #{c_num}"] = c_data
+        combined_fields[f"Comp {c_num}"] = c_data
 
     # Subject Listing Data Source mapping
     if project_info_data.get("Subject Listing Data Source"):
@@ -3229,7 +3352,7 @@ def extract_fields_from_pdf_v1_offline(pdf_path: str) -> Dict[str, Any]:
     combined_fields["Reconciliation of Sales Comparison Approach"] = reconciliation_data.get("Reconciliation of Sales Comparison Approach", "")
     combined_fields["Sales Comparison Map"] = "Included in Exhibits"
     combined_fields["Sales Comparison Approach Exhibits"] = "Included in Exhibits"
-    combined_fields.update(clean_data)
+    combined_fields["EXTRACTED_PHOTOS"] = extracted_photos
 
     doc.close()
 
@@ -3237,7 +3360,7 @@ def extract_fields_from_pdf_v1_offline(pdf_path: str) -> Dict[str, Any]:
         "status": "success",
         "form_type": metadata.get("From Type", "Appraisal Version #1"),
         "fields": combined_fields,
-        "clean_data": clean_data,
+        "clean_data": clean_section_data,
         "raw": json.dumps(combined_fields, indent=2, default=str),
         "extracted_photos": extracted_photos
     }

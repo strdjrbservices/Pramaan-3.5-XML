@@ -20,6 +20,19 @@ export const parseAdjustmentValue = (adjStr) => {
     return isNegative ? -num : num;
 };
 
+const getSubjectGridData = (allData) => {
+    if (!allData || typeof allData !== 'object') return {};
+    return (
+        allData.SALES_GRID?.Subject ||
+        allData['Sales Grid']?.Subject ||
+        allData.SALES_GRID?.SUBJECT ||
+        allData['Sales Grid']?.SUBJECT ||
+        allData.Subject ||
+        allData.SUBJECT ||
+        {}
+    );
+};
+
 const normalizeCheckArgs = (field, arg2, arg3, arg4, arg5) => {
     let allData = null;
     let saleName = null;
@@ -56,10 +69,11 @@ export const checkConditionAdjustment = (field, arg2, arg3, arg4, arg5) => {
 
     if ((!isConditionField && !isAdjustmentField) || !saleName || saleName === 'Subject' || !allData) return null;
 
+    const subjGrid = getSubjectGridData(allData);
     const subjectCondition = String(
-        allData.Subject?.['Condition'] ||
+        subjGrid['Condition'] ||
         allData['Condition'] ||
-        allData['Subject']?.['Condition'] ||
+        allData.Subject?.['Condition'] ||
         ''
     ).trim().toUpperCase();
 
@@ -148,9 +162,10 @@ export const checkBedroomsAdjustment = (field, arg2, arg3, arg4, arg5) => {
     const isBedroomField = field === 'Bedrooms';
     const isAdjustmentField = field === 'Bedrooms Adjustment';
 
-    if ((!isBedroomField && !isAdjustmentField) || !allData || !allData.Subject || !saleName || saleName === 'Subject') return null;
+    if ((!isBedroomField && !isAdjustmentField) || !allData || !saleName || saleName === 'Subject') return null;
 
-    const subjectBedrooms = parseInt(String(allData.Subject['Bedrooms'] || '0').trim(), 10);
+    const subjGrid = getSubjectGridData(allData);
+    const subjectBedrooms = parseInt(String(subjGrid['Bedrooms'] || allData.Subject?.['Bedrooms'] || '0').trim(), 10);
     const compBedrooms = parseInt(String(allData[saleName]?.['Bedrooms'] || '0').trim(), 10);
     const adjustmentText = String(allData[saleName]?.['Bedrooms Adjustment'] || '').trim();
     const adjustmentValue = parseAdjustmentValue(adjustmentText);
@@ -192,10 +207,11 @@ export const checkBathsAdjustment = (field, arg2, arg3, arg4, arg5) => {
 
     if ((!isBathField && !isAdjustmentField) || !saleName || saleName === 'Subject' || !allData) return null;
 
+    const subjGrid = getSubjectGridData(allData);
     const subjectBathsStr = String(
-        allData.Subject?.['Baths'] ||
+        subjGrid['Baths'] ||
         allData['Baths'] ||
-        allData['Subject']?.['Baths'] ||
+        allData.Subject?.['Baths'] ||
         ''
     ).trim();
 
@@ -286,10 +302,11 @@ export const checkQualityOfConstructionAdjustment = (field, arg2, arg3, arg4, ar
 
     if ((!isQualityField && !isAdjustmentField) || !saleName || saleName === 'Subject' || !allData) return null;
 
+    const subjGrid = getSubjectGridData(allData);
     const subjectQoCStr = String(
-        allData.Subject?.['Quality of Construction'] ||
+        subjGrid['Quality of Construction'] ||
         allData['Quality of Construction'] ||
-        allData['Subject']?.['Quality of Construction'] ||
+        allData.Subject?.['Quality of Construction'] ||
         ''
     ).trim().toUpperCase();
 
@@ -431,9 +448,10 @@ export const checkSiteAdjustment = (field, arg2, arg3, arg4, arg5) => {
     const isSiteField = field === 'Site';
     const isAdjustmentField = field === 'Site Adjustment';
 
-    if ((!isSiteField && !isAdjustmentField) || !allData || !allData.Subject || !saleName || saleName === 'Subject') return null;
+    if ((!isSiteField && !isAdjustmentField) || !allData || !saleName || saleName === 'Subject') return null;
 
-    const subjectSiteText = String(allData.Subject['Site'] || '').trim();
+    const subjGrid = getSubjectGridData(allData);
+    const subjectSiteText = String(subjGrid['Site'] || allData.Subject?.['Site'] || '').trim();
     const compSiteText = String(allData[saleName]?.['Site'] || '').trim();
     const adjustmentText = String(allData[saleName]?.['Site Adjustment'] || '').trim();
 
@@ -459,9 +477,10 @@ export const checkGrossLivingAreaAdjustment = (field, arg2, arg3, arg4, arg5) =>
     const isGlaField = field === 'Gross Living Area';
     const isAdjustmentField = field === 'Gross Living Area Adjustment';
 
-    if ((!isGlaField && !isAdjustmentField) || !allData || !allData.Subject || !saleName || saleName === 'Subject') return null;
+    if ((!isGlaField && !isAdjustmentField) || !allData || !saleName || saleName === 'Subject') return null;
 
-    const subjectGlaText = String(allData.Subject['Gross Living Area'] || '').trim();
+    const subjGrid = getSubjectGridData(allData);
+    const subjectGlaText = String(subjGrid['Gross Living Area'] || allData.Subject?.['Gross Living Area'] || '').trim();
     const compGlaText = String(allData[saleName]?.['Gross Living Area'] || '').trim();
     const adjustmentText = String(allData[saleName]?.['Gross Living Area Adjustment'] || '').trim();
 
@@ -551,9 +570,10 @@ export const checkDesignStyleAdjustment = (field, arg2, arg3, arg4, arg5) => {
     const isDesignField = field === 'Design (Style)';
     const isAdjustmentField = field === 'Design (Style) Adjustment';
 
-    if ((!isDesignField && !isAdjustmentField) || !allData || !allData.Subject || !saleName || saleName === 'Subject') return null;
+    if ((!isDesignField && !isAdjustmentField) || !allData || !saleName || saleName === 'Subject') return null;
 
-    const subjectDesign = String(allData.Subject['Design (Style)'] || '').trim();
+    const subjGrid = getSubjectGridData(allData);
+    const subjectDesign = String(subjGrid['Design (Style)'] || allData.Subject?.['Design (Style)'] || '').trim();
     const compDesign = String(allData[saleName]?.['Design (Style)'] || '').trim();
     const adjustmentText = String(allData[saleName]?.['Design (Style) Adjustment'] || '').trim();
 
@@ -583,11 +603,12 @@ export const checkLocationConsistency = (field, arg2, arg3, arg4, arg5) => {
     const isLocationField = field === 'Location';
     const isAdjustmentField = field === 'Location Adjustment';
 
-    if ((!isLocationField && !isAdjustmentField) || !allData || !allData.Subject || !saleName || saleName === 'Subject') {
+    if ((!isLocationField && !isAdjustmentField) || !allData || !saleName || saleName === 'Subject') {
         return null;
     }
 
-    const subjectLocation = String(allData.Subject['Location'] || '').trim();
+    const subjGrid = getSubjectGridData(allData);
+    const subjectLocation = String(subjGrid['Location'] || allData.Subject?.['Location'] || '').trim();
     const compLocation = String(allData[saleName]?.['Location'] || '').trim();
     const adjustmentText = String(allData[saleName]?.['Location Adjustment'] || '').trim();
 
@@ -612,9 +633,10 @@ export const checkFunctionalUtilityAdjustment = (field, arg2, arg3, arg4, arg5) 
     const isFunctionalUtilityField = field === 'Functional Utility';
     const isAdjustmentField = field === 'Functional Utility Adjustment';
 
-    if ((!isFunctionalUtilityField && !isAdjustmentField) || !allData || !allData.Subject || !saleName || saleName === 'Subject') return null;
+    if ((!isFunctionalUtilityField && !isAdjustmentField) || !allData || !saleName || saleName === 'Subject') return null;
 
-    const subjectFunctionalUtility = String(allData.Subject['Functional Utility'] || '').trim();
+    const subjGrid = getSubjectGridData(allData);
+    const subjectFunctionalUtility = String(subjGrid['Functional Utility'] || allData.Subject?.['Functional Utility'] || '').trim();
     const compFunctionalUtility = String(allData[saleName]?.['Functional Utility'] || '').trim();
     const adjustmentText = String(allData[saleName]?.['Functional Utility Adjustment'] || '').trim();
 
@@ -637,9 +659,10 @@ export const checkEnergyEfficientItemsAdjustment = (field, arg2, arg3, arg4, arg
     const isItemField = field === 'Energy Efficient Items';
     const isAdjustmentField = field === 'Energy Efficient Items Adjustment';
 
-    if ((!isItemField && !isAdjustmentField) || !allData || !allData.Subject || !saleName || saleName === 'Subject') return null;
+    if ((!isItemField && !isAdjustmentField) || !allData || !saleName || saleName === 'Subject') return null;
 
-    const subjectItems = String(allData.Subject['Energy Efficient Items'] || '').trim();
+    const subjGrid = getSubjectGridData(allData);
+    const subjectItems = String(subjGrid['Energy Efficient Items'] || allData.Subject?.['Energy Efficient Items'] || '').trim();
     const compItems = String(allData[saleName]?.['Energy Efficient Items'] || '').trim();
     const adjustmentText = String(allData[saleName]?.['Energy Efficient Items Adjustment'] || '').trim();
 
@@ -662,9 +685,10 @@ export const checkPorchPatioDeckAdjustment = (field, arg2, arg3, arg4, arg5) => 
     const isItemField = field === 'Porch/Patio/Deck';
     const isAdjustmentField = field === 'Porch/Patio/Deck Adjustment';
 
-    if ((!isItemField && !isAdjustmentField) || !allData || !allData.Subject || !saleName || saleName === 'Subject') return null;
+    if ((!isItemField && !isAdjustmentField) || !allData || !saleName || saleName === 'Subject') return null;
 
-    const subjectItems = String(allData.Subject['Porch/Patio/Deck'] || '').trim();
+    const subjGrid = getSubjectGridData(allData);
+    const subjectItems = String(subjGrid['Porch/Patio/Deck'] || allData.Subject?.['Porch/Patio/Deck'] || '').trim();
     const compItems = String(allData[saleName]?.['Porch/Patio/Deck'] || '').trim();
     const adjustmentText = String(allData[saleName]?.['Porch/Patio/Deck Adjustment'] || '').trim();
 
@@ -685,9 +709,10 @@ export const checkPorchPatioDeckAdjustment = (field, arg2, arg3, arg4, arg5) => 
 export const checkHeatingCoolingAdjustment = (field, arg2, arg3, arg4, arg5) => {
     const { allData, saleName } = normalizeCheckArgs(field, arg2, arg3, arg4, arg5);
     const isHeatingCoolingField = field === 'Heating/Cooling' || field === 'Heating/Cooling Adjustment';
-    if (!isHeatingCoolingField || !allData || !allData.Subject || !saleName || saleName === 'Subject') return null;
+    if (!isHeatingCoolingField || !allData || !saleName || saleName === 'Subject') return null;
 
-    const subjectHeatingCooling = String(allData.Subject['Heating/Cooling'] || '').trim();
+    const subjGrid = getSubjectGridData(allData);
+    const subjectHeatingCooling = String(subjGrid['Heating/Cooling'] || allData.Subject?.['Heating/Cooling'] || '').trim();
     const compHeatingCooling = String(allData[saleName]?.['Heating/Cooling'] || '').trim();
     const adjustmentText = String(allData[saleName]?.['Heating/Cooling Adjustment'] || '').trim();
 
@@ -744,10 +769,11 @@ export const checkActualAgeAdjustment = (field, arg2, arg3, arg4, arg5) => {
 
     if ((!isAgeField && !isAdjustmentField) || !saleName || saleName === 'Subject' || !allData) return null;
 
+    const subjGrid = getSubjectGridData(allData);
     const subjectAgeStr = String(
-        allData.Subject?.['Actual Age'] ||
+        subjGrid['Actual Age'] ||
         allData['Actual Age'] ||
-        allData['Subject']?.['Actual Age'] ||
+        allData.Subject?.['Actual Age'] ||
         ''
     ).trim();
 
@@ -830,9 +856,10 @@ export const checkLeaseholdFeeSimpleConsistency = (field, arg2, arg3, arg4, arg5
     if ((!isLeaseholdField && !isAdjustmentField) || !saleName || !allData) return null;
 
     if (saleName === 'Subject') {
-        const subjectSectionPropertyRights = String(allData['Property Rights Appraised'] || '').trim();
+        const subjectSectionPropertyRights = String(allData['Property Rights Appraised'] || allData.Subject?.['Property Rights Appraised'] || '').trim();
+        const subjGrid = getSubjectGridData(allData);
         const salesGridPropertyRights = String(
-            textVal !== null && textVal !== undefined ? textVal : (allData.Subject?.['Leasehold/Fee Simple'] || allData['Leasehold/Fee Simple'] || '')
+            textVal !== null && textVal !== undefined ? textVal : (subjGrid['Leasehold/Fee Simple'] || allData['Leasehold/Fee Simple'] || '')
         ).trim();
 
         if (salesGridPropertyRights && subjectSectionPropertyRights && normalizeForCompare(salesGridPropertyRights) !== normalizeForCompare(subjectSectionPropertyRights)) {
@@ -842,10 +869,11 @@ export const checkLeaseholdFeeSimpleConsistency = (field, arg2, arg3, arg4, arg5
     }
 
 
+    const subjGrid = getSubjectGridData(allData);
     const subjectValStr = String(
-        allData.Subject?.['Property Rights Appraised'] ||
+        subjGrid['Property Rights Appraised'] ||
+        subjGrid['Leasehold/Fee Simple'] ||
         allData['Property Rights Appraised'] ||
-        allData.Subject?.['Leasehold/Fee Simple'] ||
         allData['Leasehold/Fee Simple'] ||
         ''
     ).trim();
@@ -934,11 +962,12 @@ export const checkDateOfSale = (field, text, allData, arg4, arg5) => {
 
 export const checkSalePrice = (field, arg2, arg3, arg4, arg5) => {
     const { allData, saleName } = normalizeCheckArgs(field, arg2, arg3, arg4, arg5);
-    if (field !== 'Sale Price' || !allData || !allData.Subject || !saleName || saleName === 'Subject') {
+    if (field !== 'Sale Price' || !allData || !saleName || saleName === 'Subject') {
         return null;
     }
 
-    const subjectSalePriceText = String(allData.Subject['Sale Price'] || '').trim();
+    const subjGrid = getSubjectGridData(allData);
+    const subjectSalePriceText = String(subjGrid['Sale Price'] || allData.Subject?.['Sale Price'] || '').trim();
     const compSalePriceText = String(allData[saleName]?.['Sale Price'] || '').trim();
 
     if (!subjectSalePriceText || !compSalePriceText) {
@@ -980,10 +1009,11 @@ export const checkSubjectAgeConsistency = (field, arg2, arg3, arg4, arg5) => {
 
     let actualAgeStr = String(actualAgeVal || '').trim();
     if (!actualAgeStr) {
+        const subjGrid = getSubjectGridData(allData);
         actualAgeStr = String(
-            allData.Subject?.['Actual Age'] ||
+            subjGrid['Actual Age'] ||
             allData['Actual Age'] ||
-            allData['Subject']?.['Actual Age'] ||
+            allData.Subject?.['Actual Age'] ||
             ''
         ).trim();
     }
@@ -1052,10 +1082,11 @@ export const checkViewAdjustment = (field, arg2, arg3, arg4, arg5) => {
 
     if ((!isViewField && !isAdjustmentField) || !saleName || saleName === 'Subject' || !allData) return null;
 
+    const subjGrid = getSubjectGridData(allData);
     const subjectView = String(
-        allData.Subject?.['View'] ||
+        subjGrid['View'] ||
         allData['View'] ||
-        allData['Subject']?.['View'] ||
+        allData.Subject?.['View'] ||
         ''
     ).trim().toUpperCase();
 

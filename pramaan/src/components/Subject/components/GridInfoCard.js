@@ -71,6 +71,39 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
       const builtin = data?.['Garage Built-in'] || data?.IMPROVEMENTS?.['Garage Built-in'] || allData?.['Garage Built-in'] || '';
       return [att, det, builtin].filter(Boolean).join(' / ');
     }
+    if (field === 'as of' || (typeof field === 'string' && field.trim().toLowerCase() === 'as of')) {
+      const asOfVal = data?.['as of']
+        ?? data?.['as of date']
+        ?? data?.['Appraisal Effective Date']
+        ?? data?.['Effective Date of Appraisal']
+        ?? data?.['Effective Date']
+        ?? data?.RECONCILIATION?.['as of']
+        ?? data?.RECONCILIATION?.['as of date']
+        ?? data?.RECONCILIATION?.['Appraisal Effective Date']
+        ?? data?.RECONCILIATION?.['Effective Date of Appraisal']
+        ?? data?.Reconciliation?.['as of']
+        ?? data?.Reconciliation?.['as of date']
+        ?? data?.Reconciliation?.['Appraisal Effective Date']
+        ?? data?.Reconciliation?.['Effective Date of Appraisal']
+        ?? allData?.['as of']
+        ?? allData?.['as of date']
+        ?? allData?.RECONCILIATION?.['as of']
+        ?? allData?.RECONCILIATION?.['as of date']
+        ?? allData?.RECONCILIATION?.['Appraisal Effective Date']
+        ?? allData?.RECONCILIATION?.['Effective Date of Appraisal']
+        ?? allData?.Reconciliation?.['as of']
+        ?? allData?.Reconciliation?.['as of date']
+        ?? allData?.Reconciliation?.['Appraisal Effective Date']
+        ?? allData?.Reconciliation?.['Effective Date of Appraisal']
+        ?? allData?.CERTIFICATION?.['Effective Date of Appraisal']
+        ?? allData?.CERTIFICATION?.['Effective Date']
+        ?? allData?.Certification?.['Effective Date of Appraisal']
+        ?? allData?.Certification?.['Effective Date']
+        ?? allData?.['Appraisal Effective Date']
+        ?? allData?.['Effective Date of Appraisal']
+        ?? allData?.['Effective Date'];
+      if (asOfVal) return renderValue(asOfVal);
+    }
     const val = data?.[field] 
       ?? data?.CONTRACT?.[field] 
       ?? data?.NEIGHBORHOOD?.[field] 
@@ -80,12 +113,18 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
       ?? data?.PUD_INFO?.[field] 
       ?? data?.SITE?.[field] 
       ?? data?.SUBJECT?.[field]
+      ?? data?.RECONCILIATION?.[field]
+      ?? data?.Reconciliation?.[field]
+      ?? data?.CERTIFICATION?.[field]
       ?? allData?.[field]
       ?? allData?.CONTRACT?.[field]
       ?? allData?.NEIGHBORHOOD?.[field]
       ?? allData?.IMPROVEMENTS?.[field]
       ?? allData?.SITE?.[field]
-      ?? allData?.SUBJECT?.[field];
+      ?? allData?.SUBJECT?.[field]
+      ?? allData?.RECONCILIATION?.[field]
+      ?? allData?.Reconciliation?.[field]
+      ?? allData?.CERTIFICATION?.[field];
     return renderValue(val);
   };
 
@@ -209,7 +248,12 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
   const getImpValue = (keys) => {
     const keyList = Array.isArray(keys) ? keys : [keys];
     for (const key of keyList) {
-      const val = data?.IMPROVEMENTS?.[key] ?? data?.[key] ?? allData?.IMPROVEMENTS?.[key] ?? allData?.[key];
+      const val = data?.IMPROVEMENTS?.[key] 
+        ?? data?.Improvements?.[key] 
+        ?? data?.[key] 
+        ?? allData?.IMPROVEMENTS?.[key] 
+        ?? allData?.Improvements?.[key] 
+        ?? allData?.[key];
       if (val !== undefined && val !== null && String(val).trim() !== '') {
         return { value: val, actualKey: key };
       }
@@ -221,14 +265,23 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
     if (data?.IMPROVEMENTS && actualKey in data.IMPROVEMENTS) {
       return ['IMPROVEMENTS', actualKey];
     }
+    if (data?.Improvements && actualKey in data.Improvements) {
+      return ['Improvements', actualKey];
+    }
     if (allData?.IMPROVEMENTS && actualKey in allData.IMPROVEMENTS) {
       return ['IMPROVEMENTS', actualKey];
+    }
+    if (allData?.Improvements && actualKey in allData.Improvements) {
+      return ['Improvements', actualKey];
     }
     if (data && actualKey in data) {
       return [actualKey];
     }
     if (allData && actualKey in allData) {
       return [actualKey];
+    }
+    if (data?.Improvements || allData?.Improvements) {
+      return ['Improvements', actualKey];
     }
     return ['IMPROVEMENTS', actualKey];
   };
@@ -465,20 +518,39 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f1f3f5', padding: '3px 6px', borderBottom: '1px solid #dee2e6' }}>
                     <span style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.72rem' }}>Car Storage</span>
                     {(() => {
-                      const { value: csVal } = getImpValue(["Car Storage"]);
-                      const isNoneChecked = checkOptionMatches(csVal, "None");
+                      const { value: csVal, actualKey: csKey } = getImpValue(["Car Storage", "CAR STORAGE", "Car Storage None", "Vehicle Storage"]);
+                      const { value: csNoneFlag } = getImpValue(["Car Storage None", "Car Storage - None"]);
+                      const { value: driveCars } = getImpValue(["Driveway # of Cars", "Driveway Cars"]);
+                      const { value: garageCars } = getImpValue(["Garage # of Cars", "Garage Cars"]);
+                      const { value: carportCars } = getImpValue(["Carport # of Cars", "Carport Cars"]);
+
+                      const hasAnyParking = (
+                        checkOptionMatches(csVal, "Driveway") ||
+                        checkOptionMatches(csVal, "Garage") ||
+                        checkOptionMatches(csVal, "Carport") ||
+                        (parseInt(driveCars, 10) > 0) ||
+                        (parseInt(garageCars, 10) > 0) ||
+                        (parseInt(carportCars, 10) > 0)
+                      );
+
+                      const isNoneChecked = !hasAnyParking && (
+                        checkOptionMatches(csVal, "None") ||
+                        checkOptionMatches(csNoneFlag, "Yes") ||
+                        checkOptionMatches(csNoneFlag, "None") ||
+                        checkOptionMatches(csNoneFlag, "true")
+                      );
+
                       const toggleNone = () => {
-                        let items = csVal ? String(csVal).split(',').map(s => s.trim()).filter(Boolean) : [];
+                        const targetKey = csKey || "Car Storage";
                         if (isNoneChecked) {
-                          items = items.filter(i => !checkOptionMatches(i, "None"));
+                          onDataChange(getFieldPath(targetKey), "");
                         } else {
-                          items = ["None"];
+                          onDataChange(getFieldPath(targetKey), "None");
                         }
-                        onDataChange(getFieldPath("Car Storage"), items.join(', '));
                       };
                       return (
                         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.7rem', margin: 0, fontWeight: '500' }}>
-                          <input type="checkbox" checked={isNoneChecked} onChange={toggleNone} style={{ margin: 0, width: '13px', height: '13px', cursor: 'pointer' }} />
+                          <input type="checkbox" checked={Boolean(isNoneChecked)} onChange={toggleNone} style={{ margin: 0, width: '13px', height: '13px', cursor: 'pointer' }} />
                           <span>None</span>
                         </label>
                       );
@@ -646,29 +718,74 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
 
                     {/* Row 6: [ ] Att.   [ ] Det.   [ ] Built-in */}
                     {(() => {
-                      const { value: attVal, actualKey: attKey } = getImpValue(["Att./Det./Built-in", "Car Storage Att/Det", "Garage Att./Det./Built-in"]);
-                      const { value: csVal } = getImpValue(["Car Storage"]);
-                      const combinedStr = `${attVal} ${csVal}`;
-                      const isAtt = checkOptionMatches(combinedStr, "Att") || checkOptionMatches(combinedStr, "Attached");
-                      const isDet = checkOptionMatches(combinedStr, "Det") || checkOptionMatches(combinedStr, "Detached");
-                      const isBuiltin = checkOptionMatches(combinedStr, "Built-in") || checkOptionMatches(combinedStr, "Built");
+                      const { value: attVal, actualKey: attKey } = getImpValue([
+                        "Att./Det./Built-in",
+                        "Garage Att./Det./Built-in",
+                        "Car Storage Att/Det",
+                        "Garage Type",
+                        "Attachment Type",
+                        "Vehicle Storage Detail",
+                        "ATT./DET./BUILT-IN"
+                      ]);
+                      const { value: csVal } = getImpValue(["Car Storage", "CAR STORAGE", "Vehicle Storage"]);
+                      const { value: garVal } = getImpValue(["Garage", "Garage # of Cars", "Garage Cars"]);
+                      const { value: garAttFlag } = getImpValue(["Garage Att.", "Garage Att"]);
+                      const { value: garDetFlag } = getImpValue(["Garage Detached", "Garage Det"]);
+                      const { value: garBuiltFlag } = getImpValue(["Garage Built-in", "Garage Built-In", "Garage Builtin"]);
+                      const { value: subjAttType } = getImpValue(["Subject Attachment Type", "Dwelling Attachment Type"]);
+
+                      const subjAtt = subjAttType || allData?.Subject?.["Attachment Type"] || allData?.Subject?.AttachmentType || data?.Subject?.["Attachment Type"] || '';
+
+                      const combinedStr = `${attVal} ${csVal} ${garVal} ${subjAtt}`.toLowerCase();
+
+                      const isAtt = (
+                        checkOptionMatches(attVal, "Att") ||
+                        checkOptionMatches(attVal, "Attached") ||
+                        checkOptionMatches(csVal, "Att") ||
+                        checkOptionMatches(csVal, "Attached") ||
+                        checkOptionMatches(garAttFlag, "Yes") ||
+                        checkOptionMatches(garAttFlag, "true") ||
+                        /\b(?:att|attached|\d+ga)\b/i.test(combinedStr)
+                      );
+
+                      const isDet = (
+                        checkOptionMatches(attVal, "Det") ||
+                        checkOptionMatches(attVal, "Detached") ||
+                        checkOptionMatches(csVal, "Det") ||
+                        checkOptionMatches(csVal, "Detached") ||
+                        checkOptionMatches(garDetFlag, "Yes") ||
+                        checkOptionMatches(garDetFlag, "true") ||
+                        /\b(?:det|detached|\d+gd)\b/i.test(combinedStr)
+                      );
+
+                      const isBuiltin = (
+                        checkOptionMatches(attVal, "Built-in") ||
+                        checkOptionMatches(attVal, "Built") ||
+                        checkOptionMatches(attVal, "BuiltIn") ||
+                        checkOptionMatches(csVal, "Built-in") ||
+                        checkOptionMatches(csVal, "Built") ||
+                        checkOptionMatches(garBuiltFlag, "Yes") ||
+                        checkOptionMatches(garBuiltFlag, "true") ||
+                        /\b(?:built[\s-]?in|\d+gbi)\b/i.test(combinedStr)
+                      );
 
                       const setType = (typeVal) => {
-                        onDataChange(getFieldPath(attKey || "Att./Det./Built-in"), typeVal);
+                        const targetKey = attKey || "Att./Det./Built-in";
+                        onDataChange(getFieldPath(targetKey), typeVal);
                       };
 
                       return (
                         <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', marginTop: '4px', paddingTop: '4px' }}>
                           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.7rem', margin: 0 }}>
-                            <input type="checkbox" checked={isAtt} onChange={() => setType(isAtt ? '' : 'Attached')} style={{ margin: 0, width: '13px', height: '13px', cursor: 'pointer' }} />
+                            <input type="checkbox" checked={Boolean(isAtt)} onChange={() => setType(isAtt ? '' : 'Attached')} style={{ margin: 0, width: '13px', height: '13px', cursor: 'pointer' }} />
                             <span>Att.</span>
                           </label>
                           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.7rem', margin: 0 }}>
-                            <input type="checkbox" checked={isDet} onChange={() => setType(isDet ? '' : 'Detached')} style={{ margin: 0, width: '13px', height: '13px', cursor: 'pointer' }} />
+                            <input type="checkbox" checked={Boolean(isDet)} onChange={() => setType(isDet ? '' : 'Detached')} style={{ margin: 0, width: '13px', height: '13px', cursor: 'pointer' }} />
                             <span>Det.</span>
                           </label>
                           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.7rem', margin: 0 }}>
-                            <input type="checkbox" checked={isBuiltin} onChange={() => setType(isBuiltin ? '' : 'Built-in')} style={{ margin: 0, width: '13px', height: '13px', cursor: 'pointer' }} />
+                            <input type="checkbox" checked={Boolean(isBuiltin)} onChange={() => setType(isBuiltin ? '' : 'Built-in')} style={{ margin: 0, width: '13px', height: '13px', cursor: 'pointer' }} />
                             <span>Built-in</span>
                           </label>
                         </div>

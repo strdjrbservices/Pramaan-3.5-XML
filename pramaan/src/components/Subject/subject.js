@@ -38,11 +38,14 @@ import {
   Apartment as ApartmentIcon,
   FileDownload as FileDownloadIcon,
   DeleteForever as DeleteForeverIcon,
-  PhotoLibrary as PhotoLibraryIcon
+  PhotoLibrary as PhotoLibraryIcon,
+  Search as SearchIcon,
+  FilterList as FilterListIcon,
+  Clear as ClearIcon
 } from '@mui/icons-material';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import VisibilityTwoToneIcon from '@mui/icons-material/VisibilityTwoTone';
-import { Button, Stack, IconButton, Tooltip, Paper, Box, Typography, LinearProgress, Alert, Snackbar, Fade, CircularProgress, useTheme, CssBaseline, Dialog, DialogTitle, DialogContent, DialogActions, Grid, Fab, Autocomplete, TextField } from '@mui/material';
+import { Button, Stack, IconButton, Tooltip, Paper, Box, Typography, LinearProgress, Alert, Snackbar, Fade, CircularProgress, useTheme, CssBaseline, Dialog, DialogTitle, DialogContent, DialogActions, Grid, Fab, Autocomplete, TextField, Select, MenuItem, FormControl, InputLabel, InputAdornment, Chip } from '@mui/material';
 import jsPDF from 'jspdf';
 import GetAppIcon from '@mui/icons-material/GetApp';
 import autoTable from 'jspdf-autotable';
@@ -131,6 +134,19 @@ const normalizeFullFileData = (raw) => {
 
   const normalized = { ...target };
 
+  if (!normalized.Subject || typeof normalized.Subject !== 'object') {
+    normalized.Subject = raw.Subject || raw.SUBJECT || raw.clean_data?.Subject || raw.clean_data?.SUBJECT || {};
+  }
+  if (!normalized.SUBJECT || typeof normalized.SUBJECT !== 'object') {
+    normalized.SUBJECT = normalized.Subject;
+  }
+  if (!normalized.SALES_GRID || typeof normalized.SALES_GRID !== 'object') {
+    normalized.SALES_GRID = raw.SALES_GRID || raw['Sales Grid'] || raw.clean_data?.['Sales Grid'] || raw.clean_data?.SALES_GRID || {};
+  }
+  if (!normalized['Sales Grid'] || typeof normalized['Sales Grid'] !== 'object') {
+    normalized['Sales Grid'] = normalized.SALES_GRID;
+  }
+
   if (!normalized.CONTRACT || typeof normalized.CONTRACT !== 'object') {
     normalized.CONTRACT = raw.CONTRACT || raw.Contract || raw.contract || {};
   }
@@ -180,11 +196,20 @@ const normalizeFullFileData = (raw) => {
 
   Object.keys(raw).forEach(secKey => {
     if (raw[secKey] && typeof raw[secKey] === 'object' && !Array.isArray(raw[secKey])) {
-      Object.keys(raw[secKey]).forEach(subKey => {
-        if (normalized[subKey] === undefined) {
-          normalized[subKey] = raw[secKey][subKey];
-        }
-      });
+      // Sales Grid and Subject are two different sections - do not let Sales Grid's 'Subject' column overwrite root Subject
+      if (secKey === 'Sales Grid' || secKey === 'SALES_GRID') {
+        Object.keys(raw[secKey]).forEach(subKey => {
+          if (subKey.toLowerCase() !== 'subject' && normalized[subKey] === undefined) {
+            normalized[subKey] = raw[secKey][subKey];
+          }
+        });
+      } else {
+        Object.keys(raw[secKey]).forEach(subKey => {
+          if (normalized[subKey] === undefined) {
+            normalized[subKey] = raw[secKey][subKey];
+          }
+        });
+      }
     }
   });
 
@@ -355,6 +380,135 @@ const normalizeExtractedFormType = (raw) => {
   return s;
 };
 
+const getCleanDisplayJson = (data) => {
+  if (!data || typeof data !== 'object') return {};
+  const excludedGridKeys = new Set([
+    'Sale Price', 'Proximity to Subject', 'Proximity to Subject comment', 'Sale Price/Gross Liv. Area', 'Sale Price/Gross Bldg. Area',
+    'Gross Monthly Rent', 'Gross Rent Multiplier', 'Price Per Unit', 'Price Per Room', 'Price Per Bedroom',
+    'Adj. Price Per Unit', 'Adj. Price Per Room', 'Adj. Price Per Bdrm.', 'Value Per Unit', 'Value Per Gross Bldg. Area',
+    'Sales or Financing Concessions', 'Sales Concessions', 'Sales Concessions Adjustment',
+    'Date of Sale/Time', 'Date of Sale/Time Adjustment', 'Location Adjustment',
+    'Leasehold/Fee Simple Adjustment', 'Site Adjustment', 'View Adjustment',
+    'Design (Style) Adjustment', 'Quality of Construction Adjustment', 'Actual Age Adjustment',
+    'Condition Adjustment', 'Above Grade Room Count Adjustment', 'Gross Living Area Adjustment',
+    'Basement & Finished Rooms Below Grade Adjustment', 'Functional Utility Adjustment',
+    'Heating/Cooling Adjustment', 'Energy Efficient Items Adjustment', 'Garage/Carport Adjustment',
+    'Porch/Patio/Deck Adjustment', 'Net Adjustment (Total)', 'Net Adj. (total)', 'Adjusted Sale Price'
+  ]);
+
+  if (data.clean_data && typeof data.clean_data === 'object' && Object.keys(data.clean_data).length > 0) {
+    const cd = { ...data.clean_data };
+    if (cd.Subject && typeof cd.Subject === 'object') {
+      const cleanSubj = {};
+      Object.keys(cd.Subject).forEach(k => {
+        if (!excludedGridKeys.has(k)) {
+          cleanSubj[k] = cd.Subject[k];
+        }
+      });
+      cd.Subject = cleanSubj;
+    }
+    return cd;
+  }
+  const clean = {};
+  const formType = data['Form Type'] || data.formType || data['From Type'] || data.selectedFormType;
+  if (formType) clean['Form Type'] = formType;
+
+  // 2. Subject Section (strictly Page 1 property identification & assignment info)
+  const rawSubj = data.Subject || data.SUBJECT || {};
+  if (rawSubj && typeof rawSubj === 'object' && Object.keys(rawSubj).length > 0) {
+    const cleanSubj = {};
+    Object.keys(rawSubj).forEach(k => {
+      if (!excludedGridKeys.has(k)) {
+        cleanSubj[k] = rawSubj[k];
+      }
+    });
+    clean['Subject'] = cleanSubj;
+  }
+
+  // 3. Contract Section
+  const contractObj = data.CONTRACT || data.Contract || {};
+  if (contractObj && typeof contractObj === 'object' && Object.keys(contractObj).length > 0) {
+    clean['Contract'] = contractObj;
+  }
+
+  // 4. Neighborhood Section
+  const neighborhoodObj = data.NEIGHBORHOOD || data.Neighborhood || {};
+  if (neighborhoodObj && typeof neighborhoodObj === 'object' && Object.keys(neighborhoodObj).length > 0) {
+    clean['Neighborhood'] = neighborhoodObj;
+  }
+
+  // 5. Site Section
+  const siteObj = data.SITE || data.Site || {};
+  if (siteObj && typeof siteObj === 'object' && Object.keys(siteObj).length > 0) {
+    clean['Site'] = siteObj;
+  }
+
+  // 6. Improvements Section
+  const improvementsObj = data.IMPROVEMENTS || data.Improvements || {};
+  if (improvementsObj && typeof improvementsObj === 'object' && Object.keys(improvementsObj).length > 0) {
+    clean['Improvements'] = improvementsObj;
+  }
+
+  // 7. Sales Grid Section (Page 2 comparison grid: Subject column and Comps 1..N)
+  const salesGridSource = data.clean_data?.['Sales Grid'] || data.clean_data?.['Sales Comparison'] || data['Sales Grid'] || data.SALES_GRID || data.SALES_COMPARISON || data['Sales Comparison'] || {};
+  if (salesGridSource && typeof salesGridSource === 'object') {
+    const cleanSalesGrid = {};
+    if (salesGridSource['Subject'] && typeof salesGridSource['Subject'] === 'object') {
+      cleanSalesGrid['Subject'] = salesGridSource['Subject'];
+    }
+    const compMap = new Map();
+    Object.keys(salesGridSource).forEach(k => {
+      const val = salesGridSource[k];
+      if (typeof val === 'object' && val !== null && !Array.isArray(val) && k.toLowerCase() !== 'subject') {
+        const numMatch = k.match(/(\d+)/);
+        if (numMatch) {
+          const num = parseInt(numMatch[1], 10);
+          if (!compMap.has(num)) compMap.set(num, val);
+        }
+      }
+    });
+    for (let i = 1; i <= 9; i++) {
+      if (!compMap.has(i)) {
+        const rootComp = data['COMPARABLE SALE #' + i] || data['Comparable Sale #' + i] || data['Comparable Sale ' + i] || data['Comp ' + i];
+        if (rootComp && typeof rootComp === 'object' && !Array.isArray(rootComp)) {
+          compMap.set(i, rootComp);
+        }
+      }
+    }
+    Array.from(compMap.keys()).sort((a, b) => a - b).forEach(num => {
+      cleanSalesGrid['Comparable Sale ' + num] = compMap.get(num);
+    });
+    if (Object.keys(cleanSalesGrid).length > 0) {
+      clean['Sales Grid'] = cleanSalesGrid;
+    }
+  }
+
+  // 8. Reconciliation
+  const reconciliationObj = data.RECONCILIATION || data.Reconciliation || {};
+  if (reconciliationObj && typeof reconciliationObj === 'object' && Object.keys(reconciliationObj).length > 0) {
+    clean['Reconciliation'] = reconciliationObj;
+  }
+  const sectionPairs = [
+    ['COST_APPROACH', 'Cost Approach'],
+    ['INCOME_APPROACH', 'Income Approach'],
+    ['PUD_INFO', 'PUD Information'],
+    ['MARKET_CONDITIONS', 'Market Conditions Addendum'],
+    ['CONDO_COOP_PROJECTS', 'Condo / Coop Projects'],
+    ['CONDO_FORECLOSURE', 'Condo Foreclosure'],
+    ['SUBJECT_RENT_SCHEDULE', 'Subject Rent Schedule'],
+    ['COMPARABLE_RENTAL_DATA', 'Comparable Rental Data'],
+    ['CERTIFICATION', 'Certification'],
+  ];
+  sectionPairs.forEach(([secKey, label]) => {
+    const obj = data[secKey] || data[label] || {};
+    if (obj && typeof obj === 'object' && Object.keys(obj).length > 0 && Object.values(obj).some(v => v !== '' && v !== null && v !== undefined)) {
+      clean[label] = obj;
+    }
+  });
+  if (Object.keys(clean).length > 1) return clean;
+  return data;
+};
+
 function Subject({ defaultFormType }) {
   const isFieldValBlank = (val) => {
     if (val === undefined || val === null) return true;
@@ -383,6 +537,67 @@ function Subject({ defaultFormType }) {
   const activeTheme = useTheme();
   const location = useLocation();
   const [data, setData] = useState({});
+  const cleanDisplayJson = useMemo(() => getCleanDisplayJson(data), [data]);
+  const [rawSectionFilter, setRawSectionFilter] = useState('ALL');
+  const [rawSearchQuery, setRawSearchQuery] = useState('');
+
+  const rawSectionOptions = useMemo(() => {
+    if (!cleanDisplayJson || typeof cleanDisplayJson !== 'object') return [];
+    return Object.keys(cleanDisplayJson).filter(k => k !== 'clean_data' && k !== 'Form Type');
+  }, [cleanDisplayJson]);
+
+  const filteredDisplayJson = useMemo(() => {
+    if (!cleanDisplayJson || typeof cleanDisplayJson !== 'object') return {};
+
+    // 1. Filter by section if not ALL
+    let base = {};
+    if (rawSectionFilter === 'ALL') {
+      base = { ...cleanDisplayJson };
+    } else if (cleanDisplayJson[rawSectionFilter] !== undefined) {
+      base = { [rawSectionFilter]: cleanDisplayJson[rawSectionFilter] };
+    } else {
+      base = { ...cleanDisplayJson };
+    }
+
+    // 2. Filter by search query if provided
+    const query = (rawSearchQuery || '').trim().toLowerCase();
+    if (!query) {
+      return base;
+    }
+
+    const filterObject = (obj) => {
+      if (!obj || typeof obj !== 'object') return null;
+      if (Array.isArray(obj)) {
+        const filteredArray = obj
+          .map(item => (typeof item === 'object' ? filterObject(item) : item))
+          .filter(item => {
+            if (item === null || item === undefined) return false;
+            if (typeof item === 'object') return Object.keys(item).length > 0;
+            return String(item).toLowerCase().includes(query);
+          });
+        return filteredArray.length > 0 ? filteredArray : null;
+      }
+
+      const filteredObj = {};
+      Object.entries(obj).forEach(([k, v]) => {
+        const keyMatches = k.toLowerCase().includes(query);
+        if (v && typeof v === 'object') {
+          const nested = filterObject(v);
+          if (nested && Object.keys(nested).length > 0) {
+            filteredObj[k] = nested;
+          } else if (keyMatches) {
+            filteredObj[k] = v;
+          }
+        } else if (keyMatches || (v !== null && v !== undefined && String(v).toLowerCase().includes(query))) {
+          filteredObj[k] = v;
+        }
+      });
+      return Object.keys(filteredObj).length > 0 ? filteredObj : null;
+    };
+
+    const result = filterObject(base);
+    return result || {};
+  }, [cleanDisplayJson, rawSectionFilter, rawSearchQuery]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState({ open: false, message: '', severity: 'info' });
@@ -2663,7 +2878,7 @@ function Subject({ defaultFormType }) {
     { id: 'subject-rent-schedule', title: 'SUBJECT RENT SCHEDULE', category: 'SUBJECT_RENT_SCHEDULE', icon: <RequestQuoteIcon /> },
     { id: 'prior-sale-history-section', title: 'Prior Sale History', category: 'PRIOR_SALE_HISTORY', icon: <HistoryIcon /> },
     { id: 'info-of-sales-section', title: 'Sales Comparison Approach', category: 'INFO_OF_SALES', icon: <MonetizationOnIcon /> },
-    { id: 'sales-comparison', title: 'Sales GRID Section', category: 'SALES_GRID', icon: <CompareArrowsIcon /> },
+    { id: 'sales-comparison', title: 'Sales Grid', category: 'SALES_GRID', icon: <CompareArrowsIcon /> },
     { id: 'sales-history-section', title: 'Sales History', category: 'SALES_TRANSFER', icon: <HistoryIcon /> },
     { id: 'rent-schedule-section', title: 'Comparable Rent Schedule', category: 'RENT_SCHEDULE_GRID', icon: <TableChartIcon /> },
     { id: 'rent-schedule-reconciliation-section', title: 'Rent Schedule Reconciliation', category: 'RENT_SCHEDULE_RECONCILIATION', icon: <MergeTypeIcon /> },
@@ -3386,16 +3601,13 @@ function Subject({ defaultFormType }) {
     });
     Object.assign(normalizedFields, result.fields);
 
-    // Unpack SALES_GRID comps and Subject
-    const salesGrid = result.fields?.SALES_GRID || result.clean_data?.SALES_GRID || result.SALES_GRID;
+    // Unpack SALES_GRID comps (keep Subject section and Sales Grid completely distinct)
+    const salesGrid = result.fields?.SALES_GRID || result.clean_data?.['Sales Grid'] || result.clean_data?.SALES_GRID || result.SALES_GRID;
     if (salesGrid && typeof salesGrid === 'object') {
       normalizedFields["SALES_GRID"] = salesGrid;
       Object.keys(salesGrid).forEach(compKey => {
         if (typeof salesGrid[compKey] === 'object' && salesGrid[compKey] !== null) {
-          if (compKey.toLowerCase().includes('subject')) {
-            normalizedFields["Subject"] = { ...(normalizedFields["Subject"] || {}), ...salesGrid[compKey] };
-            normalizedFields["SUBJECT"] = { ...(normalizedFields["SUBJECT"] || {}), ...salesGrid[compKey] };
-          } else {
+          if (!compKey.toLowerCase().includes('subject')) {
             normalizedFields[compKey] = salesGrid[compKey];
             const m = compKey.match(/#\s*(\d+)/);
             if (m) {
@@ -3419,6 +3631,9 @@ function Subject({ defaultFormType }) {
     if (result.mathematical_verification) {
       normalizedFields["MATHEMATICAL_VERIFICATION"] = result.mathematical_verification;
       normalizedFields["mathematical_verification"] = result.mathematical_verification;
+    }
+    if (result.clean_data && typeof result.clean_data === 'object') {
+      normalizedFields["clean_data"] = result.clean_data;
     }
 
     setData(prevData => {
@@ -6640,22 +6855,25 @@ function Subject({ defaultFormType }) {
                     border: `1px solid ${activeTheme.palette.divider}`
                   }}
                 >
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                  <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} gap={2} mb={2}>
                     <Typography variant="h6" fontWeight={700} display="flex" alignItems="center" gap={1}>
                       <CodeIcon color="primary" />
                       Extracted JSON Data (Raw Data)
                     </Typography>
-                    <Stack direction="row" spacing={1}>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                       <Button
                         size="small"
                         variant="outlined"
                         startIcon={<FileDownloadIcon />}
                         onClick={() => {
-                          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                          const fileName = rawSectionFilter === 'ALL'
+                            ? 'extracted_appraisal_data.json'
+                            : `extracted_${rawSectionFilter.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_data.json`;
+                          const blob = new Blob([JSON.stringify(filteredDisplayJson, null, 2)], { type: 'application/json' });
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement('a');
                           a.href = url;
-                          a.download = 'extracted_appraisal_data.json';
+                          a.download = fileName;
                           a.click();
                           URL.revokeObjectURL(url);
                         }}
@@ -6666,14 +6884,103 @@ function Subject({ defaultFormType }) {
                         size="small"
                         variant="contained"
                         onClick={() => {
-                          navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-                          setNotification({ open: true, message: 'JSON copied to clipboard!', severity: 'success' });
+                          navigator.clipboard.writeText(JSON.stringify(filteredDisplayJson, null, 2));
+                          setNotification({ open: true, message: 'Filtered JSON copied to clipboard!', severity: 'success' });
                         }}
                       >
                         Copy JSON
                       </Button>
                     </Stack>
                   </Stack>
+
+                  {/* Filter Toolbar: Section-wise filter and Search across all data */}
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" mb={2}>
+                    <FormControl size="small" sx={{ minWidth: 220, flex: { xs: '1 1 100%', sm: '0 0 auto' } }}>
+                      <InputLabel id="raw-section-filter-label">Filter Section</InputLabel>
+                      <Select
+                        labelId="raw-section-filter-label"
+                        id="raw-section-filter-select"
+                        value={rawSectionFilter}
+                        label="Filter Section"
+                        onChange={(e) => setRawSectionFilter(e.target.value)}
+                        startAdornment={
+                          <InputAdornment position="start">
+                            <FilterListIcon fontSize="small" color="primary" />
+                          </InputAdornment>
+                        }
+                      >
+                        <MenuItem value="ALL">
+                          <em>All Sections (Entire Report)</em>
+                        </MenuItem>
+                        {rawSectionOptions.map((sec) => (
+                          <MenuItem key={sec} value={sec}>
+                            {sec}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+
+                    <TextField
+                      size="small"
+                      placeholder={rawSectionFilter === 'ALL' ? 'Search in all data / fields...' : `Search in ${rawSectionFilter}...`}
+                      value={rawSearchQuery}
+                      onChange={(e) => setRawSearchQuery(e.target.value)}
+                      sx={{ flex: 1, minWidth: 200 }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon fontSize="small" color="action" />
+                          </InputAdornment>
+                        ),
+                        endAdornment: rawSearchQuery ? (
+                          <InputAdornment position="end">
+                            <IconButton size="small" onClick={() => setRawSearchQuery('')}>
+                              <ClearIcon fontSize="small" />
+                            </IconButton>
+                          </InputAdornment>
+                        ) : null,
+                      }}
+                    />
+
+                    {(rawSectionFilter !== 'ALL' || rawSearchQuery) && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        color="secondary"
+                        onClick={() => {
+                          setRawSectionFilter('ALL');
+                          setRawSearchQuery('');
+                        }}
+                      >
+                        Clear Filter
+                      </Button>
+                    )}
+                  </Stack>
+
+                  {/* Filter Status Badge / Chip */}
+                  <Stack direction="row" spacing={1} alignItems="center" mb={1.5} flexWrap="wrap">
+                    <Chip
+                      size="small"
+                      label={`Section: ${rawSectionFilter === 'ALL' ? 'All Sections' : rawSectionFilter}`}
+                      color={rawSectionFilter === 'ALL' ? 'default' : 'primary'}
+                      variant={rawSectionFilter === 'ALL' ? 'outlined' : 'filled'}
+                      onDelete={rawSectionFilter !== 'ALL' ? () => setRawSectionFilter('ALL') : undefined}
+                    />
+                    {rawSearchQuery && (
+                      <Chip
+                        size="small"
+                        label={`Search: "${rawSearchQuery}"`}
+                        color="secondary"
+                        onDelete={() => setRawSearchQuery('')}
+                      />
+                    )}
+                    <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                      {Object.keys(filteredDisplayJson).length === 0
+                        ? 'No matching fields found'
+                        : `Showing ${Object.keys(filteredDisplayJson).length} section${Object.keys(filteredDisplayJson).length > 1 ? 's' : ''}`}
+                    </Typography>
+                  </Stack>
+
                   <Box
                     component="pre"
                     sx={{
@@ -6690,7 +6997,11 @@ function Subject({ defaultFormType }) {
                       boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)'
                     }}
                   >
-                    <code>{JSON.stringify(data, null, 2)}</code>
+                    <code>
+                      {Object.keys(filteredDisplayJson).length > 0
+                        ? JSON.stringify(filteredDisplayJson, null, 2)
+                        : `// No data matching the filter: section="${rawSectionFilter}", search="${rawSearchQuery}".\n// Click "Clear Filter" to view all data.`}
+                    </code>
                   </Box>
                 </Paper>
               )}
