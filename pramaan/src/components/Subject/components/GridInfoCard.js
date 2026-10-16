@@ -119,6 +119,32 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
         ?? allData?.Subject?.['FHA Case No.'];
       if (fhaVal) return renderValue(fhaVal);
     }
+    if (field === "Appraiser's Fee" || field === "Appraiser Fee" || field === "Appraisal Fee") {
+      const feeVal = data?.["Appraiser's Fee"]
+        ?? data?.["Appraiser Fee"]
+        ?? data?.["Appraisal Fee"]
+        ?? data?.SUBJECT?.["Appraiser's Fee"]
+        ?? data?.SUBJECT?.["Appraiser Fee"]
+        ?? data?.CERTIFICATION?.["Appraiser's Fee"]
+        ?? data?.CERTIFICATION?.["Appraiser Fee"]
+        ?? allData?.["Appraiser's Fee"]
+        ?? allData?.["Appraiser Fee"]
+        ?? allData?.["Appraisal Fee"]
+        ?? allData?.SUBJECT?.["Appraiser's Fee"]
+        ?? allData?.CERTIFICATION?.["Appraiser's Fee"];
+      if (feeVal) return renderValue(feeVal);
+    }
+    if (field === "1004MC Addendum" || field === "1004MC Present" || field === "1004MC") {
+      const mcVal = data?.["1004MC Addendum"]
+        ?? data?.["1004MC Present"]
+        ?? data?.SUBJECT?.["1004MC Addendum"]
+        ?? data?.SUBJECT?.["1004MC Present"]
+        ?? allData?.["1004MC Addendum"]
+        ?? allData?.["1004MC Present"]
+        ?? allData?.SUBJECT?.["1004MC Addendum"]
+        ?? (allData?.has_1004mc ? "Present" : "");
+      if (mcVal) return renderValue(mcVal);
+    }
     const val = data?.[field] 
       ?? data?.CONTRACT?.[field] 
       ?? data?.NEIGHBORHOOD?.[field] 

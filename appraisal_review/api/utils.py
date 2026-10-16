@@ -177,9 +177,9 @@ async def wait_for_download(
     logger.info(f"Waiting for {expected_file_type} download to complete…")
     try:
         download = await context.wait_for_event('download', timeout=timeout_ms)
-        await download.save_as(download.path())
-        logger.info(f"{expected_file_type} download completed: {download.path()}")
-        return str(download.path())
+        file_path = await download.path()
+        logger.info(f"{expected_file_type} download completed: {file_path}")
+        return str(file_path) if file_path else ""
     except Exception as e:
         raise TimeoutError(
             f"Timeout waiting for {expected_file_type} download (after {timeout_ms} ms)."
@@ -205,9 +205,12 @@ async def wait_and_click(
             if is_sidebar_item:
                 sidebar_container_selector = "xpath=//div[contains(@class, 'sidebar')]"
                 sidebar = await page.wait_for_selector(sidebar_container_selector, timeout=5000)
-                await sidebar.evaluate('el => el.scrollIntoView()')
+                if sidebar:
+                    await sidebar.evaluate('el => el.scrollIntoView()')
 
             element = await page.wait_for_selector(selector, timeout=30_000)
+            if not element:
+                raise RuntimeError(f'Element "{element_name}" not found with selector "{selector}".')
             await element.evaluate('el => el.scrollIntoView()')
             await element.click()
             logger.info(f'"{element_name}" clicked successfully.')
@@ -217,9 +220,10 @@ async def wait_and_click(
                     pin_btn = await page.wait_for_selector(
                         PIN_SIDEBAR_BUTTON_SELECTOR, timeout=2000, state='visible'
                     )
-                    logger.info('Pinning the sidebar…')
-                    await pin_btn.click()
-                    logger.info('Sidebar pinned.')
+                    if pin_btn:
+                        logger.info('Pinning the sidebar…')
+                        await pin_btn.click()
+                        logger.info('Sidebar pinned.')
                 except Exception:
                     logger.info('Sidebar pin button not found – assuming already pinned.')
             return

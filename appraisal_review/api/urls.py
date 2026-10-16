@@ -28,6 +28,7 @@ urlpatterns = [
     path('customquery/', views.custom_query, name='custom_query'),
 
     path('extract-from-html/', views.extract_from_html_view, name='extract_from_html'),
+    path('extract-photos/', views.extract_photos_view, name='extract_photos'),
 
     path('save-report/', views.SaveReportView.as_view(), name='save-report'),
 

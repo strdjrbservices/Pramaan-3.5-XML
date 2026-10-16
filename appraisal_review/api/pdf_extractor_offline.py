@@ -1278,25 +1278,26 @@ def extract_appraiser_fee_from_doc(doc=None, full_doc_text=""):
         candidate_texts.append(full_doc_text)
 
     fee_patterns = [
-        re.compile(r'(?:Appraiser(?:\'s)?\s*Fee|Appraisal\s*Fee|Appraiser\s*Fee)[^0-9\$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?', re.IGNORECASE),
-        re.compile(r'(?:Total\s*Fee|Agreed\s*Fee|Professional\s*Fee|Fee\s*Charged|Fee\s*Amount)[^0-9\$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?', re.IGNORECASE),
-        re.compile(r'(?:Invoice\s*Amount|Invoice\s*Total|Total\s*Amount\s*Due|TOTAL\s*DUE|Amount\s*Due)[^0-9\$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?', re.IGNORECASE),
-        re.compile(r'(?:FULL\s+RESIDENTIAL\s+APPRAISAL|Appraisal\s+of\s+single\s+family\s+home)[^0-9\$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?', re.IGNORECASE),
-        re.compile(r'(?<!Fee\s)\bFee\s*[:=]\s*\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?', re.IGNORECASE),
+        re.compile(r'(?:Fee\s+disclosures?(?:\s+are|\s+is|\s+was)?|Appraisal\s+Fee\s+disclosure)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'Fee\s+paid\s+to\s+(?:the\s+)?appraiser[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'(?:Total\s+|Actual\s+|Agreed\s+)?(?:Appraiser(?:\'s)?\s*Fee|Appraisal\s*Fee)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'(?:Appraisal\s*Service\s*Fee|Professional\s*Fee|Agreed\s*Fee|Fee\s*Charged|Fee\s*Amount)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'\bSERVICE\s+FEE[^0-9$\n]{0,20}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'(?:Invoice\s*Amount|Invoice\s*Total|Total\s*Amount\s*Due|TOTAL\s*DUE|Amount\s*Due)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'\bFee\s+(?:for\s+(?:this|the)\s+appraisal\s+)?(?:is|was|of|:|=)\s*\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE)
     ]
 
     for pat in fee_patterns:
         for txt in candidate_texts:
-            m = pat.search(txt)
-            if m and m.group(1):
-                matched_str = m.group(0).lower()
-                if "simple" in matched_str or "sf" in matched_str or "sq ft" in matched_str:
+            for m in pat.finditer(txt):
+                snippet = txt[max(0, m.start() - 30):min(len(txt), m.end() + 30)].lower()
+                if any(bad in snippet for bad in ['hoa', 'pud', 'per month', 'per year', 'late fee', 'cancellation', 'simple', 'sf', 'sq ft']):
                     continue
                 raw_num = m.group(1).replace(",", "").strip()
                 try:
                     num_val = float(raw_num)
                     if 50.0 <= num_val <= 25000.0:
-                        return f"${num_val:,.2f}" if "." in m.group(1) else f"${int(num_val):,}"
+                        return f"{num_val:.2f}"
                 except ValueError:
                     pass
 
@@ -5998,6 +5999,18 @@ def extract_fields_from_pdf_offline(pdf_path):
                     data["SUBJECT"]["AMC License #"] = amc_info["amc_license"]
                 if "CERTIFICATION" in data and isinstance(data["CERTIFICATION"], dict):
                     data["CERTIFICATION"]["AMC License #"] = amc_info["amc_license"]
+
+            # 1004MC Presence Detection in PDF
+            mc_idx = page_indices.get("market_conditions") if "page_indices" in locals() and isinstance(page_indices, dict) else None
+            has_1004mc_pdf = (mc_idx is not None) or bool(data.get("MARKET_CONDITIONS"))
+            mc_present_pdf = f"Present (Page {mc_idx + 1})" if mc_idx is not None else ("Present" if has_1004mc_pdf else "Not Present")
+            data["1004MC Addendum"] = mc_present_pdf
+            data["1004MC Present"] = "Yes" if has_1004mc_pdf else "No"
+            data["has_1004mc"] = has_1004mc_pdf
+            if "SUBJECT" in data and isinstance(data["SUBJECT"], dict):
+                data["SUBJECT"]["1004MC Addendum"] = mc_present_pdf
+                data["SUBJECT"]["1004MC Present"] = "Yes" if has_1004mc_pdf else "No"
+                data["SUBJECT"]["has_1004mc"] = has_1004mc_pdf
 
             # Apply Master Sanitization & Clean-up FIRST so signed values and numbers are pristine
             clean_data = clean_appraisal_extracted_data(data)

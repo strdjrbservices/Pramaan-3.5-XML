@@ -254,3 +254,9 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'strdjrbservices@gmail.com'  # Your email address
 EMAIL_HOST_PASSWORD = 'Strdrjrb@41$'
 DEFAULT_FROM_EMAIL = 'STR Team'
+
+# Upload payload and body size limits (100 MB to support large appraisal files and comprehensive datasets)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 MB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+

@@ -6,7 +6,7 @@ import textwrap
 from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework.decorators import api_view, parser_classes, permission_classes
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from rest_framework import status, generics
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -32,7 +32,7 @@ from .offline_requirement_checks import (
     evaluate_adu_requirements,
     evaluate_escalation_check,
 )
-from .xml_extractor import extract_fields_from_xml
+from .xml_extractor import extract_fields_from_xml, extract_photos_from_xml
 
 import threading
 import shutil
@@ -1385,3 +1385,76 @@ def list_html_files(request):
     if not os.path.exists(path): return Response([])
     files = sorted([f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))])
     return Response(files)
+
+
+@api_view(["POST"])
+@parser_classes([MultiPartParser, FormParser, JSONParser])
+def extract_photos_view(request):
+    """
+    Extracts photos and their labels/captions from an uploaded XML or PDF file.
+    Returns:
+    {
+        "status": "success",
+        "total_photos": len(photos),
+        "categories": ["Subject", "Interior", "Comparable", "Rental", "Sketch", "Map", "General"],
+        "photos": photos
+    }
+    """
+    uploaded_file = request.FILES.get("file") or request.FILES.get("pdf_file") or request.FILES.get("xml_file")
+    file_path = request.data.get("file_path") or request.data.get("path")
+    try:
+        max_photos = int(request.data.get("max_photos", 60))
+    except (TypeError, ValueError):
+        max_photos = 60
+
+    try:
+        dpi = int(request.data.get("dpi", 120))
+    except (TypeError, ValueError):
+        dpi = 120
+
+    include_images_val = request.data.get("include_images", "true")
+    include_images = str(include_images_val).lower() in ["true", "1", "yes"]
+
+    if not uploaded_file and not file_path:
+        return Response(
+            {"status": "error", "message": "No file or file_path provided"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    tmp_path = None
+    if uploaded_file:
+        suffix = os.path.splitext(uploaded_file.name)[1].lower() or ".xml"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            for chunk in uploaded_file.chunks():
+                tmp.write(chunk)
+            tmp_path = tmp.name
+    else:
+        tmp_path = file_path
+
+    try:
+        photos = extract_photos_from_xml(
+            tmp_path,
+            max_photos=max_photos,
+            dpi=dpi,
+            include_images=include_images
+        )
+        cats = sorted(list(set(p.get("category", "General") for p in photos)))
+        return Response({
+            "status": "success",
+            "total_photos": len(photos),
+            "categories": cats,
+            "photos": photos
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        return Response(
+            {"status": "error", "message": str(exc)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    finally:
+        if uploaded_file and tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+

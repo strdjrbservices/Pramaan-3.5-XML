@@ -19,6 +19,10 @@ export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, 
       candidateKeys.push('as of', 'as of date', 'Appraisal Effective Date', 'Effective Date of Appraisal', 'Effective Date');
     } else if (field === 'FHA Case #' || field === 'FHA Case No.' || field === 'FHA Case Number') {
       candidateKeys.push('FHA Case #', 'FHA Case No.', 'FHA Case Number');
+    } else if (field === "Appraiser's Fee" || field === "Appraiser Fee" || field === "Appraisal Fee") {
+      candidateKeys.push("Appraiser's Fee", "Appraiser Fee", "Appraisal Fee", "Total Fee", "Fee");
+    } else if (field === '1004MC Addendum' || field === '1004MC Present' || field === '1004MC') {
+      candidateKeys.push('1004MC Addendum', '1004MC Present', '1004MC');
     }
 
     for (const k of candidateKeys) {

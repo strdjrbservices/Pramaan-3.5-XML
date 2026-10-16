@@ -10,7 +10,7 @@ import re
 import base64
 import tempfile
 import xml.etree.ElementTree as ET
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple, List
 
 try:
     import pymupdf as fitz
@@ -125,6 +125,101 @@ def _extract_fha_case_number(root: ET.Element, report: Optional[ET.Element] = No
             pass
 
     return ""
+
+
+def _extract_appraiser_fee(full_narrative: str = "", embedded_doc: Optional[ET.Element] = None) -> str:
+    r"""
+    Extracts the Appraiser's Fee across report narrative and embedded PDF pages.
+    Searches for fee disclosure patterns such as:
+    - 'Fee disclosures are $450.00'
+    - 'Fee paid to the appraiser: $500.00'
+    - 'Appraiser fee is $650'
+    - 'Appraiser's fee is $510'
+    - 'Total Appraiser Fee: $400'
+    - 'Appraisal Fee is $600'
+    - 'Appraiser Fee: $395.00'
+    - 'SERVICE FEE $750'
+    - 'Invoice Amount / Total: $...'
+    Returns clean numeric value as a string (e.g. '450.00').
+    """
+    fee_patterns = [
+        re.compile(r'(?:Fee\s+disclosures?(?:\s+are|\s+is|\s+was)?|Appraisal\s+Fee\s+disclosure)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'Fee\s+paid\s+to\s+(?:the\s+)?appraiser[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'(?:Total\s+|Actual\s+|Agreed\s+)?(?:Appraiser(?:\'s)?\s*Fee|Appraisal\s*Fee)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'(?:Appraisal\s*Service\s*Fee|Professional\s*Fee|Agreed\s*Fee|Fee\s*Charged|Fee\s*Amount)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'\bSERVICE\s+FEE[^0-9$\n]{0,20}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'(?:Invoice\s*Amount|Invoice\s*Total|Total\s*Amount\s*Due|TOTAL\s*DUE|Amount\s*Due)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE),
+        re.compile(r'\bFee\s+(?:for\s+(?:this|the)\s+appraisal\s+)?(?:is|was|of|:|=)\s*\$?\s*([0-9,]+(?:\.\d{2})?)', re.IGNORECASE)
+    ]
+
+    candidate_texts = []
+    if full_narrative:
+        candidate_texts.append(full_narrative)
+
+    if embedded_doc is not None and embedded_doc.text:
+        try:
+            pdf_bytes = base64.b64decode(embedded_doc.text.strip())
+            if fitz is not None:
+                pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                for page in pdf_doc:
+                    txt = page.get_text() or ""
+                    if txt:
+                        candidate_texts.append(txt)
+                pdf_doc.close()
+        except Exception:
+            pass
+
+    for pat in fee_patterns:
+        for txt in candidate_texts:
+            for m in pat.finditer(txt):
+                snippet = txt[max(0, m.start() - 30):min(len(txt), m.end() + 30)].lower()
+                if any(bad in snippet for bad in ['hoa', 'pud', 'per month', 'per year', 'late fee', 'cancellation', 'simple', 'sf', 'sq ft']):
+                    continue
+                raw = m.group(1).replace(',', '').strip()
+                try:
+                    val = float(raw)
+                    if 50.0 <= val <= 25000.0:
+                        return f"{val:.2f}"
+                except ValueError:
+                    pass
+
+    return ""
+
+
+def _detect_1004mc_presence(root: ET.Element, embedded_doc: Optional[ET.Element] = None) -> Tuple[bool, str]:
+    """
+    Identifies whether 1004MC (Market Conditions Addendum) is present in MISMO XML.
+    Checks:
+    1. <FORM> addenda elements
+    2. <MARKET> and <MARKET_INVENTORY> data elements
+    3. Embedded PDF document text
+    Returns (is_present: bool, reason: str)
+    """
+    for form in root.findall(".//FORM"):
+        name = f"{form.attrib.get('AppraisalReportContentName', '')} {form.attrib.get('AppraisalReportContentIdentifier', '')}".upper()
+        if "1004MC" in name or "MARKET CONDITIONS ADDENDUM" in name:
+            return True, f"FORM Addendum Tag: {form.attrib.get('AppraisalReportContentName', '') or form.attrib.get('AppraisalReportContentIdentifier', '')}"
+
+    market_elem = root.find(".//MARKET")
+    inventory_items = root.findall(".//MARKET_INVENTORY")
+    if market_elem is not None or len(inventory_items) > 0:
+        return True, f"XML <MARKET> tag with {len(inventory_items)} inventory records"
+
+    if embedded_doc is not None and embedded_doc.text:
+        try:
+            pdf_bytes = base64.b64decode(embedded_doc.text.strip())
+            if fitz is not None:
+                pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+                for page_num, page in enumerate(pdf, 1):
+                    txt = (page.get_text() or "").upper()
+                    if "1004MC" in txt or "MARKET CONDITIONS ADDENDUM" in txt or ("INVENTORY ANALYSIS" in txt and ("PRIOR 7-12" in txt or "ABSORPTION RATE" in txt)):
+                        pdf.close()
+                        return True, f"Embedded PDF Page {page_num}"
+                pdf.close()
+        except Exception:
+            pass
+
+    return False, "Not Present"
 
 
 def _detect_form_type_from_xml(root: ET.Element) -> str:
@@ -273,7 +368,288 @@ def _format_mat_cond(raw_val: Any, default_cond: str = "Average") -> str:
             return f"{parts[0]} / {default_cond}"
     return f"{val} / {default_cond}"
 
-def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
+def extract_photos_from_xml(
+    xml_path_or_bytes: Any,
+    max_photos: int = 100,
+    dpi: int = 72,
+    include_images: bool = True
+) -> List[Dict[str, Any]]:
+    """
+    Dynamically extracts all photos and their labels/captions from any MISMO 2.6 XML file.
+    Supports all appraisal software platforms (ACI, TOTAL by a la mode, ClickFORMS, Bradford, etc.).
+    Extracts high-resolution images, pairs them with intelligent spatial labels, and categorizes them:
+    'Subject', 'Interior', 'Comparable', 'Rental', 'Sketch', 'Map', and 'General'.
+    """
+    if fitz is None:
+        return []
+
+    # 1. Read XML string
+    xml_text = ""
+    try:
+        if isinstance(xml_path_or_bytes, (str, os.PathLike)) and os.path.exists(str(xml_path_or_bytes)):
+            with open(str(xml_path_or_bytes), "r", encoding="utf-8", errors="ignore") as f:
+                xml_text = f.read()
+        elif isinstance(xml_path_or_bytes, bytes):
+            xml_text = xml_path_or_bytes.decode("utf-8", errors="ignore")
+        elif isinstance(xml_path_or_bytes, str):
+            xml_text = xml_path_or_bytes
+    except Exception:
+        return []
+
+    if not xml_text:
+        return []
+
+    # 2. Extract base64 encoded PDF from <DOCUMENT> or <EMBEDDED_FILE>
+    pdf_bytes = None
+    m_doc = re.search(r"<DOCUMENT[^>]*>([^<]{1000,})</DOCUMENT>", xml_text)
+    if m_doc:
+        try:
+            pdf_bytes = base64.b64decode(m_doc.group(1).strip())
+        except Exception:
+            pass
+
+    if not pdf_bytes:
+        m_emb = re.search(r"<EMBEDDED_FILE[^>]*>([^<]{1000,})</EMBEDDED_FILE>", xml_text)
+        if m_emb:
+            try:
+                pdf_bytes = base64.b64decode(m_emb.group(1).strip())
+            except Exception:
+                pass
+
+    if not pdf_bytes:
+        return []
+
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return []
+
+    photos = []
+    photo_count = 0
+
+    # 3. Iterate through pages and extract photos using ultra-fast page.get_image_info
+    skip_form_headers = [
+        "UNIFORM RESIDENTIAL APPRAISAL REPORT",
+        "SMALL RESIDENTIAL INCOME PROPERTY",
+        "INDIVIDUAL CONDOMINIUM UNIT",
+        "APPRAISER'S CERTIFICATION",
+        "SUPERVISORY APPRAISER'S CERTIFICATION",
+        "APPRAISER INDEPENDENCE CERTIFICATION",
+        "INVOICE",
+        "ENGAGEMENT LETTER",
+        "SCOPE OF WORK",
+        "PRIVACY NOTICE",
+        "STATEMENTS OF FACT"
+    ]
+    photo_override_headers = [
+        "PHOTO ADDENDUM", "SUBJECT PROPERTY PHOTO", "COMPARABLE PROPERTY PHOTO", 
+        "COMPARABLE RENTALS PHOTO", "ADDITIONAL PHOTOS", "BUILDING SKETCH", "LOCATION MAP", "FLOOR PLAN"
+    ]
+
+    for p_idx in range(len(doc)):
+        if photo_count >= max_photos:
+            break
+        page = doc[p_idx]
+        p_no = p_idx + 1
+        raw_text = page.get_text() or ""
+        raw_upper = raw_text.upper()
+
+        # Skip standard form report pages where images are only digital signatures or company headers
+        is_form_report_page = (
+            any(h in raw_upper for h in skip_form_headers) and 
+            not any(k in raw_upper for k in photo_override_headers)
+        )
+        if is_form_report_page:
+            continue
+
+        img_infos = page.get_image_info()
+        if not img_infos:
+            continue
+
+        # Collect placed image rectangles (keep strips with height >= 6 for merging)
+        rects = []
+        for item in img_infos:
+            bbox = item.get("bbox")
+            if bbox:
+                r = fitz.Rect(bbox)
+                if r.width >= 50 and r.height >= 6:
+                    rects.append(r)
+
+        if not rects:
+            continue
+
+        # Merge horizontal strips (ACI / ClickFORMS style strip tiling)
+        clusters = []
+        rects.sort(key=lambda r: (round(r.x0 / 20), r.y0))
+        for r in rects:
+            merged = False
+            for c in clusters:
+                if abs(c.x0 - r.x0) < 18 and abs(c.x1 - r.x1) < 18 and (r.y0 <= c.y1 + 12):
+                    c.y1 = max(c.y1, r.y1)
+                    merged = True
+                    break
+            if not merged:
+                clusters.append(fitz.Rect(r))
+
+        # Filter out thin dividers or tiny graphics (< 70 pt in width or < 60 pt in height)
+        photo_frames = [c for c in clusters if (c.width >= 70 and c.height >= 60 and (c.width * c.height) >= 5000)]
+        if not photo_frames:
+            continue
+
+        # Filter out full-page form background images on text addenda pages
+        if len(photo_frames) == 1:
+            f = photo_frames[0]
+            if f.height > 600 and any(h in raw_upper for h in ["TEXT ADDENDUM", "APPRAISAL ADDENDUM", "INVOICE", "ENGAGEMENT"]):
+                continue
+
+        # Sort frames: top-to-bottom, left-to-right
+        photo_frames.sort(key=lambda r: (round(r.y0 / 50), r.x0))
+
+        blocks = page.get_text("blocks")
+        body_blocks = [b for b in blocks if b[1] >= 82] # Ignore page top header metadata
+
+        for frame in photo_frames:
+            if photo_count >= max_photos:
+                break
+
+            best_label = ""
+            unit_str = ""
+
+            # Check Layout A: Text to the right of photo (TOTAL & ACI 3-photo layouts)
+            right_blocks = [
+                b for b in body_blocks 
+                if b[0] >= frame.x1 - 35 and abs(b[1] - frame.y0) < 65
+            ]
+            if right_blocks:
+                right_blocks.sort(key=lambda b: (abs(b[1] - frame.y0), b[0]))
+                for b in right_blocks:
+                    txt = b[4].strip()
+                    for line in txt.split("\n"):
+                        line = line.strip()
+                        if line and not any(skip in line.lower() for skip in [
+                            "appraised date", "appraised value", "sale date", "sale price",
+                            "form 1004", "total appraisal", "1-800-alamode", "page #", "aciweb", "int6ar"
+                        ]):
+                            if re.match(r"^[\d,\.\$\s\/]+$", line) and len(line) < 15:
+                                continue
+                            if not best_label and len(line) < 40:
+                                best_label = line
+                                break
+                    if best_label:
+                        break
+
+            # Check Layout B: Text directly below photo (ACI 6-photo interior grid layout)
+            if not best_label:
+                below_blocks = [
+                    b for b in body_blocks 
+                    if (0 <= b[1] - frame.y1 < 65) and (abs(b[0] - frame.x0) < 85 or abs(b[2] - frame.x1) < 85)
+                ]
+                if below_blocks:
+                    label_parts = []
+                    for b in below_blocks:
+                        for line in b[4].strip().split("\n"):
+                            line = line.strip()
+                            if line and len(line) < 40 and not any(skip in line.lower() for skip in [
+                                "aciweb", "int6ar", "page", "appraisal"
+                            ]):
+                                if "UNIT" in line.upper():
+                                    unit_str = line
+                                elif line not in label_parts:
+                                    label_parts.append(line)
+                    if unit_str and unit_str not in label_parts:
+                        best_label = f"{unit_str} - " + " ".join(label_parts[:2])
+                    elif label_parts:
+                        best_label = " ".join(label_parts[:2])
+
+            # Check Layout C: Text directly above photo
+            if not best_label:
+                above_blocks = [
+                    b for b in body_blocks 
+                    if (0 <= frame.y0 - b[3] < 35) and (abs(b[0] - frame.x0) < 85 or abs(b[2] - frame.x1) < 85)
+                ]
+                if above_blocks:
+                    for b in above_blocks:
+                        for line in b[4].strip().split("\n"):
+                            line = line.strip()
+                            if line and len(line) < 40 and not any(skip in line.lower() for skip in ["aciweb", "page"]):
+                                best_label = line
+                                break
+
+            # Skip digital signature labels
+            if any(sig_w in (best_label or "").lower() for sig_w in [
+                "signature", "appraiser signature", "supervisory appraiser", "review appraiser"
+            ]):
+                continue
+
+            # Category detection based on label and page context
+            category = "General"
+            lbl_upper = (best_label or "").upper()
+            if any(k in lbl_upper for k in ["FRONT", "REAR", "STREET", "SIDE", "YARD", "EXTERIOR", "DRIVEWAY"]):
+                category = "Subject"
+            elif any(k in lbl_upper for k in ["LIVING", "KITCHEN", "BATH", "BED", "DINING", "FAMILY", "BASEMENT", "ROOM", "DEN", "OFFICE", "NOOK", "LAUNDRY", "ALARM", "FURNACE", "HEATER", "GARAGE"]):
+                category = "Interior"
+            elif any(k in lbl_upper for k in ["COMPARABLE", "COMP"]):
+                category = "Comparable"
+            elif any(k in lbl_upper for k in ["RENTAL", "LEASE"]):
+                category = "Rental"
+            elif any(k in lbl_upper or k in raw_upper for k in ["SKETCH", "FLOORPLAN"]):
+                category = "Sketch"
+            elif any(k in lbl_upper or k in raw_upper for k in ["MAP", "PLAT", "AERIAL", "FLOOD"]):
+                category = "Map"
+            elif any(k in raw_upper for k in ["SUBJECT PROPERTY PHOTO", "SUBJECT PHOTO"]):
+                category = "Subject"
+            elif any(k in raw_upper for k in ["INTERIOR PHOTO"]):
+                category = "Interior"
+
+            if not best_label:
+                if category == "Sketch":
+                    best_label = "Building Floorplan Sketch"
+                elif category == "Map":
+                    for m_term in ["PLAT MAP", "FLOOD MAP", "AERIAL MAP", "LOCATION MAP", "TAX MAP"]:
+                        if m_term in raw_upper:
+                            best_label = m_term.title()
+                            break
+                    if not best_label:
+                        best_label = "Map Exhibit"
+                else:
+                    best_label = f"{category} Photo"
+
+            # Render image if requested
+            base64_preview = ""
+            w_px, h_px = round(frame.width), round(frame.height)
+            if include_images:
+                try:
+                    pix = page.get_pixmap(clip=frame, dpi=dpi)
+                    w_px, h_px = pix.width, pix.height
+                    img_bytes = pix.tobytes("jpeg", jpg_quality=70)
+                    b64_enc = base64.b64encode(img_bytes).decode("ascii")
+                    base64_preview = f"data:image/jpeg;base64,{b64_enc}"
+                except Exception:
+                    pass
+
+            photo_count += 1
+            photos.append({
+                "id": f"photo_{photo_count}",
+                "caption": best_label,
+                "title": best_label,
+                "category": category,
+                "page": p_no,
+                "base64_preview": base64_preview,
+                "image_data": base64_preview,
+                "width": w_px,
+                "height": h_px,
+                "rect": {
+                    "x0": round(frame.x0),
+                    "y0": round(frame.y0),
+                    "x1": round(frame.x1),
+                    "y1": round(frame.y1)
+                }
+            })
+
+    return photos
+
+
+def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True) -> Dict[str, Any]:
     """
     Parses a MISMO 2.6 XML appraisal file and returns the full structured fields dictionary.
     All data is extracted dynamically from the XML DOM and attributes.
@@ -327,6 +703,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     state_lic_no = ""
     
     lender_name = ""
+    lender_client_name = ""
     lender_address = ""
     lender_email = ""
     borrower_name = ""
@@ -421,15 +798,42 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     if parties is not None:
         lender_elem = parties.find("LENDER")
         if lender_elem is not None:
-            lender_name = lender_elem.attrib.get("_UnparsedName", "")
+            lender_name = lender_elem.attrib.get("_UnparsedName", "") or lender_elem.attrib.get("_Name", "") or lender_elem.attrib.get("_CompanyName", "")
             lender_address = lender_elem.attrib.get("AppraisalFormsUnparsedAddress", "") or f"{lender_elem.attrib.get('_StreetAddress', '')}, {lender_elem.attrib.get('_StreetAddress2', '')}".strip(", ")
             for cp in lender_elem.findall(".//CONTACT_POINT"):
                 if "email" in cp.attrib.get("_Type", "").lower() and not lender_email:
                     lender_email = cp.attrib.get("_Value", "")
 
+            # Check contact detail name under LENDER (e.g. FastApp)
+            cd_elem = lender_elem.find(".//CONTACT_DETAIL")
+            if cd_elem is not None:
+                lender_client_name = cd_elem.attrib.get("_Name", "").strip()
+
         borrower_elem = parties.find("BORROWER")
         if borrower_elem is not None:
             borrower_name = borrower_elem.attrib.get("_UnparsedName", "")
+
+    # Priority 1: MANAGEMENT_COMPANY (AMC / Ordering Client Name for Certificate Page)
+    mc_elem = root.find(".//MANAGEMENT_COMPANY")
+    if mc_elem is not None:
+        gse_amc = (mc_elem.attrib.get("GSEManagementCompanyName", "") or mc_elem.attrib.get("_Name", "") or mc_elem.attrib.get("_UnparsedName", "")).strip()
+        if gse_amc:
+            lender_client_name = gse_amc
+
+    # Priority 2: Check <LENDER><NAME> if still empty
+    if not lender_client_name and parties is not None:
+        lender_elem = parties.find("LENDER")
+        if lender_elem is not None:
+            name_elem = lender_elem.find(".//NAME")
+            if name_elem is not None:
+                first = name_elem.attrib.get("_First", "").strip()
+                last = name_elem.attrib.get("_Last", "").strip()
+                if first or last:
+                    lender_client_name = f"{first} {last}".strip()
+
+    # Priority 3: Fallback to lender_name if no separate ordering client/AMC exists
+    if not lender_client_name:
+        lender_client_name = lender_name
 
     # Property info
     prop_addr = ""
@@ -1758,39 +2162,26 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         amc_name = mc_elem.attrib.get("GSEManagementCompanyName", "")
 
     # Appraiser Fee & AMC License #
-    appraiser_fee = ""
+    appraiser_fee = _extract_appraiser_fee(full_narrative=full_narrative, embedded_doc=embedded_doc)
     amc_license = ""
 
-    # Check XML narrative & attributes
-    m_fee = re.search(r'(?:Appraisal|Appraiser(?:\'s)?)\s+Fee\s+(?:is\s+)?(\$[\d,]+(?:\.\d{2})?)', full_narrative, re.IGNORECASE)
-    if m_fee:
-        appraiser_fee = m_fee.group(1).strip()
-
-    m_lic = re.search(r'AMC\s+(?:License|Lic|#)\s*(?:is|#|:)?\s*([A-Za-z0-9\-]+)', full_narrative, re.IGNORECASE)
+    # Check AMC license in narrative & attributes
+    m_lic = re.search(r'AMC\s+(?:License|Lic|Reg|Registration)(?:\.|\s)*#?\s*(?:is|#|:)?\s*([A-Za-z0-9\-]+)', full_narrative, re.IGNORECASE)
     if m_lic:
         amc_license = m_lic.group(1).strip()
 
-    # If not found in XML narrative, check embedded PDF (first 5 pages)
-    if (not appraiser_fee or not amc_license) and embedded_doc is not None and embedded_doc.text:
+    if not amc_license and embedded_doc is not None and embedded_doc.text:
         try:
             pdf_bytes = base64.b64decode(embedded_doc.text.strip())
             if fitz is not None:
                 pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-                for p_idx in range(min(5, len(pdf_doc))):
-                    ptxt = pdf_doc[p_idx].get_text() or ""
-                    if not appraiser_fee:
-                        mf = re.search(r'(?:Total\s+Appraiser\s+Fee|Appraiser(?:\'s)?\s+Fee|Appraisal\s+Fee)\s*[:=\-]?\s*(\$[\d,]+(?:\.\d{2})?)', ptxt, re.IGNORECASE)
-                        if mf:
-                            appraiser_fee = mf.group(1).strip()
-                        elif "INVOICE" in ptxt.upper() and ("INVOICE TOTAL" in ptxt.upper() or "AMOUNT DUE" in ptxt.upper()):
-                            amounts = re.findall(r'\b\d{2,4}\.\d{2}\b', ptxt)
-                            pos_amounts = [a for a in amounts if float(a) > 0]
-                            if pos_amounts:
-                                appraiser_fee = f"${pos_amounts[0]}"
-                    if not amc_license:
-                        ml = re.search(r'AMC\s+License\s*[:=\-]?\s*([A-Za-z0-9\-]+)', ptxt, re.IGNORECASE)
-                        if ml:
-                            amc_license = ml.group(1).strip()
+                for page in pdf_doc:
+                    ptxt = page.get_text() or ""
+                    ml = re.search(r'AMC\s+(?:License|Lic|Reg|Registration)(?:\.|\s)*#?\s*[:=\-]?\s*([A-Za-z0-9\-]+)', ptxt, re.IGNORECASE)
+                    if ml:
+                        amc_license = ml.group(1).strip()
+                        break
+                pdf_doc.close()
         except Exception:
             pass
 
@@ -1810,8 +2201,15 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     # FHA Case Number
     fha_case_no = _extract_fha_case_number(root, report, full_narrative=full_narrative)
 
+    # 1004MC Presence Detection
+    has_1004mc, mc_source = _detect_1004mc_presence(root, embedded_doc=embedded_doc)
+    mc_present_str = "Present" if has_1004mc else "Not Present"
+
     # Build standard sections matching UI
     subject_section = {
+        "1004MC Addendum": mc_present_str,
+        "1004MC Present": "Yes" if has_1004mc else "No",
+        "has_1004mc": has_1004mc,
         "FHA Case No.": fha_case_no,
         "FHA Case #": fha_case_no,
         "FHA Case Number": fha_case_no,
@@ -2580,7 +2978,9 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "Appraised Value": appraised_val,
 
         # Lender / Client
-        "LENDER/CLIENT Name": lender_name,
+        "LENDER/CLIENT Name": lender_client_name,
+        "Lender/Client Name": lender_client_name,
+        "Client Name": lender_client_name,
         "Lender Name": lender_name,
         "Lender/Client Company Name": lender_name,
         "Lender/Client Company Address": lender_address,
@@ -2847,8 +3247,15 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         if isinstance(c_val, dict):
             clean_sales_grid[f"Comparable Sale {i}"] = c_val
 
+    # 10. Extract Photo Exhibits & Visual Addenda
+    extracted_photos = []
+    try:
+        extracted_photos = extract_photos_from_xml(xml_path_or_bytes, max_photos=100, dpi=72, include_images=extract_images)
+    except Exception:
+        pass
+
     # Combined master fields object
-    fields = {
+    fields: Dict[str, Any] = {
         "From Type": form_type,
         "Form Type": form_type,
         "formType": form_type,
@@ -2871,6 +3278,22 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
         "FHA Case No.": fha_case_no,
         "FHA Case #": fha_case_no,
         "FHA Case Number": fha_case_no,
+        "Appraiser's Fee": appraiser_fee,
+        "Appraiser Fee": appraiser_fee,
+        "Appraisal Fee": appraiser_fee,
+        "AMC License #": amc_license,
+        "AMC License": amc_license,
+        "AMC Name": amc_name,
+        "LENDER/CLIENT Name": lender_client_name,
+        "Lender/Client Name": lender_client_name,
+        "Lender Name": lender_name,
+        "Lender/Client Company Name": lender_name,
+        "Lender/Client Company Address": lender_address,
+        "Lender/Client Email Address": lender_email,
+        "Lender/Client": lender_name,
+        "1004MC Addendum": mc_present_str,
+        "1004MC Present": "Yes" if has_1004mc else "No",
+        "has_1004mc": has_1004mc,
         "Subject": clean_subject,
         "SUBJECT": clean_subject,
         "CONTRACT": contract_section,
@@ -2910,8 +3333,10 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
             fields[rent_name] = rent_data
 
     # Clean structured appraisal data dictionary (single clean section hierarchy where Subject and Sales Grid are distinct)
-    clean_data = {
+    clean_data: Dict[str, Any] = {
         "Form Type": form_type,
+        "has_1004mc": has_1004mc,
+        "1004MC Addendum": mc_present_str,
         "Subject": clean_subject,
         "Contract": contract_section,
         "Neighborhood": neighborhood_section,
@@ -2939,11 +3364,19 @@ def extract_fields_from_xml(xml_path_or_bytes: Any) -> Dict[str, Any]:
     if certification_section and any(certification_section.values()):
         clean_data["Certification"] = certification_section
 
+    if extracted_photos:
+        clean_data["EXTRACTED_PHOTOS"] = extracted_photos
+        clean_data["extracted_photos"] = extracted_photos
+
     return {
         "status": "success",
         "form_type": form_type,
+        "has_1004mc": has_1004mc,
+        "1004mc_presence": mc_present_str,
         "fields": fields,
         "unified_fields": fields,
         "clean_data": clean_data,
         "has_embedded_pdf": has_embedded_pdf,
+        "extracted_photos": extracted_photos,
+        "EXTRACTED_PHOTOS": extracted_photos,
     }

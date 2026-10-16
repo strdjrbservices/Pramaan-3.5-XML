@@ -2256,6 +2256,7 @@ function Subject({ defaultFormType }) {
   const topCheckFields = [
     'FHA Case #',
     'ADU File Check',
+    '1004MC Addendum',
     'ANSI',
     'Exposure Comment',
     'Prior Service Comment',
@@ -2298,10 +2299,22 @@ function Subject({ defaultFormType }) {
   const statesRequiringAmcLicense = ['GA', 'IL', 'MT', 'NJ', 'OH', 'VT'];
 
   const currentState = data?.State?.toUpperCase();
+  const hasAppraiserFee = !!(data?.["Appraiser's Fee"] || data?.["Appraiser Fee"] || data?.Subject?.["Appraiser's Fee"] || data?.Subject?.["Appraiser Fee"] || data?.CERTIFICATION?.["Appraiser's Fee"] || data?.CERTIFICATION?.["Appraiser Fee"]);
+  const has1004mc = !!(data?.has_1004mc || data?.['1004MC Addendum'] === 'Present' || data?.['1004MC Present'] === 'Yes' || data?.Subject?.['1004MC Addendum'] === 'Present' || data?.Subject?.['1004MC Present'] === 'Yes');
 
-  if (currentState) {
-    if (statesRequiringAppraiserFee.includes(currentState)) {
-      const feeIndex = subjectFields.indexOf('State') + 1;
+  if (has1004mc && !subjectFields.includes("1004MC Addendum")) {
+    const reportDataSrcIdx = subjectFields.indexOf('Report data source(s) used, offering price(s), and date(s)');
+    if (reportDataSrcIdx !== -1) {
+      subjectFields.splice(reportDataSrcIdx + 1, 0, "1004MC Addendum");
+    } else {
+      subjectFields.push("1004MC Addendum");
+    }
+  }
+
+  if (currentState || hasAppraiserFee) {
+    if ((currentState && statesRequiringAppraiserFee.includes(currentState)) || hasAppraiserFee) {
+      const stateIdx = subjectFields.indexOf('State');
+      const feeIndex = stateIdx !== -1 ? stateIdx + 1 : 0;
       if (!subjectFields.includes("Appraiser's Fee")) {
         subjectFields.splice(feeIndex, 0, "Appraiser's Fee");
       }
@@ -3279,6 +3292,10 @@ function Subject({ defaultFormType }) {
     setClientReqResponse(null);
     setFhaResponse(null);
     setADUResponse(null);
+    setEscalationResponse(null);
+    setStateReqError('');
+    setClientReqError('');
+    setEscalationError('');
     setActiveSection(null);
     setModalContent(null);
     setComparisonData({});
@@ -3318,6 +3335,10 @@ function Subject({ defaultFormType }) {
     setClientReqResponse(null);
     setFhaResponse(null);
     setADUResponse(null);
+    setEscalationResponse(null);
+    setStateReqError('');
+    setClientReqError('');
+    setEscalationError('');
     setActiveSection(null);
     setModalContent(null);
 
@@ -3732,7 +3753,7 @@ function Subject({ defaultFormType }) {
   const extractInitialSections = async (fileOverride, sourceOverride) => {
     const currentSource = sourceOverride || extractionSource;
     const activeFile = fileOverride || (currentSource === 'xml' ? (xmlFile || selectedFile) : (selectedFile || xmlFile));
-    if (!activeFile || !selectedFormType) return;
+    if (!activeFile) return;
 
     const initialCategories = ['SUBJECT'];
     setLoading(true);
@@ -3740,11 +3761,14 @@ function Subject({ defaultFormType }) {
     setTimer(0);
     timerRef.current = setInterval(() => setTimer(prev => prev + 1), 1000);
 
+    let extractedDataResult = null;
+    let detectedFormType = selectedFormType || '1004';
+
     for (const category of initialCategories) {
       try {
         const formData = new FormData();
         formData.append('file', activeFile);
-        formData.append('form_type', selectedFormType);
+        formData.append('form_type', detectedFormType);
         formData.append('category', category);
 
         const res = await fetch(`${API_BASE_URL}/api/extract/`, { method: 'POST', body: formData });
@@ -3754,6 +3778,11 @@ function Subject({ defaultFormType }) {
         }
 
         const result = await res.json();
+        extractedDataResult = result;
+        if (result.form_type) {
+          const norm = normalizeExtractedFormType(result.form_type);
+          if (norm) detectedFormType = norm;
+        }
         processExtractionResult(result, Date.now(), category, currentSource);
       } catch (error) {
         console.error(error);
@@ -3762,9 +3791,10 @@ function Subject({ defaultFormType }) {
 
     setLoading(false);
     if (timerRef.current) clearInterval(timerRef.current);
-    setTimeout(() => {
-      handleStateRequirementCheck(true);
-    }, 400);
+
+    // Automatically trigger and output all requirement checks (State, Client, Escalation) upon file upload
+    const payloadFields = extractedDataResult?.fields || {};
+    triggerAutoRequirementChecks(activeFile, payloadFields, detectedFormType);
   };
 
   const handlePromptAnalysis = async (prompt) => {
@@ -3828,8 +3858,34 @@ function Subject({ defaultFormType }) {
     throw new Error(`Failed to fetch from ${url} after ${retries} attempts.`);
   };
 
-  const handleStateRequirementCheck = async (forceReload = false) => {
-    const activeFile = selectedFile || xmlFile;
+  const sanitizeExtractedDataForUpload = (sourceData) => {
+    if (!sourceData || typeof sourceData !== 'object') return sourceData;
+    const stripImages = (obj) => {
+      if (Array.isArray(obj)) {
+        return obj.map(item => stripImages(item));
+      }
+      if (obj && typeof obj === 'object') {
+        const out = {};
+        for (const [k, v] of Object.entries(obj)) {
+          if (
+            k === 'base64_preview' ||
+            k === 'image_data' ||
+            k === 'base64_data' ||
+            k === 'base64' ||
+            k === 'image_bytes' ||
+            k === 'raw_bytes'
+          ) continue;
+          out[k] = stripImages(v);
+        }
+        return out;
+      }
+      return obj;
+    };
+    return stripImages(sourceData);
+  };
+
+  const handleStateRequirementCheck = async (promptOrForceReload = false, fileOverride = null, dataOverride = null, formTypeOverride = null) => {
+    const activeFile = fileOverride || selectedFile || xmlFile;
     if (!activeFile) {
       setStateReqError('Please select a PDF or XML file first.');
       return;
@@ -3839,13 +3895,17 @@ function Subject({ defaultFormType }) {
     setStateReqError('');
     setStateReqResponse(null);
 
+    const activeFormType = formTypeOverride || selectedFormType || '1004';
+    const activeData = dataOverride || data;
+    const commentPrompt = typeof promptOrForceReload === 'string' ? promptOrForceReload : STATE_REQUIREMENTS_PROMPT;
+
     const formData = new FormData();
     formData.append('file', activeFile);
-    formData.append('form_type', selectedFormType);
-    formData.append('comment', STATE_REQUIREMENTS_PROMPT);
+    formData.append('form_type', activeFormType);
+    formData.append('comment', commentPrompt);
     formData.append('category', 'STATE_REQUIREMENT_CHECK');
-    if (data && Object.keys(data).length > 0) {
-      formData.append('extracted_data', JSON.stringify(data));
+    if (activeData && Object.keys(activeData).length > 0) {
+      formData.append('extracted_data', JSON.stringify(sanitizeExtractedDataForUpload(activeData)));
     }
 
     try {
@@ -3870,8 +3930,8 @@ function Subject({ defaultFormType }) {
     }
   };
 
-  const handleUnpaidOkCheck = async (forceReload = false) => {
-    const activeFile = selectedFile || xmlFile;
+  const handleUnpaidOkCheck = async (forceReload = false, fileOverride = null, dataOverride = null, formTypeOverride = null) => {
+    const activeFile = fileOverride || selectedFile || xmlFile;
     if (!activeFile) {
       setUnpaidOkError('Please select a PDF or XML file first.');
       return;
@@ -3897,20 +3957,23 @@ function Subject({ defaultFormType }) {
     });
     setIsCheckModalOpen(true);
 
+    const activeFormType = formTypeOverride || selectedFormType || '1004';
+    const activeData = dataOverride || data;
+
     const formData = new FormData();
     formData.append('file', activeFile);
-    formData.append('form_type', selectedFormType);
+    formData.append('form_type', activeFormType);
     formData.append('comment', UNPAID_OK_PROMPT);
     formData.append('category', 'UNPAID_OK_CHECK');
-    if (data && Object.keys(data).length > 0) {
-      formData.append('extracted_data', JSON.stringify(data));
+    if (activeData && Object.keys(activeData).length > 0) {
+      formData.append('extracted_data', JSON.stringify(sanitizeExtractedDataForUpload(activeData)));
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/extract/`, {
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/extract/`, {
         method: 'POST',
         body: formData,
-      });
+      }, 3, 1000);
 
       const result = await res.json();
       if (!res.ok) {
@@ -3938,8 +4001,8 @@ function Subject({ defaultFormType }) {
     }
   };
 
-  const handleClientRequirementCheck = async (forceReload = false) => {
-    const activeFile = selectedFile || xmlFile;
+  const handleClientRequirementCheck = async (promptOrForceReload = false, fileOverride = null, dataOverride = null, formTypeOverride = null) => {
+    const activeFile = fileOverride || selectedFile || xmlFile;
     if (!activeFile) {
       setClientReqError('Please select a PDF or XML file first.');
       return;
@@ -3949,20 +4012,24 @@ function Subject({ defaultFormType }) {
     setClientReqError('');
     setClientReqResponse(null);
 
+    const activeFormType = formTypeOverride || selectedFormType || '1004';
+    const activeData = dataOverride || data;
+    const commentPrompt = typeof promptOrForceReload === 'string' ? promptOrForceReload : CLIENT_REQUIREMENT_PROMPT;
+
     const formData = new FormData();
     formData.append('file', activeFile);
-    formData.append('form_type', selectedFormType);
-    formData.append('comment', CLIENT_REQUIREMENT_PROMPT);
+    formData.append('form_type', activeFormType);
+    formData.append('comment', commentPrompt);
     formData.append('category', 'CLIENT_REQUIREMENT_CHECK');
-    if (data && Object.keys(data).length > 0) {
-      formData.append('extracted_data', JSON.stringify(data));
+    if (activeData && Object.keys(activeData).length > 0) {
+      formData.append('extracted_data', JSON.stringify(sanitizeExtractedDataForUpload(activeData)));
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/extract/`, {
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/extract/`, {
         method: 'POST',
         body: formData,
-      });
+      }, 3, 1000);
 
       const result = await res.json();
       if (!res.ok) {
@@ -4013,7 +4080,7 @@ function Subject({ defaultFormType }) {
     formData.append('form_type', selectedFormType);
     formData.append('comment', FHA_REQUIREMENTS_PROMPT);
     if (data && Object.keys(data).length > 0) {
-      formData.append('extracted_data', JSON.stringify(data));
+      formData.append('extracted_data', JSON.stringify(sanitizeExtractedDataForUpload(data)));
     }
 
     try {
@@ -4082,7 +4149,7 @@ function Subject({ defaultFormType }) {
     formData.append('comment', ADU_REQUIREMENTS_PROMPT);
     formData.append('category', 'ADU_CHECK');
     if (data && Object.keys(data).length > 0) {
-      formData.append('extracted_data', JSON.stringify(data));
+      formData.append('extracted_data', JSON.stringify(sanitizeExtractedDataForUpload(data)));
     }
 
     try {
@@ -4117,8 +4184,8 @@ function Subject({ defaultFormType }) {
     }
   };
 
-  const handleEscalationCheck = async (forceReload = false) => {
-    const activeFile = selectedFile || xmlFile;
+  const handleEscalationCheck = async (promptOrForceReload = false, fileOverride = null, dataOverride = null, formTypeOverride = null) => {
+    const activeFile = fileOverride || selectedFile || xmlFile;
     if (!activeFile) {
       setEscalationError('Please select a PDF or XML file first.');
       return;
@@ -4128,20 +4195,24 @@ function Subject({ defaultFormType }) {
     setEscalationError('');
     setEscalationResponse(null);
 
+    const activeFormType = formTypeOverride || selectedFormType || '1004';
+    const activeData = dataOverride || data;
+    const commentPrompt = typeof promptOrForceReload === 'string' ? promptOrForceReload : ESCALATION_CHECK_PROMPT;
+
     const formData = new FormData();
     formData.append('file', activeFile);
-    formData.append('form_type', selectedFormType);
-    formData.append('comment', ESCALATION_CHECK_PROMPT);
+    formData.append('form_type', activeFormType);
+    formData.append('comment', commentPrompt);
     formData.append('category', 'ESCALATION_CHECK');
-    if (data && Object.keys(data).length > 0) {
-      formData.append('extracted_data', JSON.stringify(data));
+    if (activeData && Object.keys(activeData).length > 0) {
+      formData.append('extracted_data', JSON.stringify(sanitizeExtractedDataForUpload(activeData)));
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/extract/`, {
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/extract/`, {
         method: 'POST',
         body: formData,
-      });
+      }, 3, 1000);
 
       const result = await res.json();
       if (!res.ok) {
@@ -4155,6 +4226,19 @@ function Subject({ defaultFormType }) {
     } finally {
       setEscalationLoading(false);
     }
+  };
+
+  const triggerAutoRequirementChecks = (activeFile, extractedData, formType) => {
+    if (!activeFile) return;
+
+    // Concurrently trigger State, Client, and Escalation checks upon file upload
+    Promise.allSettled([
+      handleStateRequirementCheck(true, activeFile, extractedData, formType),
+      handleClientRequirementCheck(true, activeFile, extractedData, formType),
+      handleEscalationCheck(true, activeFile, extractedData, formType),
+    ]).catch(err => {
+      console.error("Auto requirement checks error:", err);
+    });
   };
 
   const handleSectionClick = (section) => {
@@ -6278,8 +6362,8 @@ function Subject({ defaultFormType }) {
                             label="Form Type"
                             helperText={
                               xmlDetectedFormType && extractionSource === 'xml'
-                                ? `Present in XML: Form ${xmlDetectedFormType}`
-                                : undefined
+                                ? `Present in XML: Form ${xmlDetectedFormType}${data?.has_1004mc || data?.['1004MC Addendum'] === 'Present' || data?.['1004MC Present'] === 'Yes' || data?.Subject?.['1004MC Addendum'] === 'Present' ? ' + 1004MC Addendum' : ''}`
+                                : (data?.has_1004mc || data?.['1004MC Addendum']?.startsWith('Present') || data?.['1004MC Present'] === 'Yes' ? '1004MC Addendum Present in Report' : undefined)
                             }
                             FormHelperTextProps={{
                               sx: { color: 'success.main', fontWeight: 600, mx: 0.5, mt: 0.5 }
@@ -6661,6 +6745,50 @@ function Subject({ defaultFormType }) {
                             <Tooltip title="Check ADU Requirements">
                               <IconButton onClick={handleADUCheck} size="small" color="info">
                                 <Info fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Paper>
+                        </Grid>
+                      )}
+
+                      {(data['1004MC Addendum'] || data['1004MC Present'] || data?.Subject?.['1004MC Addendum'] || data?.has_1004mc !== undefined) && (
+                        <Grid item xs={12} sm={6} md={4}>
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              p: 1.5,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              height: '100%',
+                              borderColor: (data?.has_1004mc || data['1004MC Addendum']?.startsWith('Present') || data['1004MC Present'] === 'Yes' || data?.Subject?.['1004MC Addendum']?.startsWith('Present')) ? 'success.main' : 'divider',
+                              bgcolor: (data?.has_1004mc || data['1004MC Addendum']?.startsWith('Present') || data['1004MC Present'] === 'Yes' || data?.Subject?.['1004MC Addendum']?.startsWith('Present')) ? '#f0fdf4' : 'background.paper'
+                            }}
+                          >
+                            <Box sx={{ overflow: 'hidden' }}>
+                              <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>
+                                1004MC Addendum
+                              </Typography>
+                              <EditableField
+                                fieldPath={['1004MC Addendum']}
+                                value={data['1004MC Addendum'] || (data?.has_1004mc ? 'Present' : 'Not Present')}
+                                onDataChange={handleDataChange}
+                                editingField={editingField}
+                                setEditingField={setEditingField}
+                                isEditable={isEditable}
+                                allData={data}
+                              />
+                            </Box>
+                            <Tooltip title="View Market Conditions Section">
+                              <IconButton
+                                onClick={() => {
+                                  const el = document.getElementById('market-conditions-section') || document.getElementById('market-conditions-summary');
+                                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                                }}
+                                size="small"
+                                color="primary"
+                              >
+                                <TrendingUpIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           </Paper>

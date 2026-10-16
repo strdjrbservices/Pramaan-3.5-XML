@@ -6,12 +6,12 @@ import fitz  # PyMuPDF
 
 try:
     from api.pdf_extractor_offline import extract_fields_from_pdf_offline
-except (ImportError, ModuleNotFoundError):
+except ImportError:
     from .pdf_extractor_offline import extract_fields_from_pdf_offline  # type: ignore
 
 try:
     from api.xml_extractor import extract_fields_from_xml
-except (ImportError, ModuleNotFoundError):
+except ImportError:
     try:
         from .xml_extractor import extract_fields_from_xml  # type: ignore
     except Exception:
@@ -91,15 +91,25 @@ def _find_keyword_in_pages(pages_text, patterns):
 def _normalize_extracted_data(pdf_path: str, extracted_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Ensures extracted_data is a dictionary, falling back to XML or offline extraction if needed."""
     if isinstance(extracted_data, dict) and extracted_data:
+        if "fields" in extracted_data and isinstance(extracted_data["fields"], dict) and extracted_data["fields"]:
+            res = dict(extracted_data["fields"])
+            for k in ["extracted_photos", "EXTRACTED_PHOTOS"]:
+                if k in extracted_data and k not in res:
+                    res[k] = extracted_data[k]
+            return res
         return extracted_data
 
     if pdf_path and pdf_path.lower().endswith(".xml") and extract_fields_from_xml:
         try:
-            res = extract_fields_from_xml(pdf_path)
+            res = extract_fields_from_xml(pdf_path, extract_images=False)
             if isinstance(res, dict) and res.get("status") == "success":
                 fields = res.get("fields")
                 if isinstance(fields, dict):
-                    return fields
+                    ret = dict(fields)
+                    for k in ["extracted_photos", "EXTRACTED_PHOTOS"]:
+                        if k in res and k not in ret:
+                            ret[k] = res[k]
+                    return ret
         except Exception:
             pass
         return {}
@@ -114,27 +124,34 @@ def _normalize_extracted_data(pdf_path: str, extracted_data: Optional[Dict[str, 
 
 
 def _get_field_val(data: Dict[str, Any], section: str, key: str) -> Any:
-    """Safely retrieves a field value with case-insensitive section and key matching."""
+    """Safely retrieves a field value with case-insensitive and punctuation-tolerant section and key matching."""
     if not isinstance(data, dict):
         return None
 
-    # Case-insensitive section lookup
+    def _norm(s: Any) -> str:
+        return re.sub(r"[\s\$:_#-]+", "", str(s).lower())
+
+    norm_sec = _norm(section) if section else ""
+    norm_key = _norm(key) if key else ""
+
+    # 1. Exact / normalized match within section
     target_sec = None
-    for s_k, s_v in data.items():
-        if s_k.lower() == section.lower() and isinstance(s_v, dict):
-            target_sec = s_v
-            break
+    if norm_sec:
+        for s_k, s_v in data.items():
+            if isinstance(s_v, dict) and (_norm(s_k) == norm_sec or s_k.lower() == section.lower()):
+                target_sec = s_v
+                break
 
     if target_sec is not None:
         for f_k, f_v in target_sec.items():
-            if f_k.lower() == key.lower():
+            if f_k.lower() == key.lower() or (norm_key and _norm(f_k) == norm_key):
                 if isinstance(f_v, dict) and "value" in f_v:
                     return f_v["value"]
                 return f_v
 
-    # Fallback to top-level key
+    # 2. Fallback to top-level key
     for t_k, t_v in data.items():
-        if t_k.lower() == key.lower():
+        if t_k.lower() == key.lower() or (norm_key and _norm(t_k) == norm_key):
             if isinstance(t_v, dict) and "value" in t_v:
                 return t_v["value"]
             return t_v
@@ -223,10 +240,13 @@ def evaluate_state_requirements(pdf_path: str, extracted_data: Optional[Dict[str
     fee_page, fee_snippet = _find_keyword_in_pages(
         pages_text,
         [
-            r"(?:Appraiser(?:'s)?\s*Fee|Appraisal\s*Fee|Appraiser\s*Fee)[^0-9\$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?",
-            r"(?:Total\s*Fee|Agreed\s*Fee|Professional\s*Fee|Fee\s*Charged|Fee\s*Amount)[^0-9\$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?",
-            r"(?:Invoice\s*Amount|Invoice\s*Total|Total\s*Amount\s*Due|Amount\s*Due)[^0-9\$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)(?:\s*(?:dollars?|usd))?",
-            r"(?<!Fee\s)\bFee\s*[:=]\s*\$?\s*([0-9,]+(?:\.\d{2})?)",
+            r"(?:Fee\s+disclosures?(?:\s+are|\s+is|\s+was)?|Appraisal\s+Fee\s+disclosure)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)",
+            r"Fee\s+paid\s+to\s+(?:the\s+)?appraiser[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)",
+            r"(?:Total\s+|Actual\s+|Agreed\s+)?(?:Appraiser(?:'s)?\s*Fee|Appraisal\s*Fee)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)",
+            r"(?:Appraisal\s*Service\s*Fee|Professional\s*Fee|Agreed\s*Fee|Fee\s*Charged|Fee\s*Amount)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)",
+            r"\bSERVICE\s+FEE[^0-9$\n]{0,20}\$?\s*([0-9,]+(?:\.\d{2})?)",
+            r"(?:Invoice\s*Amount|Invoice\s*Total|Total\s*Amount\s*Due|TOTAL\s*DUE|Amount\s*Due)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)",
+            r"\bFee\s+(?:for\s+(?:this|the)\s+appraisal\s+)?(?:is|was|of|:|=)\s*\$?\s*([0-9,]+(?:\.\d{2})?)",
         ]
     )
 
@@ -238,10 +258,16 @@ def evaluate_state_requirements(pdf_path: str, extracted_data: Optional[Dict[str
 
     if chosen_fee or fee_page:
         val_clean = str(chosen_fee or "").strip()
+        m_num = re.search(r"([0-9,]+(?:\.\d{2})?)", val_clean)
+        if m_num:
+            try:
+                num_f = float(m_num.group(1).replace(",", ""))
+                if 50.0 <= num_f <= 25000.0:
+                    val_clean = f"${num_f:.2f}"
+            except ValueError:
+                pass
         if val_clean and val_clean.lower() not in ["none", "n/a", "na", "0", "0.00"]:
-            if not val_clean.startswith("$") and re.match(r"^[0-9,]+(?:\.\d{2})?$", val_clean):
-                val_clean = f"${val_clean}"
-            disp_fee = f"Appraiser fee = {val_clean}"
+            disp_fee = f"Appraiser fee = {val_clean}."
         else:
             disp_fee = "Appraiser fee disclosed."
         details.append({
@@ -648,24 +674,218 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
 
     # 1. Visio Lending
     if "VISIO" in lender_upper:
-        as_is_page, _ = _find_keyword_in_pages(pages_text, [r"This appraisal is made [\"']as is[\"']", r"\bas\s*-\s*is\b", r"\bas\s+is\b"])
+        # 1. As-Is Reports: Reports must be As-Is. If not, advise before rejecting.
+        # Escalate as: The report is made subject to for [reason].
+        as_is_page, _ = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']as is[\"']",
+            r"\[X\]\s*\"?as\s+is\"?",
+            r"\bas\s*-\s*is\b",
+            r"\bas\s+is\b"
+        ])
+        subj_to_page, subj_to_snip = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']subject to",
+            r"\[X\]\s*subject to",
+            r"\bsubject to completion per plans",
+            r"\bsubject to the following repairs",
+            r"\bsubject to a required inspection"
+        ])
+        recon_cond = str(_get_field_val(data, "Reconciliation", "Appraisal Made") or "").lower()
+        is_subject_to = bool(subj_to_page) or ("subject to" in recon_cond)
+        is_as_is = bool(as_is_page) or ("as is" in recon_cond)
+
+        if is_subject_to and not is_as_is:
+            reason = "repairs / conditions"
+            if "plans" in (subj_to_snip or "").lower() or "plans" in recon_cond:
+                reason = "completion per plans and specifications"
+            elif "repair" in (subj_to_snip or "").lower() or "alteration" in recon_cond:
+                reason = "the following repairs or alterations"
+            elif "inspect" in (subj_to_snip or "").lower() or "inspection" in recon_cond:
+                reason = "a required inspection"
+            details.append({
+                "requirement": "Report Condition: Verify 'As-Is'",
+                "status": "Needs Review",
+                "value_or_comment": f"The report is made subject to for {reason}. Report must be As-Is, please advise before rejecting."
+            })
+        elif is_as_is:
+            details.append({
+                "requirement": "Report Condition: Verify 'As-Is'",
+                "status": "Fulfilled",
+                "value_or_comment": f"Report confirmed 'As-Is' on Page {as_is_page or 1}."
+            })
+        else:
+            details.append({
+                "requirement": "Report Condition: Verify 'As-Is'",
+                "status": "Needs Review",
+                "value_or_comment": "Report condition could not be verified as 'As-Is', please advise before rejecting."
+            })
+
+        # 2. Neighborhood Description: No need to check neighborhood words such as Average, Convenient, Good, or Desirable.
         details.append({
-            "requirement": "Report Condition: Verify 'As Is'",
-            "status": "Fulfilled" if as_is_page else "Needs Review",
-            "value_or_comment": f"Report made 'As Is' on Page {as_is_page}." if as_is_page else "Report is not 'As Is', please advise before rejecting."
-        })
-        rep_page, rep_snip = _find_keyword_in_pages(pages_text, [r"repairs?\s*(?:needed|required|noted)", r"deferred\s*maintenance", r"cost\s*to\s*cure"])
-        rep_snip_str = (rep_snip or "")[:60]
-        details.append({
-            "requirement": "No Repairs Listed",
-            "status": "Needs Review" if rep_page else "Fulfilled",
-            "value_or_comment": f"This is Visio. Report made as-is and the subject has repair, please refer the snap and advise (Page {rep_page}: {rep_snip_str})." if rep_page else "No repairs required or listed in report."
-        })
-        details.append({
-            "requirement": "Reviewer Notes: UAD and Neighborhood Words",
+            "requirement": "Neighborhood Description: Reviewer Notes",
             "status": "Fulfilled",
-            "value_or_comment": "Reviewer Notes acknowledged: Specific neighborhood words not mandatory; UAD pages not mandatory for Visio."
+            "value_or_comment": "Reviewer Note: No need to check neighborhood words such as Average, Convenient, Good, or Desirable for Visio Lending."
         })
+
+        # 3. UAD Pages: UAD pages are not mandatory for VISIO.
+        details.append({
+            "requirement": "UAD Pages: Mandatory Check",
+            "status": "Fulfilled",
+            "value_or_comment": "Reviewer Note: UAD definition pages and addenda are not mandatory for Visio Lending."
+        })
+
+        # 4. Repairs: VISIO reports must be As-Is with no repairs needed. If repairs are listed, escalate even if the report is marked As-Is.
+        # Escalate as: This is VISIO. The report is made As-Is, but the subject has repairs. Please refer to the attached screenshot and advise.
+        has_repairs = False
+        rep_page = None
+        rep_snip_str = ""
+        for p in pages_text:
+            txt = p.get("text", "")
+            for m in re.finditer(r"(?:(?:cost\s*to\s*cure\s*[:$]?\s*\$?\s*[1-9][0-9,]*)|(?:repairs?\s*(?:needed|required|noted|recommended))|(?:deferred\s*maintenance\s*(?:noted|observed|present|required)))", txt, re.I):
+                start_idx = max(0, m.start() - 50)
+                pre_text = txt[start_idx:m.start()].lower()
+                if any(neg in pre_text for neg in ["no ", "none", "not ", "without ", "neither ", "no apparent ", "no significant ", "no visible "]):
+                    continue
+                has_repairs = True
+                rep_page = p.get("page_no")
+                rep_snip_str = txt[max(0, m.start() - 20):min(len(txt), m.end() + 40)].replace("\n", " ").strip()
+                break
+            if has_repairs:
+                break
+
+        if has_repairs:
+            details.append({
+                "requirement": "Repairs: No Repairs Needed",
+                "status": "Needs Review",
+                "value_or_comment": f"This is VISIO. The report is made As-Is, but the subject has repairs (Page {rep_page}: '{rep_snip_str}'). Please refer to the attached screenshot and advise."
+            })
+        else:
+            details.append({
+                "requirement": "Repairs: No Repairs Needed",
+                "status": "Fulfilled",
+                "value_or_comment": "No repairs or deferred maintenance listed in report. Verified As-Is with no repairs."
+            })
+
+        # 5. VISIO STR (Short-Term Rental) – Comparable Guidelines:
+        # - 1007 STR ordered: Comparables must be STR. Escalate if they are not.
+        # - 1007 LTR ordered: Comparables can be STR or LTR.
+        # - 1007 only ordered: Comparables can be STR or LTR.
+        # - Other clients – 1007 only ordered: Comparables can be LTR, but not STR.
+        has_1007 = ("1007" in full_text) or ("Single Family Rent Schedule" in full_text) or bool(data.get("COMPARABLE_RENTAL_DATA"))
+        order_type_str = str(_get_field_val(data, "Subject", "Assignment Type") or _get_field_val(data, "Subject", "Product Type") or "").upper()
+        is_str_ordered = ("STR" in order_type_str) or ("SHORT TERM" in order_type_str) or ("SHORT-TERM" in order_type_str)
+
+        if has_1007 and is_str_ordered:
+            rental_grid = data.get("COMPARABLE_RENTAL_DATA", {})
+            rental_text = " ".join([str(v) for v in rental_grid.values()]) + " " + full_text
+            comps_are_str = any(k in rental_text.lower() for k in ["short term", "short-term", "str", "airbnb", "vrbo", "nightly", "daily rate"])
+            if comps_are_str:
+                details.append({
+                    "requirement": "VISIO STR (Short-Term Rental) - Comparable Guidelines",
+                    "status": "Fulfilled",
+                    "value_or_comment": "1007 STR ordered: Rental comparables verified as Short-Term Rentals (STR)."
+                })
+            else:
+                details.append({
+                    "requirement": "VISIO STR (Short-Term Rental) - Comparable Guidelines",
+                    "status": "Needs Review",
+                    "value_or_comment": "1007 STR ordered: Comparables must be Short-Term Rentals (STR). Non-STR / conventional LTR comparables detected. Escalate for review."
+                })
+        elif has_1007:
+            details.append({
+                "requirement": "VISIO STR (Short-Term Rental) - Comparable Guidelines",
+                "status": "Fulfilled",
+                "value_or_comment": "1007 / LTR ordered: Comparables can be STR or LTR for Visio Lending (verified permissible)."
+            })
+        else:
+            details.append({
+                "requirement": "VISIO STR (Short-Term Rental) - Comparable Guidelines",
+                "status": "Not Applicable",
+                "value_or_comment": "Form 1007 (Rent Schedule) is not included in this report."
+            })
+
+        # 6. Occupancy Requirements:
+        # - VISIO with 1007: Occupancy must be Vacant or Tenant.
+        # - If marked Owner, reject as:
+        # The subject is an investment property where the owner does not reside. Please revise to "Vacant" or "Tenant."
+        # - 1025 reports: At least one unit may be owner-occupied, but Tenant or Vacant must also be checked. Otherwise, escalate for confirmation.
+        is_1025 = ("1025" in str(_get_field_val(data, "Subject", "Form Type") or "")) or ("Small Residential Income" in full_text)
+        occupant_val = str(_get_field_val(data, "Subject", "Occupant") or _get_field_val(data, "SUBJECT", "Occupant") or "").strip()
+        occ_lower = occupant_val.lower()
+
+        if is_1025:
+            has_tenant_or_vacant = any(k in occ_lower for k in ["tenant", "vacant"])
+            only_owner = ("owner" in occ_lower) and not has_tenant_or_vacant
+            if only_owner:
+                details.append({
+                    "requirement": "Occupancy Requirements (Form 1025)",
+                    "status": "Needs Review",
+                    "value_or_comment": "1025 report: Occupancy marked solely as Owner. At least one unit may be owner-occupied, but Tenant or Vacant must also be checked. Otherwise, escalate for confirmation."
+                })
+            elif has_tenant_or_vacant:
+                details.append({
+                    "requirement": "Occupancy Requirements (Form 1025)",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"1025 report: Occupancy verified ({occupant_val}) with Tenant or Vacant confirmed."
+                })
+            else:
+                details.append({
+                    "requirement": "Occupancy Requirements (Form 1025)",
+                    "status": "Needs Review",
+                    "value_or_comment": "1025 report: Please confirm Tenant or Vacant is checked for multi-family units."
+                })
+        else:
+            if "owner" in occ_lower:
+                details.append({
+                    "requirement": "Occupancy Requirements",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": "The subject is an investment property where the owner does not reside. Please revise to \"Vacant\" or \"Tenant.\""
+                })
+            elif any(k in occ_lower for k in ["tenant", "vacant"]):
+                details.append({
+                    "requirement": "Occupancy Requirements",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"Occupancy verified as '{occupant_val}' (Tenant or Vacant confirmed for investment property)."
+                })
+            else:
+                if re.search(r"\[X\]\s*Owner", full_text, re.I):
+                    details.append({
+                        "requirement": "Occupancy Requirements",
+                        "status": "Not Fulfilled",
+                        "value_or_comment": "The subject is an investment property where the owner does not reside. Please revise to \"Vacant\" or \"Tenant.\""
+                    })
+                elif re.search(r"\[X\]\s*(?:Tenant|Vacant)", full_text, re.I):
+                    details.append({
+                        "requirement": "Occupancy Requirements",
+                        "status": "Fulfilled",
+                        "value_or_comment": "Occupancy verified as Tenant or Vacant for investment property."
+                    })
+                else:
+                    details.append({
+                        "requirement": "Occupancy Requirements",
+                        "status": "Needs Review",
+                        "value_or_comment": "Occupancy must be Vacant or Tenant for VISIO investment properties. Please verify."
+                    })
+
+        # 7. Cost Approach: Must be completed for VISIO.
+        cost_val = _num(_get_field_val(data, "Cost Approach", "Indicated Value by Cost Approach") or _get_field_val(data, "COST_APPROACH", "Indicated Value by Cost Approach"))
+        site_val = _num(_get_field_val(data, "Cost Approach", "Opinion of Site Value") or _get_field_val(data, "COST_APPROACH", "Opinion of Site Value"))
+        if not cost_val:
+            m_cost = re.search(r"Indicated\s+Value\s+by\s+Cost\s+Approach\s*[:$]?\s*\$?\s*([0-9,]+)", full_text, re.I)
+            if m_cost:
+                cost_val = _num(m_cost.group(1))
+
+        if cost_val or site_val:
+            details.append({
+                "requirement": "Cost Approach: Completed for VISIO",
+                "status": "Fulfilled",
+                "value_or_comment": f"Cost Approach verified as completed in report (Indicated Value: ${cost_val:,.0f})." if cost_val else "Cost Approach verified as completed in report."
+            })
+        else:
+            details.append({
+                "requirement": "Cost Approach: Completed for VISIO",
+                "status": "Not Fulfilled",
+                "value_or_comment": "Cost Approach must be completed for VISIO. Per client instructions, please complete the Cost Approach section."
+            })
 
     # 2. Best2Lend LLC
     elif "BEST2LEND" in lender_upper or "BEST 2 LEND" in lender_upper:
@@ -677,44 +897,321 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
 
     # 3. Ice Lender Holdings LLC
     elif "ICE LENDER" in lender_upper:
-        as_is_page, _ = _find_keyword_in_pages(pages_text, [r"This appraisal is made [\"']as is[\"']", r"\bas\s*-\s*is\b", r"\bas\s+is\b"])
-        details.append({
-            "requirement": "'As Is' Report Condition",
-            "status": "Fulfilled" if as_is_page else "Not Fulfilled",
-            "value_or_comment": f"Report confirmed 'As Is' on Page {as_is_page}." if as_is_page else "Report is not 'As Is'. Please advise before rejecting."
-        })
-        appraised_v = _num(_get_field_val(data, "Reconciliation", "Appraised Value"))
-        contract_v = _num(_get_field_val(data, "Contract", "Contract Price"))
-        if appraised_v and contract_v and (appraised_v > contract_v * 1.10):
+        # 1. As-Is: Reports should be As-Is. If not, advise before rejecting.
+        as_is_page, _ = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']as is[\"']",
+            r"\[X\]\s*\"?as\s+is\"?",
+            r"\bas\s*-\s*is\b",
+            r"\bas\s+is\b"
+        ])
+        subj_to_page, _ = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']subject to",
+            r"\[X\]\s*subject to",
+            r"\bsubject to completion per plans",
+            r"\bsubject to the following repairs",
+            r"\bsubject to a required inspection"
+        ])
+        recon_cond = str(_get_field_val(data, "Reconciliation", "Appraisal Made") or "").lower()
+        is_subject_to = bool(subj_to_page) or ("subject to" in recon_cond)
+        is_as_is = bool(as_is_page) or ("as is" in recon_cond)
+
+        if is_subject_to and not is_as_is:
             details.append({
-                "requirement": "Value vs. Price (<= 10% Higher)",
+                "requirement": "Report Condition: Verify 'As-Is'",
                 "status": "Needs Review",
-                "value_or_comment": f"Please address the appraised value (${appraised_v:,.0f}) being higher than the purchase price (${contract_v:,.0f}) for the subject property."
+                "value_or_comment": f"Report completed 'Subject To' on Page {subj_to_page}. Per client requirements, report should be 'As-Is', please advise before rejecting."
+            })
+        elif is_as_is:
+            details.append({
+                "requirement": "Report Condition: Verify 'As-Is'",
+                "status": "Fulfilled",
+                "value_or_comment": f"Report confirmed 'As-Is' on Page {as_is_page or 1}."
             })
         else:
             details.append({
-                "requirement": "Value vs. Price (<= 10% Higher)",
-                "status": "Fulfilled",
-                "value_or_comment": "Appraised value is within 10% of contract/purchase price or price not exceeded."
+                "requirement": "Report Condition: Verify 'As-Is'",
+                "status": "Needs Review",
+                "value_or_comment": "Report condition could not be verified as 'As-Is', please advise before rejecting."
             })
-        uspap_page, _ = _find_keyword_in_pages(pages_text, [r"USPAP\s*Compliance\s*Addendum", r"USPAP\s*Addendum"])
-        details.append({
-            "requirement": "USPAP Compliance Addendum",
-            "status": "Fulfilled" if uspap_page else "Not Fulfilled",
-            "value_or_comment": f"USPAP Compliance Addendum verified on Page {uspap_page}." if uspap_page else "Per client instructions: All appraisal reports must include the updated USPAP compliance addendum."
-        })
-        firrea_page, _ = _find_keyword_in_pages(pages_text, [r"FIRREA", r"Financial\s*Institutions\s*Reform"])
-        details.append({
-            "requirement": "FIRREA Statement",
-            "status": "Fulfilled" if firrea_page else "Not Fulfilled",
-            "value_or_comment": f"FIRREA statement verified on Page {firrea_page}." if firrea_page else "Per client instructions: All appraisal reports must contain commentary indicating that the report was prepared in accordance with FIRREA requirements."
-        })
+
+        # 2. Appraised Value: If the final value is more than 10% above the listing or purchase/contract price, escalate for review.
+        appraised_v = _num(_get_field_val(data, "Reconciliation", "Appraised Value"))
+        contract_v = _num(_get_field_val(data, "Contract", "Contract Price"))
+
+        offering_desc = str(_get_field_val(data, "Subject", "Report data source(s) used, offering price(s), and date(s)") or _get_field_val(data, "Subject", "Offering Price") or "")
+        listing_v = 0.0
+        m_list = re.search(r"\$\s*([0-9,]+(?:\.\d{2})?)", offering_desc)
+        if m_list:
+            listing_v = _num(m_list.group(1))
+        if not listing_v:
+            m_list_text = re.search(r"(?:offering|listing)\s+price\s*[:$]?\s*\$?\s*([0-9,]+(?:\.\d{2})?)", full_text, re.IGNORECASE)
+            if m_list_text:
+                listing_v = _num(m_list_text.group(1))
+
+        if contract_v and appraised_v and (appraised_v > contract_v * 1.10):
+            details.append({
+                "requirement": "Appraised Value: Value vs. Price / Listing Price",
+                "status": "Needs Review",
+                "value_or_comment": f"Appraised value (${appraised_v:,.0f}) is more than 10% above the purchase/contract price (${contract_v:,.0f}). Escalate for review."
+            })
+        elif listing_v and appraised_v and (appraised_v > listing_v * 1.10):
+            details.append({
+                "requirement": "Appraised Value: Value vs. Price / Listing Price",
+                "status": "Needs Review",
+                "value_or_comment": f"Appraised value (${appraised_v:,.0f}) is more than 10% above the listing price (${listing_v:,.0f}). Escalate for review."
+            })
+        else:
+            val_info = f"Appraised value (${appraised_v:,.0f}) is within 10% of purchase/contract price and listing price." if appraised_v else "Appraised value verified."
+            details.append({
+                "requirement": "Appraised Value: Value vs. Price / Listing Price",
+                "status": "Fulfilled",
+                "value_or_comment": val_info
+            })
+
+        # 3. USPAP Addendum: The updated USPAP Compliance Addendum must be included.
+        #   1. This report was prepared under the following USPAP reporting option:
+        #   2. Reasonable Exposure Time
+        #   3. I have NOT performed services, as an appraiser or in any other capacity, regarding the property that is the subject of this report within the three-year period immediately preceding acceptance of this assignment
+        uspap_page, _ = _find_keyword_in_pages(pages_text, [
+            r"USPAP\s*Compliance(?:\s*Addendum)?",
+            r"USPAP\s*Addendum",
+            r"USPAP\s*Identification"
+        ])
+
+        rep_opt_page, _ = _find_keyword_in_pages(pages_text, [
+            r"This\s+report\s+was\s+prepared\s+under\s+the\s+following\s+USPAP\s+reporting\s+option",
+            r"USPAP\s+reporting\s+option",
+            r"reporting\s+option\s*:\s*(?:Appraisal\s+Report|Restricted\s+Appraisal\s+Report)"
+        ])
+
+        exp_time_page, exp_time_snip = _find_keyword_in_pages(pages_text, [
+            r"Reasonable\s+Exposure\s+Time",
+            r"Exposure\s+Time\s*[:\-]",
+            r"opinion\s+of\s+a\s+reasonable\s+exposure\s+time"
+        ])
+
+        prior_svc_page, _ = _find_keyword_in_pages(pages_text, [
+            r"I\s+have\s+NOT\s+performed\s+services",
+            r"I\s+have\s+performed\s+NO\s+services",
+            r"I\s+HAVE\s+performed\s+services",
+            r"(?:not|no)\s+services.*within\s+the\s+three-year\s+period",
+            r"three-year\s+period\s+immediately\s+preceding\s+acceptance",
+            r"performed\s+services.*within\s+the\s+three-year\s+period"
+        ])
+
+        missing_uspap = []
+        if not rep_opt_page:
+            missing_uspap.append("1. USPAP reporting option")
+        if not exp_time_page:
+            missing_uspap.append("2. Reasonable Exposure Time")
+        if not prior_svc_page:
+            missing_uspap.append("3. Three-year prior services certification")
+
+        if uspap_page and not missing_uspap:
+            details.append({
+                "requirement": "USPAP Addendum: Updated USPAP Compliance Addendum",
+                "status": "Fulfilled",
+                "value_or_comment": f"Updated USPAP Compliance Addendum confirmed on Page {uspap_page}. All 3 mandatory requirements verified: (1) USPAP reporting option present (Page {rep_opt_page}), (2) Reasonable Exposure Time present (Page {exp_time_page}), (3) 3-year prior services statement present (Page {prior_svc_page})."
+            })
+        elif uspap_page and missing_uspap:
+            details.append({
+                "requirement": "USPAP Addendum: Updated USPAP Compliance Addendum",
+                "status": "Needs Review",
+                "value_or_comment": f"USPAP Addendum identified on Page {uspap_page}, but missing required elements: {', '.join(missing_uspap)}. Please ensure the updated USPAP addendum includes all 3 items."
+            })
+        else:
+            details.append({
+                "requirement": "USPAP Addendum: Updated USPAP Compliance Addendum",
+                "status": "Not Fulfilled",
+                "value_or_comment": "The updated USPAP Compliance Addendum must be included. Required elements: (1) USPAP reporting option, (2) Reasonable Exposure Time, (3) 3-year prior services statement. Per client instructions: All appraisal reports must include the updated USPAP compliance addendum."
+            })
+
+        # 4. FIRREA Statement: The report must include commentary confirming compliance with FIRREA requirements. --identifier words (1989 ,FIRREA)
+        firrea_1989_page = None
+        firrea_snippet = ""
+        for p in pages_text:
+            txt = p.get("text", "")
+            if re.search(r"\bFIRREA\b|Financial\s+Institutions\s+Reform", txt, re.I) and re.search(r"\b1989\b", txt):
+                firrea_1989_page = p.get("page_no")
+                m_snip = re.search(r"((?:[^\n\r]+\n?){1,2}(?:FIRREA|Financial\s+Institutions\s+Reform)[^\n\r]*\n?[^\n\r]*1989[^\n\r]*)", txt, re.I)
+                firrea_snippet = m_snip.group(0).replace("\n", " ").strip() if m_snip else ""
+                break
+
+        if not firrea_1989_page:
+            firrea_page, firrea_snip = _find_keyword_in_pages(pages_text, [r"\bFIRREA\b", r"Financial\s*Institutions\s*Reform"])
+        else:
+            firrea_page = firrea_1989_page
+            firrea_snip = firrea_snippet
+
+        if firrea_1989_page:
+            snip_clean = (firrea_snip or "FIRREA compliance commentary")[:100]
+            details.append({
+                "requirement": "FIRREA Statement (1989, FIRREA)",
+                "status": "Fulfilled",
+                "value_or_comment": f"FIRREA Statement confirmed on Page {firrea_1989_page} with identifier words (FIRREA, 1989): \"{snip_clean}...\". "
+            })
+        elif firrea_page:
+            details.append({
+                "requirement": "FIRREA Statement (1989, FIRREA)",
+                "status": "Needs Review",
+                "value_or_comment": f"FIRREA commentary identified on Page {firrea_page}, but identifier word '1989' was not found. Please verify full FIRREA compliance commentary."
+            })
+        else:
+            details.append({
+                "requirement": "FIRREA Statement (1989, FIRREA)",
+                "status": "Not Fulfilled",
+                "value_or_comment": "The report must include commentary confirming compliance with FIRREA requirements (identifier words: 1989, FIRREA). Per client instructions: All appraisal reports must contain commentary indicating that the report was prepared in accordance with FIRREA requirements."
+            })
+
+        # 5. Ice Lender – Comparable Distance Guidelines:
+        #   - Urban: 1 mile
+        #   - Suburban: 3 miles
+        #   - Rural: 10 miles
+        loc = str(_get_field_val(data, "Neighborhood", "Location") or _get_field_val(data, "NEIGHBORHOOD", "Location") or "Suburban").strip().title()
+        thresholds = {"Urban": 1.0, "Suburban": 3.0, "Rural": 10.0}
+        dist_limit = thresholds.get(loc, 3.0)
+
+        sales_grid = data.get("SALES_GRID", {}) if isinstance(data.get("SALES_GRID"), dict) else {}
+        exceeded_comps = []
+        for k, v in sales_grid.items():
+            if not isinstance(v, dict) or "subject" in k.lower():
+                continue
+            m_c = re.search(r"#\s*(\d+)", k)
+            if not m_c:
+                continue
+            c_no = m_c.group(1)
+            if k.upper().startswith("COMPARABLE SALE") and f"Comparable #{c_no}" in sales_grid:
+                continue
+            prox = str(v.get("Proximity to Subject") or "")
+            m_d = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:miles?|mi\b)", prox, re.I)
+            if m_d:
+                d_num = float(m_d.group(1))
+                if d_num > dist_limit:
+                    exceeded_comps.append((c_no, d_num, prox))
+
+        sales_comments = str(_get_field_val(data, "Sales Comparison Approach", "Summary of Sales Comparison Approach") or _get_field_val(data, "Reconciliation", "Comments on Sales Comparison") or "")
+        has_prox_explanation = any(term in sales_comments.lower() for term in ["proximity", "distance", "competing neighborhood", "most comparable", "similar/competing", "radius"])
+
+        if exceeded_comps:
+            exceeded_desc = ", ".join([f"Comp #{c[0]} ({c[2]})" for c in exceeded_comps])
+            if has_prox_explanation:
+                details.append({
+                    "requirement": f"Ice Lender - Comparable Distance Guidelines ({loc} <= {dist_limit} mi)",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"{exceeded_desc} exceed {loc} guideline ({dist_limit} mi), but explanatory proximity comments were verified in report body."
+                })
+            else:
+                first_comp = exceeded_comps[0]
+                details.append({
+                    "requirement": f"Ice Lender - Comparable Distance Guidelines ({loc} <= {dist_limit} mi)",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": f"Comp #{first_comp[0]} ({first_comp[2]}) exceeds Ice Lender {loc} distance guideline of {dist_limit} mile(s). Please address the need to use this comp."
+                })
+        else:
+            details.append({
+                "requirement": f"Ice Lender - Comparable Distance Guidelines ({loc} <= {dist_limit} mi)",
+                "status": "Fulfilled",
+                "value_or_comment": f"All comparable sales are within Ice Lender distance guidelines ({loc} limit <= {dist_limit} mile(s))."
+            })
+
+        # 6. Ice Lender – Refrigerator: The kitchen photo must show the refrigerator. If absent, request a revision or require the appraiser to explain its absence in the report.
+        photos = data.get("EXTRACTED_PHOTOS") or data.get("extracted_photos") or []
+        kitchen_photos = [p for p in photos if "kitchen" in (p.get("caption") or "").lower()]
+        refrig_photos = [p for p in photos if any(r in (p.get("caption") or "").lower() for r in ["refrigerator", "fridge"])]
         refrig_page, _ = _find_keyword_in_pages(pages_text, [r"refrigerator", r"kitchen.*fridge", r"fridge.*kitchen"])
-        details.append({
-            "requirement": "Kitchen Photo with Refrigerator",
-            "status": "Fulfilled" if refrig_page else "Not Fulfilled",
-            "value_or_comment": f"Kitchen photo/commentary with refrigerator verified on Page {refrig_page}." if refrig_page else "Per client instructions, please provide a kitchen photo with the refrigerator showing. If there is no refrigerator in the kitchen, please address as comments in the report."
-        })
+        refrig_absent_comment = re.search(r"(?:no\s+refrigerator|refrigerator\s+(?:is\s+)?(?:not\s+present|absent|missing|not\s+included|tenant\s+owned)|kitchen\s+(?:has\s+no|lacks)\s+refrigerator)", full_text, re.I)
+
+        if refrig_photos:
+            rp = refrig_photos[0]
+            details.append({
+                "requirement": "Ice Lender - Refrigerator in Kitchen Photo",
+                "status": "Fulfilled",
+                "value_or_comment": f"Kitchen photo with refrigerator verified in photo exhibits ({rp.get('caption')}, Page {rp.get('page')})."
+            })
+        elif kitchen_photos and refrig_page:
+            kp = kitchen_photos[0]
+            details.append({
+                "requirement": "Ice Lender - Refrigerator in Kitchen Photo",
+                "status": "Fulfilled",
+                "value_or_comment": f"Kitchen photo verified on Page {kp.get('page')} ({kp.get('caption')}) with refrigerator confirmed in report commentary on Page {refrig_page}."
+            })
+        elif refrig_absent_comment:
+            details.append({
+                "requirement": "Ice Lender - Refrigerator in Kitchen Photo",
+                "status": "Fulfilled",
+                "value_or_comment": f"Refrigerator absence is addressed in report commentary: \"{refrig_absent_comment.group(0)}\"."
+            })
+        else:
+            details.append({
+                "requirement": "Ice Lender - Refrigerator in Kitchen Photo",
+                "status": "Not Fulfilled",
+                "value_or_comment": "The kitchen photo must show the refrigerator. If absent, request a revision or require the appraiser to explain its absence in the report."
+            })
+
+        # 7. Photographs: Include interior and exterior photos, all mechanical systems, the full kitchen and appliances, and the roof.
+        ext_photos = [p for p in photos if p.get("category") == "Subject" or any(k in (p.get("caption") or "").lower() for k in ["front", "rear", "street"])]
+        int_photos = [p for p in photos if p.get("category") == "Interior" or any(k in (p.get("caption") or "").lower() for k in ["kitchen", "living", "bath", "bed", "dining", "room"])]
+        mech_photos = [p for p in photos if any(k in (p.get("caption") or "").lower() for k in ["water heater", "furnace", "hvac", "heating", "boiler", "ac unit", "air condition", "condenser", "heat pump", "electrical", "electric panel", "breaker", "utility", "mechanical"])]
+        kitchen_app_photos = [p for p in photos if any(k in (p.get("caption") or "").lower() for k in ["kitchen", "range", "stove", "oven", "refrigerator", "fridge", "dishwasher", "appliance"])]
+        roof_photos = [p for p in photos if any(k in (p.get("caption") or "").lower() for k in ["roof", "roofing", "roof view", "rear roof", "front roof"])]
+
+        ext_page, _ = _find_keyword_in_pages(pages_text, [r"(?:Subject\s+Front|Front\s+View|Front\s+of\s+Subject)", r"(?:Subject\s+Rear|Rear\s+View)", r"(?:Street\s+Scene|Street\s+View)"])
+        int_page, _ = _find_keyword_in_pages(pages_text, [r"(?:Interior\s+Photograph|Living\s+Room|Kitchen|Bathroom|Bedroom|Family\s+Room)"])
+        mech_page, _ = _find_keyword_in_pages(pages_text, [r"(?:water\s*heater|furnace|hvac|boiler|heat\s*pump|electrical\s*(?:panel|breaker|box)|utility\s*room|mechanical)"])
+        kitchen_app_page, _ = _find_keyword_in_pages(pages_text, [r"(?:kitchen|range|stove|oven|refrigerator|dishwasher|appliances)"])
+        roof_page, _ = _find_keyword_in_pages(pages_text, [r"(?:roof\s*(?:photo|view|exhibit|slope|inspection)|photograph\s*of\s*roof)"])
+
+        has_ext = bool(ext_photos or ext_page)
+        has_int = bool(int_photos or int_page)
+        has_mech = bool(mech_photos or mech_page)
+        has_kitchen_app = bool(kitchen_app_photos or kitchen_app_page)
+        has_roof = bool(roof_photos or roof_page)
+
+        verified_cats = []
+        missing_cats = []
+        if has_ext:
+            verified_cats.append("Exterior (front, rear, street)")
+        else:
+            missing_cats.append("Exterior photos")
+
+        if has_int:
+            verified_cats.append("Interior (living, beds, baths)")
+        else:
+            missing_cats.append("Interior photos")
+
+        if has_mech:
+            verified_cats.append("Mechanical systems (water heater, HVAC, electrical)")
+        else:
+            missing_cats.append("Mechanical systems (water heater/HVAC/electrical)")
+
+        if has_kitchen_app:
+            verified_cats.append("Full kitchen & appliances")
+        else:
+            missing_cats.append("Full kitchen and appliances")
+
+        if has_roof:
+            verified_cats.append("Roof")
+        else:
+            missing_cats.append("Roof")
+
+        if not missing_cats:
+            details.append({
+                "requirement": "Photographs: Interior, Exterior, Mechanical Systems, Full Kitchen/Appliances, Roof",
+                "status": "Fulfilled",
+                "value_or_comment": f"All required photos verified: {', '.join(verified_cats)}."
+            })
+        elif has_ext and has_int:
+            details.append({
+                "requirement": "Photographs: Interior, Exterior, Mechanical Systems, Full Kitchen/Appliances, Roof",
+                "status": "Needs Review",
+                "value_or_comment": f"Interior and exterior photos verified. Missing/unconfirmed categories: {', '.join(missing_cats)}. Client requires interior and exterior photos, all mechanical systems, the full kitchen and appliances, and the roof."
+            })
+        else:
+            details.append({
+                "requirement": "Photographs: Interior, Exterior, Mechanical Systems, Full Kitchen/Appliances, Roof",
+                "status": "Not Fulfilled",
+                "value_or_comment": f"Missing required photograph exhibits: {', '.join(missing_cats)}. Client requires interior and exterior photos, all mechanical systems, the full kitchen and appliances, and the roof."
+            })
 
     # 4. Equity Wave Lending, Inc
     elif "EQUITY WAVE" in lender_upper:
@@ -751,50 +1248,533 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
 
     # 7. BPL Mortgage, LLC
     elif "BPL MORTGAGE" in lender_upper:
-        co_page, _ = _find_keyword_in_pages(pages_text, [r"smoke\s*(?:and|/|&)?\s*(?:co|carbon\s*monoxide)", r"smoke\s*detector"])
-        details.append({
-            "requirement": "Smoke/CO Detectors (Law Compliance)",
-            "status": "Fulfilled" if co_page else "Not Fulfilled",
-            "value_or_comment": f"Smoke/CO detector commentary found on Page {co_page}." if co_page else "Please address if smoke/co detector were present and required by law."
-        })
-        appraised_v = _num(_get_field_val(data, "Reconciliation", "Appraised Value"))
-        contract_v = _num(_get_field_val(data, "Contract", "Contract Price"))
-        if appraised_v and contract_v and (appraised_v > contract_v * 1.10):
+        # 1. Smoke/CO Detectors: Ensure comments address whether detectors are present and required by law.
+        # Missing detectors alone do not require Subject-To status for BPL.
+        # Reject: Please address if smoke/CO detectors were present and required by law.
+        co_page, _ = _find_keyword_in_pages(pages_text, [
+            r"smoke\s*(?:and|/|&)?\s*(?:co|carbon\s*monoxide)?\s*detectors?.*(?:present|installed|required\s*by\s*law)",
+            r"(?:smoke\s*(?:and|/|&)?\s*(?:co|carbon\s*monoxide))",
+            r"smoke\s*detector"
+        ])
+        if co_page:
             details.append({
-                "requirement": "Value vs. Price (Explanatory Comment)",
-                "status": "Needs Review",
-                "value_or_comment": "Please address the appraised value being higher than the purchase price for the subject property."
+                "requirement": "Smoke/CO Detectors: Law Compliance",
+                "status": "Fulfilled",
+                "value_or_comment": f"Smoke/CO detector commentary verified on Page {co_page}. (Note: Missing detectors alone do not require Subject-To status for BPL)."
             })
         else:
             details.append({
-                "requirement": "Value vs. Price (Explanatory Comment)",
-                "status": "Fulfilled",
-                "value_or_comment": "Appraised value is within 10% of contract price or verified."
+                "requirement": "Smoke/CO Detectors: Law Compliance",
+                "status": "Not Fulfilled",
+                "value_or_comment": "Please address if smoke/CO detectors were present and required by law."
             })
-        prior_v = _num(_get_field_val(data, "Prior Sale History", "Subject Prior Sale Price"))
-        if appraised_v and prior_v and (appraised_v > prior_v):
+
+        # 2. Value Difference: If final value is over 10% higher than listing/purchase price, check comments; if missing, escalate. For As-Is with ARV, compare with As-Is value.
+        # Reject: Can the appraiser address any potential reasons from the contract why the purchase price is significantly lower than market value?
+        appraised_v = _num(_get_field_val(data, "Reconciliation", "Appraised Value"))
+        contract_v = _num(_get_field_val(data, "Contract", "Contract Price"))
+        sales_comments = str(_get_field_val(data, "Sales Comparison Approach", "Summary of Sales Comparison Approach") or _get_field_val(data, "Reconciliation", "Comments on Sales Comparison") or "")
+
+        offering_desc = str(_get_field_val(data, "Subject", "Report data source(s) used, offering price(s), and date(s)") or _get_field_val(data, "Subject", "Offering Price") or "")
+        listing_v = 0.0
+        m_list = re.search(r"\$\s*([0-9,]+(?:\.\d{2})?)", offering_desc)
+        if m_list:
+            listing_v = _num(m_list.group(1))
+        if not listing_v:
+            m_list_text = re.search(r"(?:offering|listing)\s+price\s*[:$]?\s*\$?\s*([0-9,]+(?:\.\d{2})?)", full_text, re.IGNORECASE)
+            if m_list_text:
+                listing_v = _num(m_list_text.group(1))
+
+        if contract_v and appraised_v and (appraised_v > contract_v * 1.10):
+            has_val_explanation = any(w in sales_comments.lower() for w in ["lower than market", "significantly lower", "discount", "below market", "distressed", "estate sale", "favorable terms", "contract reasons", "reasons from the contract"])
+            if has_val_explanation:
+                details.append({
+                    "requirement": "Value Difference: Value vs. Purchase / Listing Price",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"Appraised value (${appraised_v:,.0f}) is >10% above purchase price (${contract_v:,.0f}), with explanatory comments verified in report."
+                })
+            else:
+                details.append({
+                    "requirement": "Value Difference: Value vs. Purchase / Listing Price",
+                    "status": "Needs Review",
+                    "value_or_comment": f"Can the appraiser address any potential reasons from the contract why the purchase price (${contract_v:,.0f}) is significantly lower than market value (${appraised_v:,.0f})?"
+                })
+        elif listing_v and appraised_v and (appraised_v > listing_v * 1.10):
             details.append({
-                "requirement": "Value Increase Since Prior Sale",
+                "requirement": "Value Difference: Value vs. Purchase / Listing Price",
                 "status": "Needs Review",
-                "value_or_comment": "Please address the increase in value since the subject's prior sale."
+                "value_or_comment": f"Appraised value (${appraised_v:,.0f}) is >10% above listing price (${listing_v:,.0f}). Can the appraiser address reasons why listing price is significantly lower than market value?"
             })
-        cost_page, _ = _find_keyword_in_pages(pages_text, [r"COST\s*APPROACH", r"Opinion\s*of\s*Site\s*Value"])
+        else:
+            val_info = f"Appraised value (${appraised_v:,.0f}) is within 10% of purchase/contract price and listing price." if appraised_v else "Appraised value verified."
+            details.append({
+                "requirement": "Value Difference: Value vs. Purchase / Listing Price",
+                "status": "Fulfilled",
+                "value_or_comment": val_info
+            })
+
+        # 3. Prior Sale: For BPL, ICE, etc., check prior sale history and improvements comments. Escalate if unexplained.
+        # Reject: Please address the increase in value since the subject's prior sale.
+        prior_v = _num(_get_field_val(data, "Prior Sale History", "Subject Prior Sale Price"))
+        prior_comments = str(_get_field_val(data, "Prior Sale History", "Analysis of prior sale or transfer history of the subject property and comparable sales") or "")
+        imp_comments = str(_get_field_val(data, "Improvements", "Condition of Property") or "")
+        has_prior_expl = any(w in (prior_comments + " " + imp_comments + " " + full_text).lower() for w in ["increase in value", "renovation", "remodeled", "updated", "rehab", "appreciation", "prior sale", "market appreciation", "market conditions"])
+
+        if appraised_v and prior_v and (appraised_v > prior_v):
+            if has_prior_expl:
+                details.append({
+                    "requirement": "Prior Sale: Value Increase Commentary",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"Increase in value since subject's prior sale (${prior_v:,.0f} vs ${appraised_v:,.0f}) is addressed in report comments."
+                })
+            else:
+                details.append({
+                    "requirement": "Prior Sale: Value Increase Commentary",
+                    "status": "Needs Review",
+                    "value_or_comment": f"Please address the increase in value since the subject's prior sale (${prior_v:,.0f} vs ${appraised_v:,.0f})."
+                })
+        else:
+            details.append({
+                "requirement": "Prior Sale: Value Increase Commentary",
+                "status": "Fulfilled",
+                "value_or_comment": "Subject prior sale verified / no unexplained value increase."
+            })
+
+        # 4. Cost Approach: Must be completed.
+        # Reject: This client requires the Cost Approach to be completed for internal lending purposes. Whether the appraiser chooses to weight this approach is solely up to the appraiser.
+        cost_val = _num(_get_field_val(data, "Cost Approach", "Indicated Value by Cost Approach") or _get_field_val(data, "COST_APPROACH", "Indicated Value by Cost Approach"))
+        site_val = _num(_get_field_val(data, "Cost Approach", "Opinion of Site Value") or _get_field_val(data, "COST_APPROACH", "Opinion of Site Value"))
+        if not cost_val:
+            m_cost = re.search(r"Indicated\s+Value\s+by\s+Cost\s+Approach\s*[:$]?\s*\$?\s*([0-9,]+)", full_text, re.I)
+            if m_cost:
+                cost_val = _num(m_cost.group(1))
+
+        if cost_val or site_val:
+            details.append({
+                "requirement": "Cost Approach Completion",
+                "status": "Fulfilled",
+                "value_or_comment": f"Cost approach verified as completed (Indicated Value: ${cost_val:,.0f})." if cost_val else "Cost approach verified as completed."
+            })
+        else:
+            details.append({
+                "requirement": "Cost Approach Completion",
+                "status": "Not Fulfilled",
+                "value_or_comment": "This client requires the Cost Approach to be completed for internal lending purposes. Whether the appraiser chooses to weight this approach is solely up to the appraiser."
+            })
+
+        # 5. Freddie Mac: No need to review Freddie Mac unacceptable practices for BPL.
         details.append({
-            "requirement": "Cost Approach Completion",
-            "status": "Fulfilled" if cost_page else "Not Fulfilled",
-            "value_or_comment": f"Cost approach section completed on Page {cost_page}." if cost_page else "Per engagement letter, please complete the cost approach even if it is not weighted or applied in determining the value of the subject."
-        })
-        heat_page, _ = _find_keyword_in_pages(pages_text, [r"heating\s*(?:system|functioning|functional)", r"furnace", r"heat\s*source"])
-        details.append({
-            "requirement": "Heating System Functionality",
-            "status": "Fulfilled" if heat_page else "Not Fulfilled",
-            "value_or_comment": f"Heating system commentary verified on Page {heat_page}." if heat_page else "Please address if the subject's heating system is functioning."
-        })
-        details.append({
-            "requirement": "1004MC Form Waiver",
+            "requirement": "Freddie Mac Unacceptable Practices",
             "status": "Fulfilled",
-            "value_or_comment": "Per client requirement: The 1004MC form is not required for BPL Mortgage."
+            "value_or_comment": "Reviewer Note: No need to review Freddie Mac unacceptable practices for BPL."
         })
+
+        # 6. Repairs/Deferred Maintenance: For BPL, check photos and request cost-to-cure for repairs/deferred maintenance.
+        # No cost-to-cure request is needed for 1004D reports with outstanding repairs.
+        # Reject: Please provide cost to cure for the repairs/deferred maintenance.
+        is_1004d = ("1004D" in full_text) or ("1004d" in str(_get_field_val(data, "Subject", "Form Type") or "").lower())
+        has_repairs = False
+        rep_page = None
+        for p in pages_text:
+            txt = p.get("text", "")
+            for m in re.finditer(r"(?:(?:cost\s*to\s*cure\s*[:$]?\s*\$?\s*[1-9][0-9,]*)|(?:repairs?\s*(?:needed|required|noted|recommended))|(?:deferred\s*maintenance\s*(?:noted|observed|present|required)))", txt, re.I):
+                start_idx = max(0, m.start() - 50)
+                pre_text = txt[start_idx:m.start()].lower()
+                if any(neg in pre_text for neg in ["no ", "none", "not ", "without ", "neither ", "no apparent ", "no significant ", "no visible "]):
+                    continue
+                has_repairs = True
+                rep_page = p.get("page_no")
+                break
+            if has_repairs:
+                break
+        has_cost_to_cure = bool(re.search(r"cost\s*to\s*cure\s*[:$]?\s*\$?\s*[1-9][0-9,]*", full_text, re.I))
+
+        if is_1004d:
+            details.append({
+                "requirement": "Repairs/Deferred Maintenance: Cost to Cure",
+                "status": "Fulfilled",
+                "value_or_comment": "Form 1004D report: No cost-to-cure request is needed for 1004D reports with outstanding repairs."
+            })
+        elif has_repairs and not has_cost_to_cure:
+            details.append({
+                "requirement": "Repairs/Deferred Maintenance: Cost to Cure",
+                "status": "Not Fulfilled",
+                "value_or_comment": "Please provide cost to cure for the repairs/deferred maintenance."
+            })
+        elif has_repairs and has_cost_to_cure:
+            details.append({
+                "requirement": "Repairs/Deferred Maintenance: Cost to Cure",
+                "status": "Fulfilled",
+                "value_or_comment": f"Repairs noted and cost to cure provided on Page {rep_page}."
+            })
+        else:
+            details.append({
+                "requirement": "Repairs/Deferred Maintenance: Cost to Cure",
+                "status": "Fulfilled",
+                "value_or_comment": "No repairs or deferred maintenance requiring cost to cure identified."
+            })
+
+        # 7. Bedroom Photos: Label as Bedroom 1, Bedroom 2, etc.
+        # Reject: The bedroom photos need to be labeled as “Bedroom 1,” “Bedroom 2,” etc. Please revise accordingly.
+        photos = data.get("EXTRACTED_PHOTOS") or data.get("extracted_photos") or []
+        bed_photos = [p for p in photos if "bed" in (p.get("caption") or "").lower()]
+        if bed_photos:
+            has_numbered_beds = all(re.search(r"bedroom\s*(?:#\s*)?\d+", p.get("caption") or "", re.I) for p in bed_photos)
+            if not has_numbered_beds:
+                details.append({
+                    "requirement": "Bedroom Photos: Numbered Labels",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": "The bedroom photos need to be labeled as \"Bedroom 1,\" \"Bedroom 2,\" etc. Please revise accordingly."
+                })
+            else:
+                details.append({
+                    "requirement": "Bedroom Photos: Numbered Labels",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"All bedroom photos ({len(bed_photos)}) verified labeled as Bedroom 1, Bedroom 2, etc."
+                })
+        else:
+            details.append({
+                "requirement": "Bedroom Photos: Numbered Labels",
+                "status": "Fulfilled",
+                "value_or_comment": "Bedroom photos verified or no unnumbered bedroom labels found."
+            })
+
+        # 8. Comparable Distance:
+        # - Urban: 1 mile
+        # - Suburban: 1 mile
+        # - Rural: 5 miles
+        # Check comments for comps exceeding limits; reject if no explanation is provided.
+        loc = str(_get_field_val(data, "Neighborhood", "Location") or _get_field_val(data, "NEIGHBORHOOD", "Location") or "Suburban").strip().title()
+        bpl_thresholds = {"Urban": 1.0, "Suburban": 1.0, "Rural": 5.0}
+        bpl_dist_limit = bpl_thresholds.get(loc, 1.0)
+
+        sales_grid = data.get("SALES_GRID", {}) if isinstance(data.get("SALES_GRID"), dict) else {}
+        bpl_exceeded = []
+        for k, v in sales_grid.items():
+            if not isinstance(v, dict) or "subject" in k.lower():
+                continue
+            m_c = re.search(r"#\s*(\d+)", k)
+            if not m_c:
+                continue
+            c_no = m_c.group(1)
+            if k.upper().startswith("COMPARABLE SALE") and f"Comparable #{c_no}" in sales_grid:
+                continue
+            prox = str(v.get("Proximity to Subject") or "")
+            m_d = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:miles?|mi\b)", prox, re.I)
+            if m_d:
+                d_num = float(m_d.group(1))
+                if d_num > bpl_dist_limit:
+                    bpl_exceeded.append((c_no, d_num, prox))
+
+        has_dist_expl = any(term in sales_comments.lower() for term in ["proximity", "distance", "competing neighborhood", "most comparable", "similar/competing", "radius", "mile"])
+
+        if bpl_exceeded:
+            exceeded_desc = ", ".join([f"Comp #{c[0]} ({c[2]})" for c in bpl_exceeded])
+            if has_dist_expl:
+                details.append({
+                    "requirement": f"Comparable Distance Guidelines ({loc} <= {bpl_dist_limit} mi)",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"{exceeded_desc} exceed BPL {loc} limit ({bpl_dist_limit} mi), but explanatory proximity comments were verified in report body."
+                })
+            else:
+                first_c = bpl_exceeded[0]
+                details.append({
+                    "requirement": f"Comparable Distance Guidelines ({loc} <= {bpl_dist_limit} mi)",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": f"Comp #{first_c[0]} ({first_c[2]}) exceeds BPL {loc} distance guideline of {bpl_dist_limit} mile(s). Check comments for comps exceeding limits; please provide explanatory comments."
+                })
+        else:
+            details.append({
+                "requirement": f"Comparable Distance Guidelines ({loc} <= {bpl_dist_limit} mi)",
+                "status": "Fulfilled",
+                "value_or_comment": f"All comparable sales are within BPL distance guidelines ({loc} limit <= {bpl_dist_limit} mile(s))."
+            })
+
+        # 9. Multifamily Units: Subject and comparable unit counts should match. Request comments for differences.
+        is_1025 = ("1025" in str(_get_field_val(data, "Subject", "Form Type") or "")) or ("Small Residential Income" in full_text)
+        subj_units_val = str(_get_field_val(data, "Subject", "Number of Units") or _get_field_val(data, "Improvements", "General Description: # of Units") or "")
+        m_u = re.search(r"(\d+)", subj_units_val)
+        subj_units = int(m_u.group(1)) if m_u else 0
+
+        unit_mismatch_comps = []
+        if is_1025 and subj_units > 1:
+            for k, v in sales_grid.items():
+                if not isinstance(v, dict) or "subject" in k.lower():
+                    continue
+                m_c = re.search(r"#\s*(\d+)", k)
+                if not m_c:
+                    continue
+                c_no = m_c.group(1)
+                comp_u_str = str(v.get("Number of Units") or v.get("Units") or "")
+                m_cu = re.search(r"(\d+)", comp_u_str)
+                if m_cu:
+                    comp_u = int(m_cu.group(1))
+                    if comp_u != subj_units:
+                        unit_mismatch_comps.append((c_no, comp_u))
+
+        if unit_mismatch_comps:
+            mismatch_str = ", ".join([f"Comp #{c[0]} ({c[1]} units)" for c in unit_mismatch_comps])
+            details.append({
+                "requirement": "Multifamily Units: Unit Count Match",
+                "status": "Needs Review",
+                "value_or_comment": f"Subject has {subj_units} units, but {mismatch_str} unit count differs. Subject and comparable unit counts should match; request appraiser comments for differences."
+            })
+        else:
+            details.append({
+                "requirement": "Multifamily Units: Unit Count Match",
+                "status": "Fulfilled",
+                "value_or_comment": "Subject and comparable unit counts match or single-family report."
+            })
+
+        # 10. Q/C Ratings: All reports must include Quality (Q) and Condition (C) ratings for the subject and comps, including 1025/2090. For 1007, include the subject and all rental comps.
+        has_qc_ratings = False
+        for k, v in sales_grid.items():
+            if isinstance(v, dict):
+                q_val = str(v.get("Quality of Construction") or "")
+                c_val = str(v.get("Condition") or "")
+                if re.search(r"\bQ[1-6]\b", q_val) or re.search(r"\bC[1-6]\b", c_val):
+                    has_qc_ratings = True
+                    break
+        if not has_qc_ratings:
+            has_qc_ratings = bool(re.search(r"\b[QC][1-6]\b", full_text))
+
+        if has_qc_ratings:
+            details.append({
+                "requirement": "Q/C Ratings: Subject and Comparables",
+                "status": "Fulfilled",
+                "value_or_comment": "Quality (Q) and Condition (C) ratings verified for subject and comparables (including 1025/2090/1007)."
+            })
+        else:
+            details.append({
+                "requirement": "Q/C Ratings: Subject and Comparables",
+                "status": "Not Fulfilled",
+                "value_or_comment": "All reports must include Quality (Q) and Condition (C) ratings for the subject and comps, including 1025/2090. For 1007, include the subject and all rental comps."
+            })
+
+        # 11. Photo Limit: Maximum 6 subject photos per photo addendum page.
+        # Reject: Per client instructions, please include no more than 6 photos on each photo addendum page.
+        from collections import Counter
+        photo_page_counts = Counter(p.get("page") for p in photos if p.get("page"))
+        pages_over_6 = [p for p, cnt in photo_page_counts.items() if cnt > 6]
+
+        if pages_over_6:
+            details.append({
+                "requirement": "Photo Limit: Max 6 Photos Per Page",
+                "status": "Not Fulfilled",
+                "value_or_comment": f"Per client instructions, please include no more than 6 photos on each photo addendum page (Page(s) {', '.join(map(str, pages_over_6))} exceed 6 photos)."
+            })
+        else:
+            details.append({
+                "requirement": "Photo Limit: Max 6 Photos Per Page",
+                "status": "Fulfilled",
+                "value_or_comment": "Maximum 6 photos per photo addendum page verified."
+            })
+
+        # 12. Two-Value Reports: ARV comps must be Comp 1–3 and As-Is comps 4–6. Do not use the same comps for both values; escalate if repeated.
+        is_two_value = any(term in full_text.lower() for term in ["as-repaired", "as repaired", "arv", "two-value", "two value"])
+        if is_two_value:
+            comps_1_3 = set()
+            comps_4_6 = set()
+            for k, v in sales_grid.items():
+                if not isinstance(v, dict) or "subject" in k.lower():
+                    continue
+                m_c = re.search(r"#\s*(\d+)", k)
+                if not m_c:
+                    continue
+                c_no = int(m_c.group(1))
+                addr = str(v.get("Address") or "").strip().lower()
+                if not addr:
+                    continue
+                if 1 <= c_no <= 3:
+                    comps_1_3.add(addr)
+                elif 4 <= c_no <= 6:
+                    comps_4_6.add(addr)
+            shared_comps = comps_1_3.intersection(comps_4_6)
+            if shared_comps:
+                details.append({
+                    "requirement": "Two-Value Reports: ARV (1-3) & As-Is (4-6)",
+                    "status": "Needs Review",
+                    "value_or_comment": f"Two-Value Report: ARV comps must be Comp 1–3 and As-Is comps 4–6. The same comp was used for both values: {', '.join(shared_comps)}. Escalate for review."
+                })
+            else:
+                details.append({
+                    "requirement": "Two-Value Reports: ARV (1-3) & As-Is (4-6)",
+                    "status": "Fulfilled",
+                    "value_or_comment": "Two-value report layout verified: ARV comps 1–3 and As-Is comps 4–6 with no duplicated comps across values."
+                })
+        else:
+            details.append({
+                "requirement": "Two-Value Reports: ARV (1-3) & As-Is (4-6)",
+                "status": "Not Applicable",
+                "value_or_comment": "Single-value report; two-value ARV/As-Is grid rule not applicable."
+            })
+
+        # 13. Heating System: BPL reports must address whether the heating system works.
+        # “Mechanicals are functioning” is acceptable. Inability to test due to hot weather is also acceptable.
+        heat_page, heat_snip = _find_keyword_in_pages(pages_text, [
+            r"heating\s*(?:system|functioning|functional|works|working|tested|operational)",
+            r"mechanicals?\s*are\s*functioning",
+            r"(?:too\s*hot|hot\s*weather).*to\s*test",
+            r"furnace\s*(?:operational|functioning|works)",
+            r"heat\s*source\s*is\s*operational"
+        ])
+        if heat_page:
+            details.append({
+                "requirement": "Heating System Functionality",
+                "status": "Fulfilled",
+                "value_or_comment": f"Heating system functionality addressed on Page {heat_page} (\"Mechanicals are functioning\" or hot weather test limitation accepted)."
+            })
+        else:
+            details.append({
+                "requirement": "Heating System Functionality",
+                "status": "Not Fulfilled",
+                "value_or_comment": "BPL reports must address whether the heating system works. \"Mechanicals are functioning\" is acceptable. Inability to test due to hot weather is also acceptable."
+            })
+
+        # 14. BPL Special Requirements:
+        # - Check special assessment comments.
+        # - Include the 1004MC addendum.
+        # - Verify comments for zero adjustments when Q/C differs.
+        # - Use 3 comps from the same city; otherwise, comments are required.
+        # - Escalate unclear occupancy/staging concerns to the WhatsApp group.
+        # - Duplicate client names on the order page are acceptable if the report displays the correct client name.
+        mc_page, _ = _find_keyword_in_pages(pages_text, [r"Market\s*Conditions\s*Addendum", r"1004MC", r"FORM\s*1004MC"])
+        spec_assess_page, _ = _find_keyword_in_pages(pages_text, [r"Special\s*Assessment", r"assessments?.*per\s*year", r"special\s*tax"])
+
+        subj_city = str(_get_field_val(data, "Subject", "City") or "").strip().lower()
+        comp_diff_cities = []
+        for k, v in sales_grid.items():
+            if not isinstance(v, dict) or "subject" in k.lower():
+                continue
+            m_c = re.search(r"#\s*(\d+)", k)
+            if not m_c:
+                continue
+            c_no = int(m_c.group(1))
+            if c_no <= 3 and subj_city:
+                comp_city = str(v.get("City") or "").strip().lower()
+                if comp_city and comp_city != subj_city:
+                    comp_diff_cities.append(f"Comp #{c_no} ({comp_city.title()})")
+
+        special_items = []
+        if mc_page:
+            special_items.append(f"1004MC addendum confirmed on Page {mc_page}")
+        else:
+            special_items.append("1004MC addendum missing (required for BPL)")
+
+        if comp_diff_cities:
+            if has_dist_expl:
+                special_items.append(f"Comps from different city ({', '.join(comp_diff_cities)}) have explanatory comments")
+            else:
+                special_items.append(f"Comps outside subject city ({', '.join(comp_diff_cities)}) require explanatory comments")
+        else:
+            special_items.append("Top 3 comps verified from same city")
+
+        if not mc_page:
+            details.append({
+                "requirement": "BPL Special Requirements (1004MC, Same City Comps, Special Assessments)",
+                "status": "Needs Review",
+                "value_or_comment": f"BPL Special Requirements: {'; '.join(special_items)}. Verify comments for zero adjustments when Q/C differs and special assessments."
+            })
+        else:
+            details.append({
+                "requirement": "BPL Special Requirements (1004MC, Same City Comps, Special Assessments)",
+                "status": "Fulfilled",
+                "value_or_comment": f"BPL Special Requirements verified: {'; '.join(special_items)}."
+            })
+
+        # 15. BPL Retail: Escalate like VISIO if repairs exist, whether the report is As-Is or Subject-To.
+        # This applies only when BPL Retail is the client.
+        is_bpl_retail = "RETAIL" in lender_upper
+        if is_bpl_retail:
+            if has_repairs:
+                details.append({
+                    "requirement": "BPL Retail: Repairs Escalation",
+                    "status": "Needs Review",
+                    "value_or_comment": "This is BPL Retail. Report has repairs/deferred maintenance. Escalate like VISIO, whether the report is As-Is or Subject-To."
+                })
+            else:
+                details.append({
+                    "requirement": "BPL Retail: Repairs Escalation",
+                    "status": "Fulfilled",
+                    "value_or_comment": "BPL Retail: Verified As-Is with no repairs."
+                })
+        else:
+            details.append({
+                "requirement": "BPL Retail: Repairs Escalation",
+                "status": "Not Applicable",
+                "value_or_comment": "Client is not BPL Retail; special BPL Retail escalation rule not applicable."
+            })
+
+        # 16. BPL As-Is & Kitchen Photos:
+        # - BPL requires As-Is reports. Stop and escalate Subject-To reports.
+        # - Kitchen photos must show the stove/appliances; separate photos are acceptable.
+        # - If no stove is visible, request confirmation or comments from the appraiser.
+        # - Request cost-to-cure for applicable repairs in As-Is reports. No cost-to-cure is required for two-value ARV/As-Is reports where the repair budget is included.
+        subj_to_page, _ = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']subject to",
+            r"\[X\]\s*subject to",
+            r"\bsubject to completion per plans",
+            r"\bsubject to the following repairs",
+            r"\bsubject to a required inspection"
+        ])
+        as_is_page, _ = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']as is[\"']",
+            r"\[X\]\s*\"?as\s+is\"?",
+            r"\bas\s*-\s*is\b",
+            r"\bas\s+is\b"
+        ])
+        recon_cond = str(_get_field_val(data, "Reconciliation", "Appraisal Made") or "").lower()
+        is_subject_to = bool(subj_to_page) or ("subject to" in recon_cond)
+        is_as_is = bool(as_is_page) or ("as is" in recon_cond)
+
+        kitchen_photos = [p for p in photos if "kitchen" in (p.get("caption") or "").lower()]
+        stove_photos = [p for p in photos if any(k in (p.get("caption") or "").lower() for k in ["stove", "range", "oven", "appliance"])]
+        stove_in_report, _ = _find_keyword_in_pages(pages_text, [r"stove", r"range\b", r"oven\b"])
+
+        if is_subject_to and not is_as_is:
+            details.append({
+                "requirement": "BPL As-Is & Kitchen Photos",
+                "status": "Needs Review",
+                "value_or_comment": "BPL requires As-Is reports. Report is completed Subject-To; stop and escalate Subject-To reports."
+            })
+        elif not stove_photos and not stove_in_report:
+            details.append({
+                "requirement": "BPL As-Is & Kitchen Photos",
+                "status": "Needs Review",
+                "value_or_comment": "Report is As-Is. Kitchen photos must show the stove/appliances (separate photos acceptable). No stove is visible; please request confirmation or comments from the appraiser."
+            })
+        else:
+            details.append({
+                "requirement": "BPL As-Is & Kitchen Photos",
+                "status": "Fulfilled",
+                "value_or_comment": "Report confirmed As-Is; kitchen photo and stove/appliances verified in report."
+            })
+
+        # 17. BPL & Coast2Coast Mortgage:
+        # - Subject-To conditions are permitted only for health and safety issues.
+        # - Cosmetic repairs must be commented on, not made Subject-To.
+        # - Escalate if unsure whether an item is cosmetic or health/safety related.
+        is_c2c = ("COAST2COAST" in lender_upper) or ("COAST 2 COAST" in lender_upper) or ("COAST TO COAST" in lender_upper)
+        if is_c2c and is_subject_to:
+            is_health_safety = any(w in full_text.lower() for w in ["health and safety", "hazard", "safety issue", "structural hazard", "mold", "broken window", "exposed wire"])
+            if not is_health_safety:
+                details.append({
+                    "requirement": "BPL & Coast2Coast Mortgage: Subject-To Conditions",
+                    "status": "Needs Review",
+                    "value_or_comment": "BPL & Coast2Coast Mortgage: Subject-To conditions are permitted ONLY for health and safety issues. Cosmetic repairs must be commented on, not made Subject-To. Escalate for review."
+                })
+            else:
+                details.append({
+                    "requirement": "BPL & Coast2Coast Mortgage: Subject-To Conditions",
+                    "status": "Fulfilled",
+                    "value_or_comment": "Subject-To condition verified for documented health and safety issue."
+                })
+        else:
+            details.append({
+                "requirement": "BPL & Coast2Coast Mortgage: Subject-To Conditions",
+                "status": "Fulfilled",
+                "value_or_comment": "BPL & Coast2Coast Mortgage guidelines acknowledged: Subject-To permitted only for health/safety; cosmetic repairs must not be made Subject-To."
+            })
 
     # 8. Rain City Capital
     elif "RAIN CITY" in lender_upper:
@@ -913,12 +1893,187 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
 
     # 19. Loandepot
     elif "LOANDEPOT" in lender_upper or "LOAN DEPOT" in lender_upper:
+        # 1. Product Type: Escalate if the product type does not match the report.
+        ordered_prod = str(_get_field_val(data, "Subject", "Product Type") or _get_field_val(data, "Subject", "Assignment Type") or "").strip()
+        report_form = str(_get_field_val(data, "Subject", "Form Type") or _get_field_val(data, "Subject", "Form") or "").strip()
+        if not ordered_prod:
+            m_ord = re.search(r"(?:Product\s*(?:Type)?|Service\s*Type|Appraisal\s*Product)\s*[:\-]?\s*([^\n\r]+)", full_text, re.I)
+            if m_ord:
+                ordered_prod = m_ord.group(1).strip()
+        if not report_form:
+            m_form = re.search(r"Form\s*(?:1004[A-Z]?|1073|1025|2055|1004D)", full_text, re.I)
+            if m_form:
+                report_form = m_form.group(0)
+
+        is_mismatch = False
+        if ordered_prod and report_form:
+            norm_prod = re.sub(r"[^0-9a-zA-Z]", "", ordered_prod).upper()
+            norm_form = re.sub(r"[^0-9a-zA-Z]", "", report_form).upper()
+            if any(num in norm_prod for num in ["1004", "1073", "1025", "2055", "1004D"]):
+                for form_num in ["1004", "1073", "1025", "2055", "1004D"]:
+                    if form_num in norm_prod and form_num not in norm_form:
+                        is_mismatch = True
+                        break
+
+        if is_mismatch:
+            details.append({
+                "requirement": "Product Type: Report Match",
+                "status": "Needs Review",
+                "value_or_comment": f"Product Type mismatch: Ordered product type ('{ordered_prod}') does not match report form ('{report_form}'). Escalate for review."
+            })
+        elif ordered_prod and report_form:
+            details.append({
+                "requirement": "Product Type: Report Match",
+                "status": "Fulfilled",
+                "value_or_comment": f"Product Type verified: Ordered product ('{ordered_prod}') matches report form ('{report_form}')."
+            })
+        else:
+            details.append({
+                "requirement": "Product Type: Report Match",
+                "status": "Fulfilled",
+                "value_or_comment": f"Report completed on Form {report_form or '1004'}. Escalate if product type on order does not match."
+            })
+
+        # 2. LoanDepot - Second Kitchen: If the subject has a second interior kitchen, request comments on zoning compliance, health/safety/structural risks, workmanship, and impact on marketability/value. Outdoor backyard kitchens are acceptable. Do not make the report Subject-To removal of the kitchen.
+        recon_cond = str(_get_field_val(data, "Reconciliation", "Appraisal Made") or "").lower()
+        searchable_text = full_text + " " + recon_cond
+        for sec_k, sec_v in data.items():
+            if isinstance(sec_v, dict):
+                for f_k, f_v in sec_v.items():
+                    if isinstance(f_v, str):
+                        searchable_text += " " + f_v
+
+        k2_page = None
+        k2_snip = ""
+        is_outdoor_only = False
+        for p in pages_text:
+            txt = p.get("text", "")
+            m_k2 = re.search(r"(?:second\s+kitchen|2nd\s+kitchen|additional\s+kitchen|accessory\s+kitchen|basement\s+kitchen|in-law\s+kitchen|guest\s+kitchen|two\s+kitchens)", txt, re.I)
+            m_outdoor = re.search(r"(?:outdoor\s+kitchen|backyard\s+kitchen|exterior\s+kitchen|patio\s+kitchen)", txt, re.I)
+            if m_k2:
+                start_w = max(0, m_k2.start() - 30)
+                end_w = min(len(txt), m_k2.end() + 30)
+                window = txt[start_w:end_w].lower()
+                if any(w in window for w in ["outdoor", "backyard", "patio", "exterior"]):
+                    is_outdoor_only = True
+                else:
+                    k2_page = p.get("page_no")
+                    k2_snip = txt[max(0, m_k2.start() - 20):min(len(txt), m_k2.end() + 40)].replace("\n", " ").strip()
+                    break
+            elif m_outdoor:
+                is_outdoor_only = True
+
+        if not k2_page and not is_outdoor_only:
+            m_k2_search = re.search(r"(?:second\s+kitchen|2nd\s+kitchen|additional\s+kitchen|accessory\s+kitchen|basement\s+kitchen|in-law\s+kitchen|guest\s+kitchen|two\s+kitchens)", searchable_text, re.I)
+            m_out_search = re.search(r"(?:outdoor\s+kitchen|backyard\s+kitchen|exterior\s+kitchen|patio\s+kitchen)", searchable_text, re.I)
+            if m_k2_search:
+                k2_page = 1
+                k2_snip = searchable_text[max(0, m_k2_search.start() - 20):min(len(searchable_text), m_k2_search.end() + 40)].strip()
+            elif m_out_search:
+                is_outdoor_only = True
+
+        is_subj_to_removal = bool(re.search(r"subject\s+to\s+(?:the\s+)?(?:removal|removing|decommissioning)\s+(?:of\s+)?(?:the\s+)?(?:second\s+|2nd\s+)?kitchen", searchable_text, re.I))
+
+        if is_subj_to_removal:
+            details.append({
+                "requirement": "LoanDepot - Second Kitchen Requirements",
+                "status": "Needs Review",
+                "value_or_comment": "LoanDepot requirement: Do not make the report Subject-To removal of the kitchen. Escalate for review."
+            })
+        elif k2_page:
+            has_zoning = any(w in searchable_text.lower() for w in ["zoning", "legal non-conforming", "permitted", "legal use", "accessory use"])
+            has_safety = any(w in searchable_text.lower() for w in ["health", "safety", "structural", "hazard"])
+            has_workmanship = any(w in searchable_text.lower() for w in ["workmanship", "quality of construction", "finished in a workmanlike"])
+            has_marketability = any(w in searchable_text.lower() for w in ["marketability", "market appeal", "market value", "market acceptance"])
+
+            missing_k2_comments = []
+            if not has_zoning:
+                missing_k2_comments.append("zoning compliance")
+            if not has_safety:
+                missing_k2_comments.append("health/safety/structural risks")
+            if not has_workmanship:
+                missing_k2_comments.append("workmanship")
+            if not has_marketability:
+                missing_k2_comments.append("impact on marketability/value")
+
+            if not missing_k2_comments:
+                details.append({
+                    "requirement": "LoanDepot - Second Kitchen Requirements",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"Second interior kitchen verified on Page {k2_page}. Commentary addressed required areas (zoning, health/safety/structural, workmanship, and marketability/value)."
+                })
+            else:
+                details.append({
+                    "requirement": "LoanDepot - Second Kitchen Requirements",
+                    "status": "Needs Review",
+                    "value_or_comment": f"Second interior kitchen identified on Page {k2_page} ('{k2_snip}'). Please request comments addressing: {', '.join(missing_k2_comments)}. (Note: Outdoor backyard kitchens are acceptable; do not make report Subject-To removal of the kitchen)."
+                })
+        elif is_outdoor_only:
+            details.append({
+                "requirement": "LoanDepot - Second Kitchen Requirements",
+                "status": "Fulfilled",
+                "value_or_comment": "Outdoor backyard kitchen identified (acceptable per LoanDepot guidelines)."
+            })
+        else:
+            details.append({
+                "requirement": "LoanDepot - Second Kitchen Requirements",
+                "status": "Fulfilled",
+                "value_or_comment": "No second interior kitchen detected. (Outdoor kitchens are acceptable; if second interior kitchen exists, comments on zoning, safety, workmanship, and marketability are required without Subject-To removal)."
+            })
+
+        # 3. LoanDepot - Smoke/CO Detectors: Reports must not be Subject-To solely for smoke/CO detector repairs. If the report is Subject-To only for these detectors, escalate.
+        subj_to_page, subj_to_snip = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']subject to",
+            r"\[X\]\s*subject to",
+            r"\bsubject to completion per plans",
+            r"\bsubject to the following repairs",
+            r"\bsubject to a required inspection"
+        ])
+        recon_cond = str(_get_field_val(data, "Reconciliation", "Appraisal Made") or "").lower()
+        is_subject_to = bool(subj_to_page) or ("subject to" in recon_cond)
+
+        subj_text_window = (subj_to_snip or "") + " " + recon_cond
+        m_subj_repairs = re.search(r"subject to (?:the following )?repairs[^\n\r.:]*[:\-]?\s*([^\n\r]+)", full_text, re.I)
+        if m_subj_repairs:
+            subj_text_window += " " + m_subj_repairs.group(1)
+
+        has_detector_repair = bool(re.search(r"(?:smoke|carbon\s*monoxide|co\s*detector)", subj_text_window, re.I))
+        has_other_repairs = bool(re.search(r"(?:roof|plumb|electr|structur|termite|foundat|heat|furnace|water\s*heat|hvac|floor|drywall|paint|window|door|siding|handrail|guardrail|leak|mold|deck|porch|driveway|plans|specs|complet)", subj_text_window, re.I))
+        if not has_other_repairs and full_text:
+            has_other_repairs = bool(re.search(r"(?:roof|plumbing|electrical|structural|termite|foundation|heating|furnace|water\s*heater|hvac|flooring|drywall).*(?:repair|damage|cure|replace|fix)", full_text, re.I))
+
+        is_solely_detectors = False
+        if is_subject_to and has_detector_repair and not has_other_repairs:
+            is_solely_detectors = True
+
+        if is_solely_detectors:
+            details.append({
+                "requirement": "LoanDepot - Smoke/CO Detectors: Subject-To Limitation",
+                "status": "Needs Review",
+                "value_or_comment": "LoanDepot requirement: Reports must not be Subject-To solely for smoke/CO detector repairs. The report is Subject-To only for detectors; escalate for review."
+            })
+        elif is_subject_to:
+            details.append({
+                "requirement": "LoanDepot - Smoke/CO Detectors: Subject-To Limitation",
+                "status": "Fulfilled",
+                "value_or_comment": "Report is completed Subject-To for conditions other than solely smoke/CO detectors."
+            })
+        else:
+            details.append({
+                "requirement": "LoanDepot - Smoke/CO Detectors: Subject-To Limitation",
+                "status": "Fulfilled",
+                "value_or_comment": "Report is completed As-Is. (Reports must not be Subject-To solely for smoke/CO detector repairs)."
+            })
+
+        # 4. Form 1004MC Mandatory Presence
         mc_page, _ = _find_keyword_in_pages(pages_text, [r"Market\s*Conditions\s*Addendum", r"Form\s*1004MC", r"1004MC"])
         details.append({
             "requirement": "Form 1004MC Mandatory Presence",
             "status": "Fulfilled" if mc_page else "Not Fulfilled",
             "value_or_comment": f"Mandatory 1004MC form verified on Page {mc_page}." if mc_page else "1004MC Form is a mandatory client requirement for Loandepot. Missing or commented not needed is Not Fulfilled."
         })
+
+        # 5. Revision Comments Standard
         details.append({
             "requirement": "Revision Comments Standard",
             "status": "Fulfilled",

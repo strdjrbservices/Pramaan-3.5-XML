@@ -30,20 +30,24 @@ Each object in the "details" array represents a requirement and must have the fo
 
 Lender/Client List and their requirements:
 - Visio Lending:
-  - Report Condition: Verify the report is made "As Is". If not, status is "Needs Review" with comment: "Report is not 'As Is', please advise before rejecting."
-  - No Repairs: Even if the report is "As Is", verify there are no repairs listed. If repairs are found, status is "Needs Review" with comment: "This is Visio. Report made as-is and the subject has repair, please refer the snap and advise."
-  - Reviewer Notes: No need to check for specific neighborhood words (Average, convenient, good, desirable). UAD pages are not mandatory.
+  - As-Is Reports: Reports must be As-Is. If not, advise before rejecting. Escalate as: "The report is made subject to for [reason]."
+  - Neighborhood Description: No need to check neighborhood words such as Average, Convenient, Good, or Desirable.
+  - UAD Pages: UAD pages are not mandatory for VISIO.
+  - Repairs: VISIO reports must be As-Is with no repairs needed. If repairs are listed, escalate even if the report is marked As-Is. Escalate as: "This is VISIO. The report is made As-Is, but the subject has repairs. Please refer to the attached screenshot and advise."
+  - VISIO STR (Short-Term Rental) - Comparable Guidelines: 1007 STR ordered requires comparables to be STR (escalate if they are not). 1007 LTR or 1007 only ordered allows comparables to be STR or LTR. (Other clients with 1007 only allow LTR, but not STR).
+  - Occupancy Requirements: VISIO with 1007 occupancy must be Vacant or Tenant. If marked Owner, reject as: "The subject is an investment property where the owner does not reside. Please revise to \"Vacant\" or \"Tenant.\"" For 1025 reports: at least one unit may be owner-occupied, but Tenant or Vacant must also be checked; otherwise, escalate for confirmation.
+  - Cost Approach: Must be completed for VISIO.
 
 - Best2Lend LLC:
   - Two-Value Report Requirements: For reports with two values ("As-Is" and "As-Repaired"), the "As-Is" comps are not required to be gridded.
 - Ice Lender Holdings LLC:
-  - "As Is" Report: Verify the appraisal is made "as is". If not, the status should be "Not Fulfilled" with a comment to advise before rejecting.
-  - Value vs. Price: Check if the final appraised value is more than 10% higher than the listing price (from 'Offered for Sale in Last 12 Months' field) or purchase/contract price. If so, status is "Needs Review" and comment should be "Please address the appraised value being higher than the purchase price for the subject property."
-  - USPAP Compliance Addendum: Verify that a "USPAP Compliance Addendum" page or section is included in the report. If not found, status is "Not Fulfilled" with comment "Per client instructions: All appraisal reports must include the updated USPAP compliance addendum."
-  - FIRREA Statement: Verify the report contains a statement that it was prepared in accordance with FIRREA (Financial Institutions Reform, Recovery, and Enforcement Act of 1989) requirements. If not found, status is "Not Fulfilled" with comment "Per client instructions: All appraisal reports must contain commentary indicating that the report was prepared in accordance with FIRREA requirements".
-  - Photographs: Based on photo labels or descriptions, verify that photos of the interior, exterior, all mechanical systems, full kitchen (including refrigerator, stove, oven, sink), and the roof are present.
-  - Kitchen Photo with Refrigerator: Specifically confirm the kitchen photo shows a refrigerator. If not, status is "Not Fulfilled" with comment "Per client instructions, please provide a kitchen photo with the refrigerator showing. If there is no refrigerator in the kitchen, please address as comments in the report."
-  - Comparable Distance Guidelines: Based on the neighborhood location type (Urban, Suburban, or Rural), check the 'Proximity to Subject' for each comparable sale against these guidelines: Urban <= 1 mile, Suburban <= 3 miles, Rural <= 10 miles. If any comparable exceeds the guideline, its status is "Not Fulfilled" with the comment "Comp #X exceeds the client's distance guideline of Y mile(s). Please address the need to use this comp."
+  - As-Is: Reports should be As-Is. If not, advise before rejecting.
+  - Appraised Value: If the final value is more than 10% above the listing or purchase/contract price, escalate for review.
+  - USPAP Addendum: The updated USPAP Compliance Addendum must be included, with: (1) USPAP reporting option, (2) Reasonable Exposure Time, (3) 3-year prior services statement ('I have NOT performed services, as an appraiser or in any other capacity, regarding the property that is the subject of this report within the three-year period immediately preceding acceptance of this assignment').
+  - FIRREA Statement: The report must include commentary confirming compliance with FIRREA requirements with identifier words (1989, FIRREA).
+  - Ice Lender - Comparable Distance Guidelines: Urban <= 1 mile, Suburban <= 3 miles, Rural <= 10 miles.
+  - Ice Lender - Refrigerator: The kitchen photo must show the refrigerator. If absent, request a revision or require the appraiser to explain its absence in the report.
+  - Photographs: Include interior and exterior photos, all mechanical systems, the full kitchen and appliances, and the roof.
 - Equity Wave Lending, Inc:
   - Intended Use/User Verbiage: Verify the report contains the specific "Intended User" and "Intended Use" statements.
     - Intended User: "Equity Wave Lending, Inc. it's investors, assignees, and/or successors"
@@ -54,19 +58,23 @@ Lender/Client List and their requirements:
 - FOUNDATION MORTGAGE:
   - Short Term Rental (STR) Form: If the product type includes "STR 1007", verify that the specific STR form is used, not a standard 1007 form.
 - BPL Mortgage, LLC:
-  - Smoke/CO Detectors: Verify the report addresses if smoke/CO detectors were present and if they are required by law. If not mentioned, status is "Not Fulfilled" with comment: "Please address if smoke/co detector were present and required by law".
-  - Value vs. Price: Check if the final appraised value is more than 10% higher than the listing price or purchase/contract price. If it is, verify an explanatory comment exists. If no comment, status is "Needs Review" with comment: "Please address the appraised value being higher than the purchase price for the subject property." For "As-is w/ARV" reports, compare against the "as-is" value.
-  - Value Increase Since Prior Sale: If the final value is higher than the subject's prior sale price, verify that there are comments in the 'Improvements' or 'Prior Sales History' sections explaining the value increase. If no explanation is found, status is "Needs Review" with comment: "Please address the increase in value since the subject's prior sale".
-  - Cost to Cure: Check for any mentioned repairs or deferred maintenance. If found, verify a "cost to cure" is provided. If required but missing, status is "Not Fulfilled" with comment: "Please provide cost to cure for the repairs/deferred maintenance.". Exceptions: No cost to cure is needed if the only repair is turning on water, or on a 1004D form.
-  - Cost Approach Completion: Verify that the "Cost Approach" section is completed. If not, status is "Not Fulfilled" with comment: "Per engagement letter, please complete the cost approach even if it is not weighted or applied in determining the value of the subject."
-  - Photo Requirements: Verify there are at least 2 photos for every room, taken from opposite sides, and that they are not blurry, pixelated, or dark.
-  - Bedroom Photo Labels: Ensure bedroom photos are labeled specifically as "Bedroom 1", "Bedroom 2", etc. If not, status is "Not Fulfilled" with comment: "The bedroom photos need to be labeled as 'Bedroom 1', 'Bedroom 2' etc., please revise the label of bedroom photos accordingly."
-  - Distance Guidelines: Check comparable distances against these guidelines: Urban <= 1 mile, Suburban <= 1 mile, Rural <= 5 miles. If a comp exceeds its guideline, verify a comment explains the reason. If no comment, status is "Not Fulfilled" with comment: "Please address the use of comp #X exceeding lender distance guideline of Y mile(s)."
-  - Multi-family Unit Count: For multi-family properties, verify that the number of units in the subject property matches the number of units for all comparable properties. If there is a mismatch, status is "Not Fulfilled" with comment: "The subject is a X-unit property; however, Comp #Y used is a Z-unit property. please address as a comment in the report."
-  - Heating System: Verify the report addresses if the subject's heating system is functional. A comment from the appraiser that it was too hot to test is an acceptable reason. If not addressed, status is "Not Fulfilled" with comment: "Please address if the subject's heating system is functioning".
-  - Quality and Condition Ratings: Verify that all reports (including 1025 and 2090) use "Q" and "C" ratings for "Quality" and "Condition" for the subject and all comparables. If not, status is "Not Fulfilled" with comment: "Per client requirement, please include 'Q' and 'C' ratings for 'Quality' and 'Condition' for the subject and all comps."
-  - Unacceptable Practices: No need to review for FREDDIE unacceptable practices.
-  - 1004MC Form: The 1004MC form is not required.
+  - Smoke/CO Detectors: Ensure comments address whether detectors are present and required by law. Missing detectors alone do not require Subject-To status for BPL. Reject as: "Please address if smoke/CO detectors were present and required by law."
+  - Value Difference: If final value is over 10% higher than listing/purchase price, check comments; if missing, escalate. For As-Is with ARV, compare with As-Is value. Reject as: "Can the appraiser address any potential reasons from the contract why the purchase price is significantly lower than market value?"
+  - Prior Sale: Check prior sale history and improvements comments. Escalate if unexplained. Reject as: "Please address the increase in value since the subject's prior sale."
+  - Cost Approach: Must be completed. Reject as: "This client requires the Cost Approach to be completed for internal lending purposes. Whether the appraiser chooses to weight this approach is solely up to the appraiser."
+  - Freddie Mac: No need to review Freddie Mac unacceptable practices for BPL.
+  - Repairs/Deferred Maintenance: Check photos and request cost-to-cure for repairs/deferred maintenance. No cost-to-cure request is needed for 1004D reports with outstanding repairs. Reject as: "Please provide cost to cure for the repairs/deferred maintenance."
+  - Bedroom Photos: Label as Bedroom 1, Bedroom 2, etc. Reject as: "The bedroom photos need to be labeled as “Bedroom 1,” “Bedroom 2,” etc. Please revise accordingly."
+  - Comparable Distance Guidelines: Urban <= 1 mile, Suburban <= 1 mile, Rural <= 5 miles. Check comments for comps exceeding limits; reject if no explanation is provided.
+  - Multifamily Units: Subject and comparable unit counts should match. Request comments for differences.
+  - Q/C Ratings: All reports must include Quality (Q) and Condition (C) ratings for the subject and comps, including 1025/2090. For 1007, include the subject and all rental comps.
+  - Photo Limit: Maximum 6 subject photos per photo addendum page. Reject as: "Per client instructions, please include no more than 6 photos on each photo addendum page."
+  - Two-Value Reports: ARV comps must be Comp 1–3 and As-Is comps 4–6. Do not use the same comps for both values; escalate if repeated.
+  - Heating System: Must address whether the heating system works. “Mechanicals are functioning” is acceptable. Inability to test due to hot weather is also acceptable.
+  - BPL Special Requirements: Check special assessment comments; include the 1004MC addendum; verify comments for zero adjustments when Q/C differs; use 3 comps from the same city (otherwise comments required); escalate unclear occupancy/staging concerns to the WhatsApp group; duplicate client names on the order page are acceptable if the report displays the correct client name.
+  - BPL Retail: Escalate like VISIO if repairs exist, whether the report is As-Is or Subject-To (applies only when BPL Retail is the client).
+  - BPL As-Is & Kitchen Photos: BPL requires As-Is reports; stop and escalate Subject-To reports. Kitchen photos must show the stove/appliances (separate photos acceptable); if no stove is visible, request confirmation or comments. Request cost-to-cure for applicable repairs in As-Is reports (no cost-to-cure required for two-value ARV/As-Is reports where the repair budget is included).
+  - BPL & Coast2Coast Mortgage: Subject-To conditions permitted only for health and safety issues. Cosmetic repairs must be commented on, not made Subject-To. Escalate if unsure whether an item is cosmetic or health/safety related.
 - Rain City Capital:
   - Report Type: Client requires conventional reports.
   - Health and Safety: Any identified health and safety issues must make the report "subject to" that condition.
@@ -103,6 +111,9 @@ Lender/Client List and their requirements:
   - ENV File: An ENV file is not required. XML and PDF files are sufficient.
   - 1004MC Form: The 1004MC form is not required.
 - Loandepot:
+  - Product Type: Escalate if the product type does not match the report.
+  - LoanDepot - Second Kitchen: If the subject has a second interior kitchen, request comments on zoning compliance, health/safety/structural risks, workmanship, and impact on marketability/value. Outdoor backyard kitchens are acceptable. Do not make the report Subject-To removal of the kitchen.
+  - LoanDepot - Smoke/CO Detectors: Reports must not be Subject-To solely for smoke/CO detector repairs. If the report is Subject-To only for these detectors, escalate.
   - 1004MC Form: The 1004MC form is a mandatory client requirement. Verify its presence and completion. If the appraiser has commented that it is not needed, this is incorrect and should be flagged. Status should be "Not Fulfilled" if missing or commented as not needed.
   - General Instructions: For any required revisions, do not mention page numbers in the comments, especially for ENV files. Revisions should be posted on the internal group for review before sending to the appraiser.
 
