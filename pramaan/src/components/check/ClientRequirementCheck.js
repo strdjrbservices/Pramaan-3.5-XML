@@ -35,7 +35,7 @@ Lender/Client List and their requirements:
   - UAD Pages: UAD pages are not mandatory for VISIO.
   - Repairs: VISIO reports must be As-Is with no repairs needed. If repairs are listed, escalate even if the report is marked As-Is. Escalate as: "This is VISIO. The report is made As-Is, but the subject has repairs. Please refer to the attached screenshot and advise."
   - VISIO STR (Short-Term Rental) - Comparable Guidelines: 1007 STR ordered requires comparables to be STR (escalate if they are not). 1007 LTR or 1007 only ordered allows comparables to be STR or LTR. (Other clients with 1007 only allow LTR, but not STR).
-  - Occupancy Requirements: VISIO with 1007 occupancy must be Vacant or Tenant. If marked Owner, reject as: "The subject is an investment property where the owner does not reside. Please revise to \"Vacant\" or \"Tenant.\"" For 1025 reports: at least one unit may be owner-occupied, but Tenant or Vacant must also be checked; otherwise, escalate for confirmation.
+  - Occupancy Requirements: VISIO with 1007 occupancy must be Vacant or Tenant. If marked Owner, reject as: "The subject is an investment property where the owner does not reside. Please revise to 'Vacant' or 'Tenant.'" For 1025 reports: at least one unit may be owner-occupied, but Tenant or Vacant must also be checked; otherwise, escalate for confirmation.
   - Cost Approach: Must be completed for VISIO.
 
 - Best2Lend LLC:
