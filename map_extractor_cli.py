@@ -1362,6 +1362,10 @@ class MapExtractor:
                 matched_photo = self.match_pin_to_comp_photo(c, comp_photos)
                 if matched_photo:
                     c["photo_data"] = matched_photo
+                    cp_num = matched_photo.get("comp_num")
+                    if cp_num and not re.search(r'\d+', c.get("label", "")):
+                        prefix = "Rental" if c.get("item_type") == "Rental" else "Comparable"
+                        c["label"] = f"{prefix} #{cp_num}"
                     photo_addr = matched_photo.get("address") or ""
                     # Only backfill address if pin had no street detected from OCR
                     if photo_addr and not c.get("street"):
@@ -1370,6 +1374,22 @@ class MapExtractor:
                             c["address"] = f"{photo_addr}, {c['city']}, {c['state']} {c.get('zipcode', '')}".strip()
                         else:
                             c["address"] = photo_addr
+
+            # Sort all lists strictly in ascending order: Subject (0), Comparables 1..N (1), Rentals 1..N (2)
+            def pin_asc_key(p):
+                if p.get("item_type") == "Subject":
+                    return (0, 0, 0.0)
+                it_rank = 1 if p.get("item_type") == "Comparable" else 2
+                m = re.search(r'\d+', p.get("label", ""))
+                num = int(m.group(0)) if m else 99
+                mMiles = re.search(r'([0-9]+(?:\.[0-9]+)?)', p.get("distance", "") or p.get("proximity", ""))
+                miles = float(mMiles.group(1)) if mMiles else 999.0
+                return (it_rank, num, miles)
+
+            comps.sort(key=pin_asc_key)
+            comps_only.sort(key=pin_asc_key)
+            rentals_only.sort(key=pin_asc_key)
+            pins.sort(key=pin_asc_key)
 
             maps_data.append({
                 "page_number": mp["page_number"],

@@ -960,8 +960,22 @@ export const MapAndSketchExhibitsSection = ({
                         const rawItemsForCount = (mapItem.comparables && mapItem.rentals)
                           ? [...mapItem.comparables.filter(c => c.item_type !== 'Rental'), ...(mapItem.rentals || [])]
                           : (mapItem.comparables || []);
-                        const compsCount = rawItemsForCount.filter(c => c.item_type !== 'Rental').length;
-                        const rentalsCount = rawItemsForCount.filter(c => c.item_type === 'Rental').length;
+                        const seenC = new Set();
+                        const compsCount = rawItemsForCount.filter(c => {
+                          if (c.item_type === 'Rental') return false;
+                          const k = (c.street || c.address || '').toLowerCase().replace(/[^\w]/g, '');
+                          if (k && seenC.has(k)) return false;
+                          if (k) seenC.add(k);
+                          return true;
+                        }).length;
+                        const seenR = new Set();
+                        const rentalsCount = rawItemsForCount.filter(c => {
+                          if (c.item_type !== 'Rental') return false;
+                          const k = (c.street || c.address || '').toLowerCase().replace(/[^\w]/g, '');
+                          if (k && seenR.has(k)) return false;
+                          if (k) seenR.add(k);
+                          return true;
+                        }).length;
                         const chipText = rentalsCount > 0 
                           ? `${compsCount} Comparables, ${rentalsCount} Rentals Detected`
                           : `${compsCount} Comparables Detected`;
@@ -1107,24 +1121,108 @@ export const MapAndSketchExhibitsSection = ({
                             );
                           })()}
 
-                          {/* Comparables & Rentals Rows Sorted 1..N */}
+                          {/* Comparables & Rentals Rows Sorted in Strict Ascending Order (1..N) */}
                           {(() => {
                             const rawSourceList = (mapItem.comparables && mapItem.rentals)
                               ? [...mapItem.comparables.filter(c => c.item_type !== 'Rental'), ...(mapItem.rentals || [])]
                               : (mapItem.comparables || []);
-                            const compsList = rawSourceList.map((comp, cIdx) => cleanPinAddress(comp, mapItem.subject, cIdx));
-                            compsList.sort((a, b) => {
-                              const aRank = a.item_type === 'Rental' ? 2 : 1;
-                              const bRank = b.item_type === 'Rental' ? 2 : 1;
-                              if (aRank !== bRank) return aRank - bRank;
-                              const na = parseInt(a.label.replace(/\D/g, '') || '99', 10);
-                              const nb = parseInt(b.label.replace(/\D/g, '') || '99', 10);
-                              return na - nb;
+
+                            // 1. Resolve all pin metadata, photo match, and grid match first
+                            const allItems = rawSourceList.map((comp, idx) => {
+                              const pinInfo = cleanPinAddress(comp, mapItem.subject, idx);
+                              const photoComp = getComparablePhotoData(pinInfo, idx, scanResult, allData, data);
+                              const gridComp = getGridComparableData(idx, pinInfo.label, pinInfo.street, data, allData);
+
+                              const isRental = pinInfo.item_type === 'Rental' || 
+                                               /rental/i.test(pinInfo.label || '') || 
+                                               /rental/i.test(gridComp?.gridCompLabel || '') || 
+                                               /rental/i.test(photoComp?.category || '');
+
+                              let num = null;
+                              if (gridComp?.gridCompNum) {
+                                num = gridComp.gridCompNum;
+                              } else if (photoComp?.comp_num) {
+                                num = photoComp.comp_num;
+                              } else {
+                                const m = (pinInfo.label || '').match(/#?(\d+)/);
+                                if (m) num = parseInt(m[1], 10);
+                              }
+
+                              const mMiles = (pinInfo.miles || pinInfo.proximity || '').match(/([0-9]+(?:\.[0-9]+)?)/);
+                              const milesVal = mMiles ? parseFloat(mMiles[1]) : 999.0;
+
+                              const displayStreet = (pinInfo.street && pinInfo.street !== '(Address pin)')
+                                ? pinInfo.street
+                                : (photoComp?.address || gridComp?.address || (pinInfo.address !== '(Address pin)' ? pinInfo.address : '') || '—');
+
+                              return {
+                                pinInfo,
+                                photoComp,
+                                gridComp,
+                                isRental,
+                                num,
+                                milesVal,
+                                displayStreet
+                              };
                             });
 
-                            return compsList.map((compInfo, cIdx) => {
-                              const gridComp = getGridComparableData(cIdx, compInfo.label, compInfo.street, data, allData);
-                              const photoComp = getComparablePhotoData(compInfo, cIdx, scanResult, allData, data);
+                            // 2. Separate into Comparables and Rentals
+                            const compsGroup = allItems.filter(it => !it.isRental);
+                            const rentalsGroup = allItems.filter(it => it.isRental);
+
+                            // 3. Process each group: deduplicate identical addresses, fill missing numbers, and sort strictly 1..N
+                            const processGroup = (group, prefix) => {
+                              const seenStreets = new Set();
+                              const deduped = [];
+                              for (const it of group) {
+                                const sKey = (it.displayStreet || '').toLowerCase().replace(/[^\w]/g, '');
+                                if (sKey && sKey !== '—' && seenStreets.has(sKey)) {
+                                  continue;
+                                }
+                                if (sKey && sKey !== '—') seenStreets.add(sKey);
+                                deduped.push(it);
+                              }
+
+                              // Initial sort by existing number if known, then by distance
+                              deduped.sort((a, b) => {
+                                if (a.num !== null && b.num !== null) return a.num - b.num;
+                                if (a.num !== null) return -1;
+                                if (b.num !== null) return 1;
+                                return a.milesVal - b.milesVal;
+                              });
+
+                              // Ensure unique, strictly sequential ascending numbering (1..N) without duplicates
+                              const usedNums = new Set();
+                              deduped.forEach(it => {
+                                if (it.num !== null && !usedNums.has(it.num)) {
+                                  usedNums.add(it.num);
+                                } else {
+                                  it.num = null;
+                                }
+                              });
+
+                              let nextNum = 1;
+                              deduped.forEach(it => {
+                                if (it.num === null) {
+                                  while (usedNums.has(nextNum)) nextNum++;
+                                  it.num = nextNum;
+                                  usedNums.add(nextNum);
+                                }
+                                it.badgeLabel = `${prefix} #${it.num}`;
+                              });
+
+                              // Strict ascending numerical sort
+                              deduped.sort((a, b) => a.num - b.num);
+                              return deduped;
+                            };
+
+                            const finalComps = processGroup(compsGroup, 'Comp');
+                            const finalRentals = processGroup(rentalsGroup, 'Rental');
+                            const sortedRows = [...finalComps, ...finalRentals];
+
+                            return sortedRows.map((rowItem, rIdx) => {
+                              const { pinInfo, photoComp, gridComp, isRental, displayStreet, badgeLabel } = rowItem;
+                              const compInfo = pinInfo;
 
                               const mapStreet = (compInfo.street && compInfo.street !== '(Address pin)') ? compInfo.street : (compInfo.address !== '(Address pin)' ? compInfo.address : '');
                               const photoStreet = photoComp?.address || '';
@@ -1134,13 +1232,8 @@ export const MapAndSketchExhibitsSection = ({
                               const mapMatchesGrid = gridComp?.matchStatus === 'match';
                               const photoMatchesGrid = (photoStreet && gridStreet && gridStreet !== '—') ? compareAddresses(photoStreet, gridStreet).status === 'match' : false;
 
-                              const isRental = compInfo.item_type === 'Rental';
-                              const displayStreet = (compInfo.street && compInfo.street !== '(Address pin)')
-                                ? compInfo.street
-                                : (photoStreet || gridStreet || (compInfo.address !== '(Address pin)' ? compInfo.address : '') || '—');
-
                               return (
-                                <TableRow key={cIdx} hover>
+                                <TableRow key={rIdx} hover>
                                   <TableCell sx={{ verticalAlign: 'middle' }}>
                                     <Box sx={{
                                       display: 'inline-flex',
@@ -1155,7 +1248,7 @@ export const MapAndSketchExhibitsSection = ({
                                       fontWeight: 700,
                                       fontSize: '0.75rem'
                                     }}>
-                                      {isRental ? '🟢' : '🔵'} {gridComp.gridCompLabel !== '—' ? gridComp.gridCompLabel : (compInfo.label || `${isRental ? 'Rental' : 'Comp'} #${cIdx + 1}`)}
+                                      {isRental ? '🟢' : '🔵'} {badgeLabel}
                                     </Box>
                                   </TableCell>
                                   <TableCell>
