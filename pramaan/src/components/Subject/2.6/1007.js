@@ -4,6 +4,7 @@ import { Tooltip, IconButton } from '@mui/material';
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import ActionButtons from '../components/ActionButtons';
 import PhotosGallerySection from '../components/PhotosGallerySection';
+import MapAndSketchExhibitsSection from '../components/MapAndSketchExhibitsSection';
 
 const stripDollar = (val) => {
   if (!val) return '';
@@ -24,7 +25,7 @@ const Form1007 = ({
   onSubjectRevisionButtonClick, onContractRevisionButtonClick, onNeighborhoodRevisionButtonClick,
   onSiteRevisionButtonClick, onImprovementsRevisionButtonClick, onSalesGridRevisionButtonClick,
   onReconciliationRevisionButtonClick, onCostApproachRevisionButtonClick, onCertificationRevisionButtonClick,
-  on1007RevisionButtonClick, revisionHandlers
+  on1007RevisionButtonClick, selectedFile, revisionHandlers
 }) => {
   const activeComparableRents = (comparableRents || []).filter((rent, idx) => {
     const rentData = (data && data[rent]) || (allData && allData[rent]);
@@ -672,6 +673,7 @@ const Form1007 = ({
       {/* <GridInfoCard id="rent-schedule-reconciliation-section" title="Comparable Rent Schedule Reconciliation" fields={rentScheduleReconciliationFields} data={data} cardClass="bg-info" usePre={true} extractionAttempted={extractionAttempted} onDataChange={(field, value) => handleDataChange(field, value)} editingField={editingField} setEditingField={setEditingField} isEditable={true} loading={loading} loadingSection={loadingSection} manualValidations={manualValidations} handleManualValidation={handleManualValidation} revisionHandlers={revisionHandlers} /> */}
 
       <GridInfoCard id="appraiser-section" title="CERTIFICATION" fields={appraiserFields} hideEmptyFields={true} data={data.CERTIFICATION} cardClass="bg-info" extractionAttempted={extractionAttempted} onDataChange={(field, value) => handleDataChange(['CERTIFICATION', ...field], value)} editingField={editingField} setEditingField={setEditingField} isEditable={true} allData={allData} loading={loading} loadingSection={loadingSection} manualValidations={manualValidations} handleManualValidation={handleManualValidation} onRevisionButtonClick={onCertificationRevisionButtonClick} revisionHandlers={revisionHandlers} />
+      <MapAndSketchExhibitsSection id="map-sketch-exhibits-section" data={data} allData={allData} selectedFile={selectedFile} />
       <PhotosGallerySection id="photos-exhibits-section" data={data} allData={allData} extractedPhotos={allData?.EXTRACTED_PHOTOS || data?.EXTRACTED_PHOTOS || []} />
     </>
   );

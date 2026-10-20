@@ -377,22 +377,45 @@ export const PhotosGallerySection = ({
                   </Box>
 
                   <CardContent sx={{ p: 1.5, flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        fontWeight: 700,
-                        color: 'text.primary',
-                        lineHeight: 1.3,
-                        mb: 0.5,
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden'
-                      }}
-                      title={photo.caption}
-                    >
-                      {photo.caption || 'Exhibit Photo'}
-                    </Typography>
+                    <Box>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontWeight: 700,
+                          color: 'text.primary',
+                          lineHeight: 1.3,
+                          mb: 0.5,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden'
+                        }}
+                        title={photo.caption}
+                      >
+                        {photo.caption || 'Exhibit Photo'}
+                      </Typography>
+
+                      {photo.address && (
+                        <Typography variant="caption" sx={{ fontWeight: 700, color: '#0369a1', display: 'block', mb: 0.5 }}>
+                          📍 {photo.address}
+                        </Typography>
+                      )}
+
+                      {(photo.sale_price || photo.proximity || photo.gla) && (
+                        <Box sx={{ mt: 0.5, mb: 1, p: 0.75, borderRadius: 1, bgcolor: '#f8fafc', border: '1px solid #e2e8f0', fontSize: '0.72rem', color: '#334155', lineHeight: 1.4 }}>
+                          {photo.sale_price && <div><strong>Price:</strong> ${photo.sale_price}</div>}
+                          {photo.proximity && <div><strong>Prox:</strong> {photo.proximity}</div>}
+                          {(photo.gla || photo.bedrooms) && (
+                            <div>
+                              {photo.gla ? `${photo.gla} sf` : ''}
+                              {photo.bedrooms ? ` • ${photo.bedrooms} Bed` : ''}
+                              {photo.bathrooms ? ` / ${photo.bathrooms} Bath` : ''}
+                            </div>
+                          )}
+                        </Box>
+                      )}
+                    </Box>
+
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                       Page {photo.page} • {photo.width} × {photo.height} pt
                     </Typography>
@@ -445,7 +468,7 @@ export const PhotosGallerySection = ({
               alt={previewPhoto.caption}
               style={{
                 maxWidth: '100%',
-                maxHeight: '70vh',
+                maxHeight: '60vh',
                 objectFit: 'contain',
                 borderRadius: '8px',
                 transform: `rotate(${rotation}deg)`,
@@ -457,6 +480,57 @@ export const PhotosGallerySection = ({
             <Typography variant="body1" color="grey.400">
               No high-resolution preview available.
             </Typography>
+          )}
+
+          {/* Structured Comparable Photo Metadata Details */}
+          {(previewPhoto?.address || previewPhoto?.metadata) && (
+            <Box sx={{ mt: 2.5, width: '100%', maxWidth: 700, p: 2, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#38bdf8', mb: 1.5 }}>
+                Photo Addendum Metadata (Extracted from Appraisal Page {previewPhoto?.page})
+              </Typography>
+              <Grid container spacing={1.5}>
+                {previewPhoto?.address && (
+                  <Grid item xs={12} sm={6}>
+                    <span style={{ color: '#94a3b8' }}>Address:</span> <strong style={{ color: '#fff' }}>{previewPhoto.address}</strong>
+                  </Grid>
+                )}
+                {previewPhoto?.proximity && (
+                  <Grid item xs={12} sm={6}>
+                    <span style={{ color: '#94a3b8' }}>Prox. to Subject:</span> <strong style={{ color: '#fff' }}>{previewPhoto.proximity}</strong>
+                  </Grid>
+                )}
+                {previewPhoto?.sale_price && (
+                  <Grid item xs={12} sm={6}>
+                    <span style={{ color: '#94a3b8' }}>Sale Price:</span> <strong style={{ color: '#4ade80' }}>${previewPhoto.sale_price}</strong>
+                  </Grid>
+                )}
+                {previewPhoto?.gla && (
+                  <Grid item xs={12} sm={6}>
+                    <span style={{ color: '#94a3b8' }}>Gross Living Area:</span> <strong style={{ color: '#fff' }}>{previewPhoto.gla} sq ft</strong>
+                  </Grid>
+                )}
+                {previewPhoto?.bedrooms && (
+                  <Grid item xs={12} sm={6}>
+                    <span style={{ color: '#94a3b8' }}>Rooms / Beds / Baths:</span> <strong style={{ color: '#fff' }}>{previewPhoto.total_rooms || '—'} / {previewPhoto.bedrooms} / {previewPhoto.bathrooms || '—'}</strong>
+                  </Grid>
+                )}
+                {previewPhoto?.site && (
+                  <Grid item xs={12} sm={6}>
+                    <span style={{ color: '#94a3b8' }}>Site:</span> <strong style={{ color: '#fff' }}>{previewPhoto.site}</strong>
+                  </Grid>
+                )}
+                {previewPhoto?.quality && (
+                  <Grid item xs={12} sm={6}>
+                    <span style={{ color: '#94a3b8' }}>Quality:</span> <strong style={{ color: '#fff' }}>{previewPhoto.quality}</strong>
+                  </Grid>
+                )}
+                {previewPhoto?.age && (
+                  <Grid item xs={12} sm={6}>
+                    <span style={{ color: '#94a3b8' }}>Age:</span> <strong style={{ color: '#fff' }}>{previewPhoto.age} yrs</strong>
+                  </Grid>
+                )}
+              </Grid>
+            </Box>
           )}
 
           <Box sx={{ mt: 2, display: 'flex', gap: 3, color: 'grey.400', fontSize: '0.85rem' }}>

@@ -24,6 +24,7 @@ import AutoModeIcon from '@mui/icons-material/AutoMode';
 import { GridInfoCard } from '../components/FormComponents';
 import ActionButtons from '../components/ActionButtons';
 import PhotosGallerySection from '../components/PhotosGallerySection';
+import MapAndSketchExhibitsSection from '../components/MapAndSketchExhibitsSection';
 import ECRComparisonTable from './ECRComparisonTable';
 import ECRSalesGridTable from './ECRSalesGridTable';
 import ECRMarketTrendsTable from './ECRMarketTrendsTable';
@@ -81,6 +82,7 @@ const ECR = ({
   onReconciliationRevisionButtonClick,
   onCostApproachRevisionButtonClick,
   onCertificationRevisionButtonClick,
+  selectedFile,
   revisionHandlers
 }) => {
   const [file1, setFile1] = useState(null);
@@ -955,6 +957,7 @@ const ECR = ({
             revisionHandlers={revisionHandlers}
           />
 
+          <MapAndSketchExhibitsSection id="map-sketch-exhibits-section" data={file1Data} allData={allData} selectedFile={selectedFile || file1} />
           <PhotosGallerySection id="photos-exhibits-section" data={file1Data} allData={allData} extractedPhotos={allData?.EXTRACTED_PHOTOS || file1Data?.EXTRACTED_PHOTOS || []} />
         </>
       )}

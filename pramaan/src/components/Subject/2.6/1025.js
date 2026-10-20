@@ -6,6 +6,7 @@ import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import SalesComparisonSection from '../components/SalesComparisonSection';
 import ActionButtons from '../components/ActionButtons';
 import PhotosGallerySection from '../components/PhotosGallerySection';
+import MapAndSketchExhibitsSection from '../components/MapAndSketchExhibitsSection';
 const Form1025 = ({
     data, allData, extractionAttempted, handleDataChange, editingField, setEditingField,
     highlightedSubjectFields, highlightedContractFields, highlightedSiteFields,
@@ -20,7 +21,7 @@ const Form1025 = ({
     onContractRevisionButtonClick, onNeighborhoodRevisionButtonClick, onSiteRevisionButtonClick,
     onImprovementsRevisionButtonClick, onSalesGridRevisionButtonClick, onReconciliationRevisionButtonClick,
     onCostApproachRevisionButtonClick, onCertificationRevisionButtonClick, on1007RevisionButtonClick,
-    ComparableRentAdjustments, COMPARABLE_RENTAL_DATA, SUBJECT_RENT_SCHEDULE, revisionHandlers
+    ComparableRentAdjustments, COMPARABLE_RENTAL_DATA, SUBJECT_RENT_SCHEDULE, selectedFile, revisionHandlers
 }) => (
 
     <>
@@ -316,6 +317,7 @@ const Form1025 = ({
         <CondoCoopProjectsTable id="condo-coop-section" title="CONDO/CO-OP PROJECTS" data={data} onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField} isEditable={true} condoCoopProjectsRows={condoCoopProjectsRows} extractionAttempted={extractionAttempted} revisionHandlers={revisionHandlers} />
         <GridInfoCard id="condo-foreclosure-section" fields={condoForeclosureFields} data={data.CONDO_FORECLOSURE} usePre={true} extractionAttempted={extractionAttempted} onDataChange={(field, value) => handleDataChange(['CONDO_FORECLOSURE', ...field], value)} editingField={editingField} setEditingField={setEditingField} isEditable={true} allData={allData} loading={loading} loadingSection={loadingSection} manualValidations={manualValidations} handleManualValidation={handleManualValidation} revisionHandlers={revisionHandlers} />
         <GridInfoCard id="appraiser-section" title="CERTIFICATION" fields={appraiserFields} data={data.CERTIFICATION} cardClass="bg-info" extractionAttempted={extractionAttempted} onDataChange={(field, value) => handleDataChange(['CERTIFICATION', ...field], value)} editingField={editingField} setEditingField={setEditingField} isEditable={true} allData={allData} loading={loading} loadingSection={loadingSection} manualValidations={manualValidations} handleManualValidation={handleManualValidation} onRevisionButtonClick={onCertificationRevisionButtonClick} revisionHandlers={revisionHandlers} />
+        <MapAndSketchExhibitsSection id="map-sketch-exhibits-section" data={data} allData={allData} selectedFile={selectedFile} />
         <PhotosGallerySection id="photos-exhibits-section" data={data} allData={allData} extractedPhotos={allData?.EXTRACTED_PHOTOS || data?.EXTRACTED_PHOTOS || []} />
     </>
 );

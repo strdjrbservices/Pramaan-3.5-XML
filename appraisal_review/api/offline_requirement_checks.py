@@ -641,7 +641,7 @@ def evaluate_state_requirements(pdf_path: str, extracted_data: Optional[Dict[str
 
 
 
-def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[str, Any]] = None) -> dict:
+def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[str, Any]] = None, custom_prompt: Optional[str] = None) -> dict:
     """Evaluates lender/client-specific appraisal requirements offline using 100% pure regex."""
     data = _normalize_extracted_data(pdf_path, extracted_data)
 
@@ -660,6 +660,17 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         m = re.search(r"LENDER/CLIENT\s*[:\-]?\s*([^\n\r]+)", full_text, re.IGNORECASE)
         if m:
             lender_name = m.group(1).strip()
+
+    # Check custom_prompt for specific client focus if lender_name is generic or not matched
+    if custom_prompt and isinstance(custom_prompt, str):
+        cp_lower = custom_prompt.lower().strip()
+        m_client = re.search(r"(?:client|lender)\s*[:\-]+\s*([A-Za-z0-9\s.,&]+?)(?:\n|\r|,|requirements?|$)", custom_prompt, re.IGNORECASE)
+        if m_client:
+            matched_client = m_client.group(1).strip()
+            if matched_client and len(matched_client) > 2 and "requirement" not in matched_client.lower():
+                lender_name = matched_client
+        elif "homebridge" in cp_lower and ("paramount residential" not in cp_lower or "new american" not in cp_lower):
+            lender_name = "Homebridge Financial Services"
 
     lender_upper = str(lender_name).upper()
     details = []
@@ -2249,6 +2260,216 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
             "status": "Needs Review" if subj_page else "Fulfilled",
             "value_or_comment": f"Report is 'Subject To' on Page {subj_page}. Please advise." if subj_page else "Report condition is not 'Subject To'."
         })
+
+    # 36. Homebridge Financial Services
+    elif "HOMEBRIDGE" in lender_upper or "HOME BRIDGE" in lender_upper:
+        # Rule 1: MLS Comparables
+        # "At least 2 sold MLS comparables are required within the subject’s town/municipality and market area.
+        # If unavailable, provide detailed commentary explaining why nearby towns are comparable. Rental comps do not require MLS sources."
+
+        # Extract Subject City / Town / Municipality
+        subj_city = ""
+        subj_city_obj = _get_field_val(data, "Subject", "City")
+        if isinstance(subj_city_obj, dict):
+            subj_city = subj_city_obj.get("value", "")
+        elif isinstance(subj_city_obj, str):
+            subj_city = subj_city_obj
+
+        if not subj_city:
+            subj_full_addr = str(_get_field_val(data, "Subject", "Full Address") or _get_field_val(data, "Subject", "Property Address") or data.get("Full Address") or data.get("Property Address") or "")
+            parts = [p.strip() for p in subj_full_addr.split(",") if p.strip()]
+            if len(parts) >= 2:
+                subj_city = parts[1]
+
+        if not subj_city:
+            m_city = re.search(r"\bCity\s*[:\-]?\s*([A-Za-z\s]+?)(?:State|\b[A-Z]{2}\b|\d{5}|$)", full_text, re.IGNORECASE)
+            if m_city:
+                subj_city = m_city.group(1).strip()
+
+        subj_city_clean = subj_city.strip().lower()
+
+        # Collect unique comparable sales (excluding rental comps - rental comps do not require MLS sources)
+        comp_dict_map = {}
+        for k, v in data.items():
+            if not isinstance(v, dict):
+                continue
+            k_lower = k.lower()
+            if any(ign in k_lower for ign in ["rental", "rent", "subject", "sub market"]):
+                continue
+            if "comparable" in k_lower:
+                m_seq = re.search(r"(\d+)", k)
+                seq = m_seq.group(1) if m_seq else k
+                if seq not in comp_dict_map:
+                    comp_dict_map[seq] = v
+
+        matching_sold_mls_comps = []
+        for seq, c_data in sorted(comp_dict_map.items()):
+            # 1. Check if comp is Sold
+            dos = str(c_data.get("Date of Sale/Time") or c_data.get("Date of Sale") or c_data.get("Sale Date") or "").strip().lower()
+            concessions = str(c_data.get("Sales or Financing Concessions") or c_data.get("Sales Concessions") or "").lower()
+            price_val = _num(c_data.get("Sale Price"))
+
+            is_active_or_pending = any(act in f"{dos} {concessions}" for act in ["active", "contract", "pending", "listing", "offered", "under contract"])
+            is_sold = not is_active_or_pending and (
+                bool(re.search(r"\b(?:s|c)?\d{1,2}/\d{1,2}/\d{2,4}\b", dos)) or
+                bool(re.search(r"\b(?:s|c)?\d{1,2}/\d{2,4}\b", dos)) or
+                any(sw in dos for sw in ["settled", "closed", "sold"]) or
+                (price_val > 0 and dos != "")
+            )
+
+            # 2. Check if comp has MLS source
+            data_src = str(c_data.get("Data Source(s)") or "").strip().lower()
+            verif_src = str(c_data.get("Verification Source(s)") or "").strip().lower()
+            src_combined = f"{data_src} {verif_src}"
+            has_mls = (
+                "mls" in src_combined or
+                any(kw in src_combined for kw in ["mris", "fmls", "gamls", "armls", "crmls", "har", "realcomp", "matrix", "paragon", "mls pin", "listing id", "listing #", "listing no", "realtor", "ml#"]) or
+                bool(re.search(r"\bdom\s*[:#]?\s*\d+", src_combined))
+            )
+
+            # 3. Check if comp is located in subject's town/municipality or market area
+            c_addr = str(c_data.get("Address") or c_data.get("Street Address") or "").lower()
+            c_city = str(c_data.get("City") or "").lower()
+            c_csz = str(c_data.get("City State Zip") or "").lower()
+            c_prox = str(c_data.get("Proximity to Subject") or "").lower()
+
+            in_town = False
+            if subj_city_clean:
+                if (subj_city_clean in c_city) or (subj_city_clean in c_addr) or (subj_city_clean in c_csz):
+                    in_town = True
+                elif any(w in c_prox for w in ["same town", "same city", "same neighborhood", "subject neighborhood"]):
+                    in_town = True
+                else:
+                    addr_words = [w for w in re.split(r"[,\s]+", c_addr) if len(w) > 3 and not w.isdigit()]
+                    if addr_words and any(w in full_text.lower() for w in addr_words[:2]):
+                        for w in addr_words[:2]:
+                            idx = full_text.lower().find(w)
+                            if idx != -1 and subj_city_clean in full_text.lower()[max(0, idx - 100):min(len(full_text), idx + 150)]:
+                                in_town = True
+                                break
+            else:
+                in_town = True
+
+            if is_sold and has_mls and in_town:
+                comp_lbl = f"Comp #{seq}"
+                c_town_lbl = c_city.title() if c_city else (subj_city or "Subject Town")
+                matching_sold_mls_comps.append(f"{comp_lbl} ({c_town_lbl})")
+
+        # Check if detailed commentary explaining why nearby towns are comparable is provided
+        nearby_page, nearby_snip = _find_keyword_in_pages(pages_text, [
+            r"(?:nearby|neighboring|adjacent|surrounding|other|competing)\s+(?:town|towns|municipality|municipalities|cit(?:y|ies)|market|area|submarket)s?\b[^\n\r.?!;]{0,120}\b(?:comparable|competing|similar|appeal|marketability|pricing)",
+            r"(?:comparable|similar|competing)\s+(?:towns?|cit(?:y|ies)|location|market|area|submarket)",
+            r"(?:limited|lack\s+of|few|insufficient|no)\s+(?:recent\s+)?(?:sales|comparables|comps|transactions)\s+(?:within|in)\s+(?:the\s+)?(?:subject(?:'s)?\s+)?(?:town|city|municipality|immediate\s+market|neighborhood)",
+            r"(?:expanded|extended)\s+(?:search|parameters|distance)\s+(?:to|into|across)\s+(?:nearby|neighboring|surrounding|adjacent)\s+(?:towns?|cit(?:y|ies)|markets?)",
+            r"(?:towns?|cit(?:y|ies))\s+(?:are|is)\s+(?:considered\s+)?(?:comparable|similar|competing)",
+            r"explaining\s+why\s+nearby\s+towns\s+are\s+comparable",
+            r"nearby\s+towns\s+(?:are\s+)?comparable",
+            r"nearby\s+towns\s+are\s+similar"
+        ])
+
+        if len(matching_sold_mls_comps) >= 2:
+            details.append({
+                "requirement": "MLS Comparables in Subject Town/Market Area",
+                "status": "Fulfilled",
+                "value_or_comment": f"At least 2 sold MLS comparables found within the subject's town/municipality ({subj_city or 'Market Area'}): {', '.join(matching_sold_mls_comps)}."
+            })
+        elif nearby_page:
+            details.append({
+                "requirement": "MLS Comparables in Subject Town/Market Area",
+                "status": "Fulfilled",
+                "value_or_comment": f"Found {len(matching_sold_mls_comps)} sold MLS comparable(s) in subject town ({subj_city or 'Market Area'}). Explanatory commentary justifying nearby comparable towns identified on Page {nearby_page}: '{nearby_snip}'."
+            })
+        else:
+            details.append({
+                "requirement": "MLS Comparables in Subject Town/Market Area",
+                "status": "Not Fulfilled",
+                "value_or_comment": f"Per Homebridge requirements: At least 2 sold MLS comparables are required within the subject's town/municipality and market area. Found {len(matching_sold_mls_comps)} in '{subj_city or 'subject town'}'. Please provide detailed commentary explaining why nearby towns are comparable."
+            })
+
+        # Rule 2: Homebridge Supervisory Appraiser
+        # "The assigned appraiser may sign as the Supervisory Appraiser without inspecting the property.
+        # The only exception is when a trainee signs as the original appraiser on an FHA assignment."
+
+        # Check if FHA assignment
+        fha_case_val = (
+            _get_field_val(data, "Subject", "FHA Case #") or 
+            _get_field_val(data, "Subject", "FHA Case No.") or
+            _get_field_val(data, "Subject", "FHA Case Number") or
+            data.get("FHA Case No.") or
+            data.get("FHA Case #") or
+            ""
+        )
+        loan_type_val = str(_get_field_val(data, "Subject", "Loan Type") or _get_field_val(data, "Subject", "FHA") or "").upper()
+        is_fha_assignment = bool(fha_case_val) or ("FHA" in loan_type_val)
+        if not is_fha_assignment:
+            fha_page, fha_snip = _find_keyword_in_pages(pages_text, [
+                r"\bFHA\s+Case\s+(?:Number|No\.?|#)\s*[:\-]?\s*([0-9A-Z\-]+)",
+                r"\bFHA\s+(?:loan|assignment|financing)\b"
+            ])
+            if fha_page:
+                is_fha_assignment = True
+                if not fha_case_val:
+                    fha_case_val = fha_snip
+
+        # Check if primary appraiser is a Trainee
+        appr_lic_type = str(_get_field_val(data, "Appraiser", "License Type") or _get_field_val(data, "CERTIFICATION", "Appraiser License") or _get_field_val(data, "Appraiser", "License") or "").upper()
+        is_trainee_appraiser = any(tok in appr_lic_type for tok in ["TRAINEE", "APPRENTICE", "REGISTERED", "PROVISIONAL", "INTERN", "ASSISTANT", "AT#", "TR#"])
+        if not is_trainee_appraiser:
+            trainee_page, _ = _find_keyword_in_pages(pages_text, [
+                r"\b(?:appraiser\s+is\s+a\s+trainee|trainee\s+appraiser|apprentice\s+appraiser|registered\s+trainee)\b",
+                r"\b(?:Trainee|Apprentice)\s+License\b"
+            ])
+            if trainee_page:
+                is_trainee_appraiser = True
+
+        # Check Supervisory Appraiser inspection
+        sup_name = str(
+            _get_field_val(data, "CERTIFICATION", "Supervisory Signature") or 
+            _get_field_val(data, "CERTIFICATION", "Supervisory Name") or 
+            _get_field_val(data, "Appraiser", "Supervisory Appraiser") or 
+            ""
+        ).strip()
+
+        did_inspect_int = str(_get_field_val(data, "CERTIFICATION", "Did inspect interior and exterior of subject property") or "").strip().lower()
+        did_inspect_ext = str(_get_field_val(data, "CERTIFICATION", "Did inspect exterior of subject property from street") or "").strip().lower()
+        sup_did_inspect = (
+            did_inspect_int in ["yes", "true", "1", "x"] or
+            did_inspect_ext in ["yes", "true", "1", "x"] or
+            bool(_get_field_val(data, "CERTIFICATION", "Subject Property Date of Inspection (Interior/Exterior)")) or
+            bool(_get_field_val(data, "CERTIFICATION", "Subject Property Date of Inspection (Exterior)"))
+        )
+
+        if is_fha_assignment and is_trainee_appraiser and not sup_did_inspect:
+            details.append({
+                "requirement": "Homebridge Supervisory Appraiser Inspection",
+                "status": "Not Fulfilled",
+                "value_or_comment": f"Per Homebridge requirements: Trainee signed as original appraiser on an FHA assignment (FHA Case: {fha_case_val or 'FHA'}), so the Supervisory Appraiser is required to inspect the property."
+            })
+        elif is_fha_assignment and is_trainee_appraiser and sup_did_inspect:
+            details.append({
+                "requirement": "Homebridge Supervisory Appraiser Inspection",
+                "status": "Fulfilled",
+                "value_or_comment": f"Trainee signed on an FHA assignment (FHA Case: {fha_case_val or 'FHA'}) and Supervisory Appraiser inspection was verified (exterior/interior inspection completed)."
+            })
+        elif sup_name:
+            if not sup_did_inspect:
+                details.append({
+                    "requirement": "Homebridge Supervisory Appraiser Inspection",
+                    "status": "Fulfilled",
+                    "value_or_comment": "Per Homebridge guidelines: The assigned appraiser may sign as Supervisory Appraiser without inspecting the property (non-trainee / non-FHA assignment verified)."
+                })
+            else:
+                details.append({
+                    "requirement": "Homebridge Supervisory Appraiser Inspection",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"Supervisory Appraiser ({sup_name}) signed with property inspection confirmed."
+                })
+        else:
+            details.append({
+                "requirement": "Homebridge Supervisory Appraiser Inspection",
+                "status": "Fulfilled",
+                "value_or_comment": "Assigned appraiser signed as sole appraiser. Supervisory inspection waiver verified (no trainee on FHA assignment)."
+            })
 
     # Default / General Lender
     else:

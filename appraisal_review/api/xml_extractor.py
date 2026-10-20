@@ -254,19 +254,25 @@ def _detect_form_type_from_xml(root: ET.Element) -> str:
     combined_text = f"{mismo_form} {mismo_other} {primary_form_name} {primary_form_id} " + " ".join(all_form_names)
     ct = combined_text.upper()
     
-    has_1007 = any("1007" in f.upper() or "SINGLE FAMILY RENT" in f.upper() for f in all_form_names)
-    if not has_1007:
-        income_elem = root.find(".//INCOME_ANALYSIS")
-        if income_elem is not None:
-            rent_val = income_elem.attrib.get("EstimatedMarketMonthlyRentAmount", "").strip()
-            grm_val = income_elem.attrib.get("GrossRentMultiplierFactor", "").strip()
-            income_val = income_elem.attrib.get("ValueIndicatedByIncomeApproachAmount", "").strip()
-            if rent_val or (grm_val and income_val):
-                has_1007 = True
-    
+    # Strict 1007 check: only true Form 1007 addendum (not basic page 3 income approach)
+    has_1007 = any(
+        re.search(r"\b(?:1007|FNM\s*1007|FRE\s*1000|SRX)\b", f, re.IGNORECASE) or
+        re.search(r"\b(?:single\s*family\s*(?:comparable\s*)?rent\s*schedule)\b", f, re.IGNORECASE)
+        for f in all_form_names
+    )
+    if not has_1007 and re.search(r"\b(?:1007|FNM\s*1007|FRE\s*1000)\b", f"{mismo_form} {mismo_other}", re.IGNORECASE):
+        has_1007 = True
+
+    if not has_1007 and any(re.search(r"\brent\s*schedule\b", f, re.IGNORECASE) for f in all_form_names):
+        if not ("1025" in ct or "SMALL RESIDENTIAL" in ct):
+            has_1007 = True
+
+    if not has_1007 and root.find(".//SINGLE_FAMILY_RENT_SCHEDULE") is not None:
+        has_1007 = True
+
     # Check 1025 (Small Residential Income Property / 2-4 Unit)
     if "1025" in ct or "SMALL RESIDENTIAL" in ct or "2-4 UNIT" in ct or "FRE72" in ct:
-        return "1025 + 1007" if has_1007 else "1025"
+        return "1025"
         
     # Check 1073 (Condominium)
     if "1073" in ct or "CONDOMINIUM" in ct or "FRE465" in ct:
@@ -367,6 +373,131 @@ def _format_mat_cond(raw_val: Any, default_cond: str = "Average") -> str:
         elif len(parts) == 1:
             return f"{parts[0]} / {default_cond}"
     return f"{val} / {default_cond}"
+
+
+def extract_comp_photo_metadata(page: Any, frame: Any, body_blocks: Optional[List[Any]] = None) -> Dict[str, Any]:
+    """
+    Extracts structured metadata for a comparable or rental photograph from photo addendum pages.
+    Handles TOTAL by a la mode, ACI, ClickFORMS, Bradford, SFREP, etc.
+    Extracts: comp_num, address, proximity, sale_price, gla, total_rooms, bedrooms, bathrooms,
+             location, view, site, quality, age, and raw metadata dictionary.
+    """
+    if body_blocks is None:
+        blocks = page.get_text("blocks")
+        body_blocks = [b for b in blocks if b[1] >= 82 and b[3] <= page.rect.height - 35]
+
+    # Find blocks to the right of the photo frame
+    right_blocks = [
+        b for b in body_blocks
+        if b[0] >= frame.x1 - 35 and b[1] >= frame.y0 - 25 and b[3] <= frame.y1 + 45
+    ]
+
+    title = ""
+    comp_num = None
+    for b in right_blocks:
+        txt = b[4].strip()
+        m_comp = re.search(r'^(?:COMPARABLE\s*(?:SALE|RENTAL)?|RENTAL|LISTING)?\s*#?\s*(\d+)$', txt, re.IGNORECASE)
+        if not m_comp:
+            m_comp = re.search(r'^(?:Comparable|Rental|Listing)\s*#?\s*(\d+)', txt, re.IGNORECASE)
+        if m_comp:
+            title = txt.split('\n')[0].strip()
+            comp_num = int(m_comp.group(1))
+            break
+
+    known_keys = [
+        "prox. to subject", "proximity", "sale price", "list price", "rental price", "monthly rent",
+        "gross living area", "gla", "total rooms", "total bedrooms", "total bathrooms",
+        "location", "view", "site", "quality", "age", "actual age", "condition"
+    ]
+
+    key_block = None
+    val_block = None
+    for b in right_blocks:
+        b_lines = [l.strip() for l in b[4].split('\n') if l.strip()]
+        matched_keys = sum(1 for l in b_lines if l.lower() in known_keys or any(k in l.lower() for k in ["prox", "sale price", "living area", "bathrooms"]))
+        if matched_keys >= 3:
+            key_block = b_lines
+        elif len(b_lines) >= 3 and not any(l.lower() in known_keys for l in b_lines[:3]):
+            val_block = b_lines
+
+    meta_dict = {}
+    address = ""
+    proximity = ""
+    sale_price = ""
+    gla = ""
+    bedrooms = ""
+    bathrooms = ""
+    total_rooms = ""
+    location = ""
+    view = ""
+    site = ""
+    quality = ""
+    age = ""
+
+    if key_block and val_block:
+        address = val_block[0]
+        meta_dict["Address"] = address
+        for idx, k in enumerate(key_block):
+            val_idx = idx + 1
+            if val_idx < len(val_block):
+                v = val_block[val_idx]
+                k_clean = k.strip()
+                meta_dict[k_clean] = v
+                k_lower = k_clean.lower()
+                if "prox" in k_lower: proximity = v
+                elif "price" in k_lower or "rent" in k_lower: sale_price = v
+                elif "living" in k_lower or "gla" in k_lower: gla = v
+                elif "room" in k_lower and "bed" not in k_lower and "bath" not in k_lower: total_rooms = v
+                elif "bed" in k_lower: bedrooms = v
+                elif "bath" in k_lower: bathrooms = v
+                elif "location" in k_lower: location = v
+                elif "view" in k_lower: view = v
+                elif "site" in k_lower: site = v
+                elif "quality" in k_lower: quality = v
+                elif "age" in k_lower: age = v
+    else:
+        # Fallback for key: value format
+        for b in right_blocks:
+            lines = [l.strip() for l in b[4].split('\n') if l.strip()]
+            for line in lines:
+                m_kv = re.match(r'^([^:\-]+)[:\-]\s*(.+)$', line)
+                if m_kv:
+                    k, v = m_kv.group(1).strip(), m_kv.group(2).strip()
+                    meta_dict[k] = v
+                    k_lower = k.lower()
+                    if "prox" in k_lower: proximity = v
+                    elif "price" in k_lower: sale_price = v
+                    elif "gla" in k_lower or "living" in k_lower: gla = v
+                    elif "bed" in k_lower: bedrooms = v
+                    elif "bath" in k_lower: bathrooms = v
+                    elif "location" in k_lower: location = v
+                    elif "view" in k_lower: view = v
+                    elif "site" in k_lower: site = v
+                    elif "quality" in k_lower: quality = v
+                    elif "age" in k_lower: age = v
+                elif not address and not any(k in line.lower() for k in ["comparable", "photo", "total", "alamode", "form", "page"]):
+                    if re.match(r'^\d+\s+[A-Za-z]', line):
+                        address = line
+                        meta_dict["Address"] = address
+
+    return {
+        "title": title or (f"Comparable {comp_num}" if comp_num else "Comparable"),
+        "comp_num": comp_num,
+        "address": address,
+        "proximity": proximity,
+        "sale_price": sale_price,
+        "gla": gla,
+        "total_rooms": total_rooms,
+        "bedrooms": bedrooms,
+        "bathrooms": bathrooms,
+        "location": location,
+        "view": view,
+        "site": site,
+        "quality": quality,
+        "age": age,
+        "metadata": meta_dict
+    }
+
 
 def extract_photos_from_xml(
     xml_path_or_bytes: Any,
@@ -627,8 +758,17 @@ def extract_photos_from_xml(
                 except Exception:
                     pass
 
+            # Extract comparable metadata if on comparable/rental photo pages
+            comp_meta = {}
+            if category in ["Comparable", "Rental"] or any(k in raw_upper for k in ["COMPARABLE PHOTO", "COMPARABLE PROPERTY", "FORM PICPIX"]):
+                comp_meta = extract_comp_photo_metadata(page, frame, body_blocks)
+                if comp_meta.get("comp_num"):
+                    category = "Comparable"
+                    if not best_label or "Photo" in best_label:
+                        best_label = comp_meta["title"]
+
             photo_count += 1
-            photos.append({
+            photo_item = {
                 "id": f"photo_{photo_count}",
                 "caption": best_label,
                 "title": best_label,
@@ -644,7 +784,29 @@ def extract_photos_from_xml(
                     "x1": round(frame.x1),
                     "y1": round(frame.y1)
                 }
-            })
+            }
+
+            if comp_meta and (comp_meta.get("address") or comp_meta.get("comp_num")):
+                photo_item.update({
+                    "comp_number": comp_meta.get("comp_num"),
+                    "address": comp_meta.get("address", ""),
+                    "proximity": comp_meta.get("proximity", ""),
+                    "sale_price": comp_meta.get("sale_price", ""),
+                    "gla": comp_meta.get("gla", ""),
+                    "total_rooms": comp_meta.get("total_rooms", ""),
+                    "bedrooms": comp_meta.get("bedrooms", ""),
+                    "bathrooms": comp_meta.get("bathrooms", ""),
+                    "location": comp_meta.get("location", ""),
+                    "view": comp_meta.get("view", ""),
+                    "site": comp_meta.get("site", ""),
+                    "quality": comp_meta.get("quality", ""),
+                    "age": comp_meta.get("age", ""),
+                    "metadata": comp_meta.get("metadata", {})
+                })
+                if comp_meta.get("address"):
+                    photo_item["caption"] = f"{best_label} - {comp_meta['address']}"
+
+            photos.append(photo_item)
 
     return photos
 
@@ -1570,7 +1732,14 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
             adj_price_bdrm = _clean_currency(comp.attrib.get("AdjustedSalesPricePerBedroomAmount", ""))
 
             comp_loc = comp.find("LOCATION")
-            c_addr = comp_loc.attrib.get("PropertyStreetAddress", "") if comp_loc is not None else ""
+            c_addr_street = comp_loc.attrib.get("PropertyStreetAddress", "") if comp_loc is not None else ""
+            c_addr_csz = comp_loc.attrib.get("PropertyStreetAddress2", "") if comp_loc is not None else ""
+            c_city = comp_loc.attrib.get("PropertyCity", "") or comp_loc.attrib.get("_City", "") if comp_loc is not None else ""
+            if not c_city and c_addr_csz:
+                parts_csz = [p.strip() for p in c_addr_csz.split(",") if p.strip()]
+                if parts_csz:
+                    c_city = parts_csz[0]
+            c_addr = f"{c_addr_street}, {c_addr_csz}".strip(", ") if (c_addr_street and c_addr_csz) else (c_addr_street or c_addr_csz)
             c_prox = comp_loc.attrib.get("ProximityToSubjectDescription", "") if comp_loc is not None else ""
 
             # Extract child adjustments
@@ -1718,7 +1887,10 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
                     ps_eff = f"{m_e.group(2)}/{m_e.group(3)}/{m_e.group(1)}"
 
             comp_data = {
-                "Address": c_addr or (prop_addr if seq == "0" else ""),
+                "Address": c_addr or (full_addr if seq == "0" else ""),
+                "Street Address": c_addr_street or (prop_addr if seq == "0" else ""),
+                "City": c_city or (prop_city if seq == "0" else ""),
+                "City State Zip": c_addr_csz or (f"{prop_city}, {prop_state} {prop_zip}".strip(", ") if seq == "0" else ""),
                 "Proximity to Subject": c_prox,
                 "Proximity to Subject comment": c_prox,
                 "Sale Price": sale_price or (contract_price if seq == "0" else ""),
@@ -3251,6 +3423,9 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
     extracted_photos = []
     try:
         extracted_photos = extract_photos_from_xml(xml_path_or_bytes, max_photos=100, dpi=72, include_images=extract_images)
+        for ph in extracted_photos:
+            if ph.get("category") in ["Subject", "Interior"] and not ph.get("address"):
+                ph["address"] = full_addr or prop_addr
     except Exception:
         pass
 

@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import tempfile
 import traceback
@@ -777,10 +778,11 @@ def extract_pdf(request):
             elif category_clean in ["CLIENT_REQUIREMENT_CHECK", "CLIENT_REQUIREMENTS"] or any(
                 term in prompt_lower for term in [
                     "client requirement", "client-specific", "client specific", "lender/client",
-                    "lenders/clients", "bpl mortgage", "visio lending", "ice lender", "equity wave"
+                    "lenders/clients", "bpl mortgage", "visio lending", "ice lender", "equity wave",
+                    "homebridge"
                 ]
             ):
-                return Response(evaluate_client_requirements(tmp_path, extracted_data=extracted_data_obj))
+                return Response(evaluate_client_requirements(tmp_path, extracted_data=extracted_data_obj, custom_prompt=custom_prompt))
 
             # 3. Unpaid OK Lender Check (Supports both PDF and XML)
             elif category_clean == "UNPAID_OK_CHECK" or "unpaid ok" in prompt_lower or ("unpaid" in prompt_lower and "lender" in prompt_lower):
@@ -1457,4 +1459,63 @@ def extract_photos_view(request):
                 os.remove(tmp_path)
             except Exception:
                 pass
+
+
+@api_view(["POST"])
+@parser_classes([MultiPartParser, FormParser, JSONParser])
+def extract_maps_view(request):
+    """
+    Extracts Location & Aerial Map pins, subject property address (red boxes),
+    and comparable pins (blue boxes) from uploaded MISMO XML or PDF appraisal report.
+    Part of image data extraction pipeline in Pramaan.
+    """
+    uploaded_file = request.FILES.get("file") or request.FILES.get("pdf_file") or request.FILES.get("xml_file")
+    file_path = request.data.get("file_path") or request.data.get("filePath") or request.data.get("path")
+    save_images = str(request.data.get("save_images", "true")).lower() in ["true", "1", "yes"]
+
+    if not uploaded_file and not file_path:
+        return Response(
+            {"status": "error", "message": "No file or file_path provided"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    tmp_path = None
+    if uploaded_file:
+        suffix = os.path.splitext(uploaded_file.name)[1].lower() or ".xml"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            for chunk in uploaded_file.chunks():
+                tmp.write(chunk)
+            tmp_path = tmp.name
+    else:
+        curr_dir = os.path.dirname(os.path.abspath(__file__))
+        workspace_root = os.path.dirname(os.path.dirname(curr_dir))
+        if not os.path.isabs(file_path):
+            file_path = os.path.join(workspace_root, file_path)
+        tmp_path = file_path
+
+    try:
+        # Add workspace root to sys.path to import map_extractor_cli
+        curr_dir = os.path.dirname(os.path.abspath(__file__))
+        workspace_root = os.path.dirname(os.path.dirname(curr_dir))
+        if workspace_root not in sys.path:
+            sys.path.insert(0, workspace_root)
+
+        from map_extractor_cli import MapExtractor
+        out_dir = os.path.join(workspace_root, "map_output")
+        extractor = MapExtractor(output_dir=out_dir, save_images=save_images)
+        exhibits_result = extractor.extract_all_exhibits_data(tmp_path)
+        return Response(exhibits_result)
+    except Exception as exc:
+        traceback.print_exc()
+        return Response(
+            {"status": "error", "message": str(exc)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    finally:
+        if uploaded_file and tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
 

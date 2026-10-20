@@ -2,6 +2,7 @@ import { SubjectInfoCard, GridInfoCard, MarketConditionsTable } from '../compone
 import { CondoCoopProjectsTable } from '../components/tables';
 import ActionButtons from '../components/ActionButtons';
 import PhotosGallerySection from '../components/PhotosGallerySection';
+import MapAndSketchExhibitsSection from '../components/MapAndSketchExhibitsSection';
 
 import SalesComparisonSection from '../components/SalesComparisonSection';
 const Form1004 = ({
@@ -17,7 +18,7 @@ const Form1004 = ({
   manualValidations, handleManualValidation, onSubjectRevisionButtonClick, onContractRevisionButtonClick,
   onNeighborhoodRevisionButtonClick, onSiteRevisionButtonClick, onImprovementsRevisionButtonClick,
   onSalesGridRevisionButtonClick, onReconciliationRevisionButtonClick, onCostApproachRevisionButtonClick,
-  onCertificationRevisionButtonClick, revisionHandlers
+  onCertificationRevisionButtonClick, selectedFile, revisionHandlers
 }) => (
 
   <>
@@ -80,6 +81,7 @@ const Form1004 = ({
 
     <GridInfoCard id="appraiser-section" title="CERTIFICATION" fields={appraiserFields} data={data.CERTIFICATION} cardClass="bg-info" extractionAttempted={extractionAttempted} onDataChange={(field, value) => handleDataChange(['CERTIFICATION', ...field], value)} editingField={editingField} setEditingField={setEditingField} isEditable={true} allData={allData} loading={loading} loadingSection={loadingSection} manualValidations={manualValidations} handleManualValidation={handleManualValidation} onRevisionButtonClick={onCertificationRevisionButtonClick} revisionHandlers={revisionHandlers} />
 
+    <MapAndSketchExhibitsSection id="map-sketch-exhibits-section" data={data} allData={allData} selectedFile={selectedFile} />
     <PhotosGallerySection id="photos-exhibits-section" data={data} allData={allData} extractedPhotos={allData?.EXTRACTED_PHOTOS || data?.EXTRACTED_PHOTOS || []} />
   </>
 );

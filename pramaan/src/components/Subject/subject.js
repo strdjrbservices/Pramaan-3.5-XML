@@ -41,7 +41,8 @@ import {
   PhotoLibrary as PhotoLibraryIcon,
   Search as SearchIcon,
   FilterList as FilterListIcon,
-  Clear as ClearIcon
+  Clear as ClearIcon,
+  Map as MapIcon
 } from '@mui/icons-material';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import VisibilityTwoToneIcon from '@mui/icons-material/VisibilityTwoTone';
@@ -305,10 +306,12 @@ const detectFormTypeFromXmlString = (xmlString) => {
     }
 
     const combined = (reportAttrs + ' ' + formMatches.join(' ') + ' ' + formIdentifiers.join(' ')).toUpperCase();
-    const has1007 = formMatches.some(f => /1007|SINGLE\s*FAMILY\s*RENT/i.test(f));
+    const has1007 = [...formMatches, ...formIdentifiers].some(f => 
+      /\b(?:1007|FNM\s*1007|FRE\s*1000|SRX)\b|SINGLE\s*FAMILY\s*(?:COMPARABLE\s*)?RENT/i.test(f)
+    );
 
     if (combined.includes('1025') || combined.includes('SMALL RESIDENTIAL') || combined.includes('2-4 UNIT') || combined.includes('FRE72')) {
-      return has1007 ? '1025 + 1007' : '1025';
+      return '1025';
     }
     if (combined.includes('1073') || combined.includes('CONDOMINIUM') || combined.includes('FRE465')) {
       return has1007 ? '1073 + 1007' : '1073';
@@ -2888,6 +2891,7 @@ function Subject({ defaultFormType }) {
     { id: 'market-conditions-section', title: 'Market Conditions', category: 'MARKET_CONDITIONS', icon: <TrendingUpIcon /> },
     { id: 'condo-coop-section', title: 'Condo/Co-op', category: ['CONDO', 'CONDO_FORECLOSURE'], icon: <BusinessIcon /> },
     { id: 'appraiser-section', title: 'Certification', category: 'CERTIFICATION', icon: <VerifiedUserIcon /> },
+    { id: 'map-sketch-exhibits-section', title: 'Map & Sketch Analysis', category: 'MAP_SKETCH_ANALYSIS', icon: <MapIcon /> },
     { id: 'photos-exhibits-section', title: 'Photos & Exhibits', category: 'EXTRACTED_PHOTOS', icon: <PhotoLibraryIcon /> },
     { id: 'raw-output', title: 'Raw Output', icon: <CodeIcon /> },
   ], []);
@@ -4698,6 +4702,7 @@ function Subject({ defaultFormType }) {
           { id: 'sales-comparison-section', title: 'Sales Comparison Analysis', category: 'SALES_COMPARISON', icon: <MonetizationOnIcon /> },
           { id: 'anticipated-sales-price-section', title: 'Anticipated Sales Price', category: 'ANTICIPATED_SALES_PRICE', icon: <AttachMoneyIcon /> },
           { id: 'certifications-section', title: 'Appraiser & Certification', category: 'CERTIFICATION', icon: <VerifiedUserIcon /> },
+          { id: 'map-sketch-exhibits-section', title: 'Map & Sketch Analysis', category: 'MAP_SKETCH_ANALYSIS', icon: <MapIcon /> },
           { id: 'photos-exhibits-section', title: 'Photos & Exhibits', category: 'EXTRACTED_PHOTOS', icon: <PhotoLibraryIcon /> }
         ];
       case '1004':
@@ -4716,6 +4721,7 @@ function Subject({ defaultFormType }) {
           { id: 'cost-approach', title: 'Cost Approach', category: 'COST_APPROACH', icon: <CalculateIcon /> },
           { id: 'reconciliation', title: 'Reconciliation', category: 'RECONCILIATION', icon: <BalanceIcon /> },
           { id: 'certifications', title: 'Certifications', category: 'CERTIFICATION', icon: <VerifiedUserIcon /> },
+          { id: 'map-sketch-exhibits-section', title: 'Map & Sketch Analysis', category: 'MAP_SKETCH_ANALYSIS', icon: <MapIcon /> },
           { id: 'photos-exhibits-section', title: 'Photos & Exhibits', category: 'EXTRACTED_PHOTOS', icon: <PhotoLibraryIcon /> }
         ];
       case '1025':
@@ -4731,7 +4737,7 @@ function Subject({ defaultFormType }) {
         visibleSectionIds = baseSections.filter(id => !['comparable-rental-data', 'subject-rent-schedule', 'improvements-section', 'site-section', 'pud-info-section'].includes(id));
         break;
       case '1007':
-        visibleSectionIds = ['subject-info', 'rent-schedule-section', 'appraiser-section', 'raw-output'];
+        visibleSectionIds = ['subject-info', 'rent-schedule-section', 'appraiser-section', 'map-sketch-exhibits-section', 'photos-exhibits-section', 'raw-output'];
         break;
       case '1004 + 1007':
         visibleSectionIds = baseSections.filter(id => !['comparable-rental-data', 'subject-rent-schedule', 'project-site-section', 'prior-sale-history-section', 'project-info-section', 'project-analysis-section', 'unit-descriptions-section'].includes(id));
@@ -6046,8 +6052,22 @@ function Subject({ defaultFormType }) {
     };
 
 
+    const activeReportFile = (extractionSource === 'xml' ? (xmlFile || selectedFile) : (selectedFile || xmlFile)) || selectedFile || xmlFile;
     const props = {
-      data, allData: data, extractionAttempted, handleDataChange, editingField, setEditingField, isEditable, highlightedSubjectFields, highlightedContractFields, highlightedSiteFields, summaryFields, subjectFields, contractFields, neighborhoodFields, siteFields, improvementsFields, salesGridRows, salesGridRows1025, comparableSales, salesComparisonAdditionalInfoFields, salesHistoryFields, priorSaleHistoryFields, reconciliationFields, costApproachFields, incomeApproachFields, pudInformationFields, marketConditionsFields, marketConditionsRows, condoCoopProjectsRows, condoForeclosureFields, appraiserFields, supplementalAddendumFields, uniformResidentialAppraisalReportFields, appraisalAndReportIdentificationFields, projectSiteFields, projectInfoFields, projectAnalysisFields, unitDescriptionsFields, imageAnalysisFields, dataConsistencyFields, ComparableRentAdjustments, comparableRents, RentSchedulesFIELDS2, rentScheduleReconciliationFields, formType: selectedFormType, comparisonData, getComparisonStyle, SalesComparisonSection, EditableField, infoOfSalesFields, loading, stateRequirementFields, handleStateRequirementCheck, stateReqLoading, stateReqResponse, stateReqError, handleUnpaidOkCheck, unpaidOkLoading, unpaidOkResponse, unpaidOkError, handleClientRequirementCheck, clientReqLoading, clientReqResponse, clientReqError, handleFhaCheck, handleADUCheck, fhaLoading, fhaResponse, fhaError, ADULoading, handleEscalationCheck, escalationLoading, escalationResponse, escalationError, onDataChange: handleDataChange, handleExtract, manualValidations, handleManualValidation, SUBJECT_RENT_SCHEDULE, COMPARABLE_RENTAL_DATA, SubjectRentScheduleTable,
+      data,
+      allData: {
+        ...data,
+        comparisonData,
+        formType: selectedFormType,
+        selectedFile: activeReportFile,
+        xmlFile: xmlFile,
+        reportFile: activeReportFile,
+        FILE_PATH: activeReportFile?.name || data?.FILE_PATH || ''
+      },
+      selectedFile: activeReportFile,
+      xmlFile: xmlFile,
+      reportFile: activeReportFile,
+      extractionAttempted, handleDataChange, editingField, setEditingField, isEditable, highlightedSubjectFields, highlightedContractFields, highlightedSiteFields, summaryFields, subjectFields, contractFields, neighborhoodFields, siteFields, improvementsFields, salesGridRows, salesGridRows1025, comparableSales, salesComparisonAdditionalInfoFields, salesHistoryFields, priorSaleHistoryFields, reconciliationFields, costApproachFields, incomeApproachFields, pudInformationFields, marketConditionsFields, marketConditionsRows, condoCoopProjectsRows, condoForeclosureFields, appraiserFields, supplementalAddendumFields, uniformResidentialAppraisalReportFields, appraisalAndReportIdentificationFields, projectSiteFields, projectInfoFields, projectAnalysisFields, unitDescriptionsFields, imageAnalysisFields, dataConsistencyFields, ComparableRentAdjustments, comparableRents, RentSchedulesFIELDS2, rentScheduleReconciliationFields, formType: selectedFormType, comparisonData, getComparisonStyle, SalesComparisonSection, EditableField, infoOfSalesFields, loading, stateRequirementFields, handleStateRequirementCheck, stateReqLoading, stateReqResponse, stateReqError, handleUnpaidOkCheck, unpaidOkLoading, unpaidOkResponse, unpaidOkError, handleClientRequirementCheck, clientReqLoading, clientReqResponse, clientReqError, handleFhaCheck, handleADUCheck, fhaLoading, fhaResponse, fhaError, ADULoading, handleEscalationCheck, escalationLoading, escalationResponse, escalationError, onDataChange: handleDataChange, handleExtract, manualValidations, handleManualValidation, SUBJECT_RENT_SCHEDULE, COMPARABLE_RENTAL_DATA, SubjectRentScheduleTable,
       onSubjectRevisionButtonClick: () => setRevisionLangDialogOpen(true),
       onContractRevisionButtonClick: () => setContractRevisionLangDialogOpen(true),
       onNeighborhoodRevisionButtonClick: () => setNeighborhoodRevisionLangDialogOpen(true),
@@ -6087,28 +6107,28 @@ function Subject({ defaultFormType }) {
     let formComponent;
     switch (selectedFormType) {
       case '1004':
-        formComponent = <Form1004 {...props} allData={{ ...data, comparisonData, formType: selectedFormType }} />;
+        formComponent = <Form1004 {...props} allData={{ ...data, comparisonData, formType: selectedFormType, selectedFile: activeReportFile, xmlFile, reportFile: activeReportFile, FILE_PATH: activeReportFile?.name || data?.FILE_PATH || '' }} selectedFile={activeReportFile} />;
         break;
       case 'Appraisal Version #1':
-        formComponent = <Version1 {...props} siteFields={siteFieldsVersion1} allData={{ ...data, comparisonData, formType: selectedFormType }} />;
+        formComponent = <Version1 {...props} siteFields={siteFieldsVersion1} allData={{ ...data, comparisonData, formType: selectedFormType, selectedFile: activeReportFile, xmlFile, reportFile: activeReportFile, FILE_PATH: activeReportFile?.name || data?.FILE_PATH || '' }} selectedFile={activeReportFile} />;
         break;
       case 'ERC':
       case 'ECR':
-        formComponent = <ECR {...props} allData={{ ...data, comparisonData, formType: selectedFormType }} />;
+        formComponent = <ECR {...props} allData={{ ...data, comparisonData, formType: selectedFormType, selectedFile: activeReportFile, xmlFile, reportFile: activeReportFile, FILE_PATH: activeReportFile?.name || data?.FILE_PATH || '' }} selectedFile={activeReportFile} />;
         break;
       case '1073':
       case '1073 + 1007':
-        formComponent = <Form1073 {...props} allData={{ ...data, comparisonData, formType: selectedFormType }} />;
+        formComponent = <Form1073 {...props} allData={{ ...data, comparisonData, formType: selectedFormType, selectedFile: activeReportFile, xmlFile, reportFile: activeReportFile, FILE_PATH: activeReportFile?.name || data?.FILE_PATH || '' }} selectedFile={activeReportFile} />;
         break;
       case '1007':
-        formComponent = <Form1007 {...props} allData={{ ...data, comparisonData, formType: selectedFormType }} />;
+        formComponent = <Form1007 {...props} allData={{ ...data, comparisonData, formType: selectedFormType, selectedFile: activeReportFile, xmlFile, reportFile: activeReportFile, FILE_PATH: activeReportFile?.name || data?.FILE_PATH || '' }} selectedFile={activeReportFile} />;
         break;
       case '1004 + 1007':
-        formComponent = <Form1004And1007 {...props} allData={{ ...data, comparisonData, formType: selectedFormType }} />;
+        formComponent = <Form1004And1007 {...props} allData={{ ...data, comparisonData, formType: selectedFormType, selectedFile: activeReportFile, xmlFile, reportFile: activeReportFile, FILE_PATH: activeReportFile?.name || data?.FILE_PATH || '' }} selectedFile={activeReportFile} />;
         break;
       case '1025':
       case '1025 + 1007':
-        formComponent = <Form1025 {...props} allData={{ ...data, comparisonData, formType: selectedFormType }} />;
+        formComponent = <Form1025 {...props} allData={{ ...data, comparisonData, formType: selectedFormType, selectedFile: activeReportFile, xmlFile, reportFile: activeReportFile, FILE_PATH: activeReportFile?.name || data?.FILE_PATH || '' }} selectedFile={activeReportFile} />;
         break;
       case '1004D':
         formComponent = <Form1004D />;
@@ -6362,7 +6382,7 @@ function Subject({ defaultFormType }) {
                             label="Form Type"
                             helperText={
                               xmlDetectedFormType && extractionSource === 'xml'
-                                ? `Present in XML: Form ${xmlDetectedFormType}${data?.has_1004mc || data?.['1004MC Addendum'] === 'Present' || data?.['1004MC Present'] === 'Yes' || data?.Subject?.['1004MC Addendum'] === 'Present' ? ' + 1004MC Addendum' : ''}`
+                                ? `Present in XML: Form ${xmlDetectedFormType}${!String(xmlDetectedFormType).includes('1004MC') && (data?.has_1004mc || data?.['1004MC Addendum'] === 'Present' || data?.['1004MC Present'] === 'Yes' || data?.Subject?.['1004MC Addendum'] === 'Present') ? ' + 1004MC Addendum' : ''}`
                                 : (data?.has_1004mc || data?.['1004MC Addendum']?.startsWith('Present') || data?.['1004MC Present'] === 'Yes' ? '1004MC Addendum Present in Report' : undefined)
                             }
                             FormHelperTextProps={{

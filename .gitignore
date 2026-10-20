@@ -30,6 +30,8 @@ media/
 **/media/uploads/*
 !**/media/uploads/.gitkeep
 *.map
+map_output/
+**/map_output/
 
 # Logs & Debug
 *.log

@@ -4,6 +4,7 @@ import { Tooltip, IconButton } from '@mui/material';
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import ActionButtons from '../components/ActionButtons';
 import PhotosGallerySection from '../components/PhotosGallerySection';
+import MapAndSketchExhibitsSection from '../components/MapAndSketchExhibitsSection';
 
 import SalesComparisonSection from '../components/SalesComparisonSection';
 const Form1007 = ({
@@ -20,7 +21,7 @@ const Form1007 = ({
   onSubjectRevisionButtonClick, onContractRevisionButtonClick, onNeighborhoodRevisionButtonClick,
   onSiteRevisionButtonClick, onImprovementsRevisionButtonClick, onSalesGridRevisionButtonClick,
   onReconciliationRevisionButtonClick, onCostApproachRevisionButtonClick, onCertificationRevisionButtonClick,
-  on1007RevisionButtonClick, revisionHandlers
+  on1007RevisionButtonClick, selectedFile, revisionHandlers
 }) => (
 
   <>
@@ -714,6 +715,7 @@ const Form1007 = ({
     <GridInfoCard id="market-conditions-summary" title="Market Conditions Narrative" fields={marketConditionsFields} data={{ ...data, ...(data?.MARKET_CONDITIONS || {}) }} cardClass="bg-warning" usePre={true} extractionAttempted={extractionAttempted} onDataChange={(field, value) => handleDataChange(['MARKET_CONDITIONS', field], value)} editingField={editingField} setEditingField={setEditingField} isEditable={true} loading={loading} loadingSection={loadingSection} manualValidations={manualValidations} handleManualValidation={handleManualValidation} revisionHandlers={revisionHandlers} />
     <MarketConditionsTable id="market-conditions-section" data={data} onDataChange={(field, value) => handleDataChange(field, value)} editingField={editingField} setEditingField={setEditingField} isEditable={true} marketConditionsRows={marketConditionsRows} manualValidations={manualValidations} handleManualValidation={handleManualValidation} revisionHandlers={revisionHandlers} />
     <GridInfoCard id="appraiser-section" title="CERTIFICATION" fields={appraiserFields} data={data.CERTIFICATION} cardClass="bg-info" extractionAttempted={extractionAttempted} onDataChange={(field, value) => handleDataChange(['CERTIFICATION', ...field], value)} editingField={editingField} setEditingField={setEditingField} isEditable={true} allData={allData} loading={loading} loadingSection={loadingSection} manualValidations={manualValidations} handleManualValidation={handleManualValidation} onRevisionButtonClick={onCertificationRevisionButtonClick} revisionHandlers={revisionHandlers} />
+    <MapAndSketchExhibitsSection id="map-sketch-exhibits-section" data={data} allData={allData} selectedFile={selectedFile} />
     <PhotosGallerySection id="photos-exhibits-section" data={data} allData={allData} extractedPhotos={allData?.EXTRACTED_PHOTOS || data?.EXTRACTED_PHOTOS || []} />
   </>
 );

@@ -15,8 +15,25 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Chip,
+  Tooltip,
+  IconButton,
+  Box,
+  TextField,
+  InputAdornment
 } from '@mui/material';
+import {
+  CheckCircle as CheckCircleIcon,
+  Warning as WarningIcon,
+  Cancel as CancelIcon,
+  HelpOutline as HelpOutlineIcon,
+  ContentCopy as ContentCopyIcon,
+  Check as CheckIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon,
+  AccountBalance as ClientIcon
+} from '@mui/icons-material';
 
 export const CLIENT_REQUIREMENT_PROMPT = `
 Client Requirement Check:
@@ -169,14 +186,30 @@ Lender/Client List and their requirements:
   - ROV Review (C2C/Fastapp orders): For "Coast to Coast" or "Fastapp" orders, if the report is a revision from an ROV, it should be reviewed and then escalated for completion approval. Status should be "Needs Review" with comment: "ROV is good to go. Escalate to team before completing."
 - Haus Capital:
   - Report Condition: If the appraisal is made "Subject To", the status should be "Needs Review" with the comment: "Report is 'Subject To'. Please advise."
-
+- Homebridge Financial Services:
+  - MLS Comparables: At least 2 sold MLS comparables are required within the subject’s town/municipality and market area. If unavailable, provide detailed commentary explaining why nearby towns are comparable. Rental comps do not require MLS sources. If fewer than 2 sold MLS comparables are found in the subject's town/municipality and detailed commentary is missing, status is "Not Fulfilled" with comment: "Per Homebridge requirements: At least 2 sold MLS comparables are required within the subject's town/municipality and market area. Please provide detailed commentary explaining why nearby towns are comparable."
+  - Homebridge Supervisory Appraiser: The assigned appraiser may sign as the Supervisory Appraiser without inspecting the property. The only exception is when a trainee signs as the original appraiser on an FHA assignment. If a trainee signs as original appraiser on an FHA assignment and the supervisory appraiser did not inspect, status is "Not Fulfilled" with comment: "Per Homebridge requirements: Trainee signed as original appraiser on an FHA assignment, so the Supervisory Appraiser is required to inspect the property."
 `;
 
 const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) => {
   const [filterValue, setFilterValue] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [copiedIndex, setCopiedIndex] = useState(null);
 
   const handleCheck = () => {
     onPromptSubmit(CLIENT_REQUIREMENT_PROMPT);
+  };
+
+  const handleCopy = (text, idx) => {
+    if (!text) return;
+    const cleanText = typeof text === 'object' ? JSON.stringify(text) : String(text);
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(cleanText);
+    }
+    setCopiedIndex(idx);
+    setTimeout(() => {
+      setCopiedIndex(null);
+    }, 2000);
   };
 
   const renderResponse = useCallback(() => {
@@ -200,114 +233,353 @@ const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) =>
       return String(val);
     };
 
-    const getStatusStyle = (status) => {
-      const normalizedStatus = String(status || '').trim().toLowerCase();
-      
-      const greenStatuses = ['fulfilled', 'ok', 'yes', 'pass', 'passed'];
-      const redStatuses = ['not fulfilled', 'not applicable', 'failed', 'no'];
-      
-      if (greenStatuses.includes(normalizedStatus)) {
-        return {
-          backgroundColor: '#d4edda',
-          color: '#155724',
-          border: '1px solid #c3e6cb',
-          padding: '4px 8px',
-          borderRadius: '4px',
-          fontWeight: 'bold',
-          display: 'inline-block'
-        };
-      } else if (redStatuses.includes(normalizedStatus)) {
-        return {
-          backgroundColor: '#f8d7da',
-          color: '#721c24',
-          border: '1px solid #f5c6cb',
-          padding: '4px 8px',
-          borderRadius: '4px',
-          fontWeight: 'bold',
-          display: 'inline-block'
-        };
-      }
-      return {};
+    const normalizeStatus = (status) => {
+      const s = String(status || '').trim().toLowerCase();
+      if (['fulfilled', 'ok', 'pass', 'passed', 'yes'].includes(s)) return 'fulfilled';
+      if (['needs review', 'review', 'escalate', 'needs attention', 'pending'].includes(s)) return 'review';
+      if (['not fulfilled', 'failed', 'fail', 'no'].includes(s)) return 'not_fulfilled';
+      if (['not applicable', 'n/a', 'na'].includes(s)) return 'na';
+      return 'other';
     };
 
-    const isGreen = (status) => {
-      const normalized = String(status || '').trim().toLowerCase();
-      return ['fulfilled', 'ok', 'pass', 'passed', 'yes'].includes(normalized);
+    const getStatusConfig = (status) => {
+      const norm = normalizeStatus(status);
+      switch (norm) {
+        case 'fulfilled':
+          return {
+            label: status || 'Fulfilled',
+            bg: '#e8f5e9',
+            color: '#1b5e20',
+            border: '#a5d6a7',
+            icon: <CheckCircleIcon sx={{ fontSize: 16, color: '#2e7d32' }} />
+          };
+        case 'review':
+          return {
+            label: status || 'Needs Review',
+            bg: '#fff8e1',
+            color: '#b78103',
+            border: '#ffe082',
+            icon: <WarningIcon sx={{ fontSize: 16, color: '#f57f17' }} />
+          };
+        case 'not_fulfilled':
+          return {
+            label: status || 'Not Fulfilled',
+            bg: '#ffebee',
+            color: '#c62828',
+            border: '#ef9a9a',
+            icon: <CancelIcon sx={{ fontSize: 16, color: '#d32f2f' }} />
+          };
+        case 'na':
+          return {
+            label: status || 'Not Applicable',
+            bg: '#f5f5f5',
+            color: '#616161',
+            border: '#e0e0e0',
+            icon: <HelpOutlineIcon sx={{ fontSize: 16, color: '#757575' }} />
+          };
+        default:
+          return {
+            label: status || 'Unknown',
+            bg: '#f0f4f8',
+            color: '#334155',
+            border: '#cbd5e1',
+            icon: null
+          };
+      }
     };
+
+    // Calculate metrics
+    const counts = {
+      all: details.length,
+      fulfilled: details.filter(d => normalizeStatus(d.status) === 'fulfilled').length,
+      review: details.filter(d => normalizeStatus(d.status) === 'review').length,
+      not_fulfilled: details.filter(d => normalizeStatus(d.status) === 'not_fulfilled').length,
+      na: details.filter(d => normalizeStatus(d.status) === 'na').length
+    };
+
+    // Extract detected client name from summary if possible
+    let detectedClient = '';
+    const clientMatch = summary.match(/(?:for|Lender\/Client|Client|Lender)\s*[:]?\s*([A-Za-z0-9\s,&.-]+?)(?:\.|$|,|\s+(?:requirements|has|is))/i);
+    if (clientMatch && clientMatch[1]) {
+      const candidate = clientMatch[1].trim();
+      if (candidate.length > 2 && candidate.length < 50) {
+        detectedClient = candidate;
+      }
+    }
 
     const filteredDetails = details.filter(item => {
-      if (filterValue === 'passed') return isGreen(item.status);
-      if (filterValue === 'failed') return !isGreen(item.status);
+      const norm = normalizeStatus(item.status);
+      if (filterValue === 'fulfilled' && norm !== 'fulfilled') return false;
+      if (filterValue === 'review' && norm !== 'review') return false;
+      if (filterValue === 'not_fulfilled' && norm !== 'not_fulfilled') return false;
+      if (filterValue === 'na' && norm !== 'na') return false;
+      if (filterValue === 'action_needed' && norm !== 'review' && norm !== 'not_fulfilled') return false;
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const reqMatch = String(item.requirement || '').toLowerCase().includes(q);
+        const valMatch = String(item.value_or_comment || '').toLowerCase().includes(q);
+        const statusMatch = String(item.status || '').toLowerCase().includes(q);
+        if (!reqMatch && !valMatch && !statusMatch) return false;
+      }
+
       return true;
     });
 
+    // Priority sort: Not Fulfilled -> Needs Review -> Fulfilled -> N/A
+    const getSortPriority = (status) => {
+      const norm = normalizeStatus(status);
+      if (norm === 'not_fulfilled') return 1;
+      if (norm === 'review') return 2;
+      if (norm === 'fulfilled') return 3;
+      if (norm === 'na') return 4;
+      return 5;
+    };
+
     const sortedDetails = [...filteredDetails].sort((a, b) => {
-      const isGreenA = isGreen(a.status);
-      const isGreenB = isGreen(b.status);
-      if (isGreenA && !isGreenB) return -1;
-      if (!isGreenA && isGreenB) return 1;
-      return 0;
+      return getSortPriority(a.status) - getSortPriority(b.status);
     });
 
     return (
       <Stack spacing={3} sx={{ mt: 3 }}>
         {summary && (
-          <Paper elevation={1} sx={{ p: 2, bgcolor: 'background.default' }}>
-            <Typography variant="h6" gutterBottom component="div" color="primary.main">
-              Summary
-            </Typography>
-            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+          <Paper
+            elevation={2}
+            sx={{
+              p: 2.5,
+              borderRadius: 2,
+              borderLeft: '5px solid #1976d2',
+              bgcolor: '#f8fafc'
+            }}
+          >
+            <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1} sx={{ mb: 1 }}>
+              <Typography variant="h6" component="div" sx={{ fontWeight: 600, color: 'primary.main', display: 'flex', alignItems: 'center', gap: 1 }}>
+                <ClientIcon sx={{ fontSize: 22 }} /> Client Summary
+              </Typography>
+              {detectedClient && (
+                <Chip
+                  icon={<ClientIcon sx={{ fontSize: '16px !important' }} />}
+                  label={`Client: ${detectedClient}`}
+                  color="primary"
+                  variant="outlined"
+                  size="small"
+                  sx={{ fontWeight: 600, bgcolor: 'primary.50' }}
+                />
+              )}
+            </Stack>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: '#334155' }}>
               {renderValue(summary)}
             </Typography>
           </Paper>
         )}
+
         {details.length > 0 && (
-          <Paper elevation={1} sx={{ p: 2 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-              <Typography variant="h6" component="div" color="primary.main">
-                Details
-              </Typography>
-              <FormControl size="small" sx={{ minWidth: 150 }}>
-                <InputLabel id="client-status-filter-label">Filter Status</InputLabel>
-                <Select
-                  labelId="client-status-filter-label"
-                  id="client-status-filter"
-                  value={filterValue}
-                  label="Filter Status"
-                  onChange={(e) => setFilterValue(e.target.value)}
-                >
-                  <MenuItem value="all">All</MenuItem>
-                  <MenuItem value="passed">Passed / OK</MenuItem>
-                  <MenuItem value="failed">Failed / Review</MenuItem>
-                </Select>
-              </FormControl>
+          <Paper elevation={2} sx={{ p: 2.5, borderRadius: 2 }}>
+            {/* Header and Quick-Filter Chips */}
+            <Stack spacing={2} sx={{ mb: 2.5 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1.5}>
+                <Typography variant="h6" component="div" sx={{ fontWeight: 600, color: '#1e293b' }}>
+                  Requirement Rules ({details.length})
+                </Typography>
+
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                  <TextField
+                    size="small"
+                    placeholder="Search requirements or comments..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    sx={{ width: { xs: '100%', sm: 260 } }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchIcon fontSize="small" sx={{ color: '#94a3b8' }} />
+                        </InputAdornment>
+                      ),
+                      endAdornment: searchQuery ? (
+                        <InputAdornment position="end">
+                          <IconButton size="small" onClick={() => setSearchQuery('')}>
+                            <ClearIcon fontSize="small" />
+                          </IconButton>
+                        </InputAdornment>
+                      ) : null
+                    }}
+                  />
+
+                  <FormControl size="small" sx={{ minWidth: 160 }}>
+                    <InputLabel id="client-status-filter-label">Filter Status</InputLabel>
+                    <Select
+                      labelId="client-status-filter-label"
+                      id="client-status-filter"
+                      value={filterValue}
+                      label="Filter Status"
+                      onChange={(e) => setFilterValue(e.target.value)}
+                    >
+                      <MenuItem value="all">All ({counts.all})</MenuItem>
+                      <MenuItem value="action_needed">Action Needed ({counts.not_fulfilled + counts.review})</MenuItem>
+                      <MenuItem value="not_fulfilled">Not Fulfilled ({counts.not_fulfilled})</MenuItem>
+                      <MenuItem value="review">Needs Review ({counts.review})</MenuItem>
+                      <MenuItem value="fulfilled">Fulfilled ({counts.fulfilled})</MenuItem>
+                      <MenuItem value="na">Not Applicable ({counts.na})</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Stack>
+              </Stack>
+
+              {/* Status Counter Chips for One-Click Filtering */}
+              <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
+                <Chip
+                  label={`All (${counts.all})`}
+                  size="small"
+                  clickable
+                  color={filterValue === 'all' ? 'primary' : 'default'}
+                  variant={filterValue === 'all' ? 'filled' : 'outlined'}
+                  onClick={() => setFilterValue('all')}
+                  sx={{ fontWeight: 600 }}
+                />
+                {counts.not_fulfilled > 0 && (
+                  <Chip
+                    icon={<CancelIcon sx={{ fontSize: '15px !important', color: filterValue === 'not_fulfilled' ? '#fff' : '#d32f2f' }} />}
+                    label={`Not Fulfilled (${counts.not_fulfilled})`}
+                    size="small"
+                    clickable
+                    color="error"
+                    variant={filterValue === 'not_fulfilled' ? 'filled' : 'outlined'}
+                    onClick={() => setFilterValue('not_fulfilled')}
+                    sx={{ fontWeight: 600 }}
+                  />
+                )}
+                {counts.review > 0 && (
+                  <Chip
+                    icon={<WarningIcon sx={{ fontSize: '15px !important', color: filterValue === 'review' ? '#fff' : '#ed6c02' }} />}
+                    label={`Needs Review (${counts.review})`}
+                    size="small"
+                    clickable
+                    color="warning"
+                    variant={filterValue === 'review' ? 'filled' : 'outlined'}
+                    onClick={() => setFilterValue('review')}
+                    sx={{ fontWeight: 600 }}
+                  />
+                )}
+                {counts.fulfilled > 0 && (
+                  <Chip
+                    icon={<CheckCircleIcon sx={{ fontSize: '15px !important', color: filterValue === 'fulfilled' ? '#fff' : '#2e7d32' }} />}
+                    label={`Fulfilled (${counts.fulfilled})`}
+                    size="small"
+                    clickable
+                    color="success"
+                    variant={filterValue === 'fulfilled' ? 'filled' : 'outlined'}
+                    onClick={() => setFilterValue('fulfilled')}
+                    sx={{ fontWeight: 600 }}
+                  />
+                )}
+                {counts.na > 0 && (
+                  <Chip
+                    icon={<HelpOutlineIcon sx={{ fontSize: '15px !important' }} />}
+                    label={`N/A (${counts.na})`}
+                    size="small"
+                    clickable
+                    variant={filterValue === 'na' ? 'filled' : 'outlined'}
+                    onClick={() => setFilterValue('na')}
+                    sx={{ fontWeight: 600 }}
+                  />
+                )}
+              </Stack>
             </Stack>
-            <TableContainer>
+
+            <TableContainer sx={{ border: '1px solid #e2e8f0', borderRadius: 1.5 }}>
               <Table size="small">
-                <TableHead>
+                <TableHead sx={{ bgcolor: '#f1f5f9' }}>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Requirement</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Value / Comment</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: '30%', color: '#1e293b' }}>Requirement</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: '18%', color: '#1e293b' }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: '52%', color: '#1e293b' }}>Value / Revision Comment</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {sortedDetails.length > 0 ? (
-                    sortedDetails.map((item, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{renderValue(item.requirement)}</TableCell>
-                        <TableCell>
-                          <span style={getStatusStyle(item.status)}>
-                            {renderValue(item.status)}
-                          </span>
-                        </TableCell>
-                        <TableCell>{renderValue(item.value_or_comment)}</TableCell>
-                      </TableRow>
-                    ))
+                    sortedDetails.map((item, index) => {
+                      const cfg = getStatusConfig(item.status);
+                      const commentText = renderValue(item.value_or_comment);
+                      const isActionNeeded = ['not_fulfilled', 'review'].includes(normalizeStatus(item.status));
+
+                      return (
+                        <TableRow
+                          key={index}
+                          hover
+                          sx={{
+                            '&:nth-of-type(even)': { bgcolor: '#f8fafc' },
+                            '&:hover': { bgcolor: '#f1f5f9 !important' }
+                          }}
+                        >
+                          <TableCell sx={{ fontWeight: 600, color: '#334155', verticalAlign: 'top', pt: 1.5 }}>
+                            {renderValue(item.requirement)}
+                          </TableCell>
+                          <TableCell sx={{ verticalAlign: 'top', pt: 1.5 }}>
+                            <Box
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 0.75,
+                                px: 1.2,
+                                py: 0.5,
+                                borderRadius: '16px',
+                                fontSize: '0.8125rem',
+                                fontWeight: 700,
+                                bgcolor: cfg.bg,
+                                color: cfg.color,
+                                border: `1px solid ${cfg.border}`,
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              {cfg.icon}
+                              <span>{cfg.label}</span>
+                            </Box>
+                          </TableCell>
+                          <TableCell sx={{ verticalAlign: 'top', pt: 1.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  color: isActionNeeded ? '#991b1b' : '#334155',
+                                  fontWeight: isActionNeeded ? 500 : 400,
+                                  lineHeight: 1.6,
+                                  wordBreak: 'break-word',
+                                  ...(isActionNeeded ? {
+                                    p: 1,
+                                    borderRadius: 1,
+                                    bgcolor: normalizeStatus(item.status) === 'review' ? '#fffbeb' : '#fef2f2',
+                                    border: `1px solid ${normalizeStatus(item.status) === 'review' ? '#fde68a' : '#fecaca'}`,
+                                    fontStyle: 'normal'
+                                  } : {})
+                                }}
+                              >
+                                {commentText}
+                              </Typography>
+                              {commentText && (
+                                <Tooltip title={copiedIndex === index ? "Copied to clipboard!" : "Copy revision prompt / comment"} arrow>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleCopy(commentText, index)}
+                                    sx={{
+                                      color: copiedIndex === index ? '#16a34a' : '#64748b',
+                                      flexShrink: 0,
+                                      mt: 0.25,
+                                      '&:hover': { color: '#0f172a', bgcolor: '#e2e8f0' }
+                                    }}
+                                  >
+                                    {copiedIndex === index ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={3} align="center">
-                        No matching items found.
+                      <TableCell colSpan={3} align="center" sx={{ py: 3, color: '#64748b' }}>
+                        No requirements match the current filter or search criteria.
                       </TableCell>
                     </TableRow>
                   )}
@@ -318,12 +590,14 @@ const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) =>
         )}
       </Stack>
     );
-  }, [response, filterValue]);
+  }, [response, filterValue, searchQuery, copiedIndex]);
 
   return (
     <div id="client-requirement-check-section" className="card shadow mb-4">
-      <div className="card-header CAR1 bg-primary text-white">
-        <strong>Client Requirement Check</strong>
+      <div className="card-header CAR1 bg-primary text-white d-flex align-items-center justify-content-between">
+        <strong style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <ClientIcon style={{ fontSize: '20px' }} /> Client Requirement Check
+        </strong>
       </div>
       <div className="card-body">
         <Stack spacing={2}>
@@ -332,8 +606,9 @@ const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) =>
             variant="contained"
             color="secondary"
             disabled={loading}
+            sx={{ fontWeight: 600 }}
           >
-            {loading ? <CircularProgress size={24} /> : 'Check Client Requirements'}
+            {loading ? <CircularProgress size={24} color="inherit" /> : 'Check Client Requirements'}
           </Button>
           {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
           {response && renderResponse()}
@@ -344,3 +619,4 @@ const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) =>
 };
 
 export default ClientRequirementCheck;
+

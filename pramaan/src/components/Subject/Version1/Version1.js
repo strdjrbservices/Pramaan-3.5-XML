@@ -3,6 +3,7 @@ import { GridInfoCard, EditableField } from '../components/FormComponents';
 import ActionButtons from '../components/ActionButtons';
 import SalesComparisonSection from '../components/SalesComparisonSection';
 import PhotosGallerySection from '../components/PhotosGallerySection';
+import MapAndSketchExhibitsSection from '../components/MapAndSketchExhibitsSection';
 import { Tooltip, IconButton, Paper, Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Checkbox } from '@mui/material';
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 
@@ -55,6 +56,7 @@ const Version1 = ({
   onReconciliationRevisionButtonClick,
   onCostApproachRevisionButtonClick,
   onCertificationRevisionButtonClick,
+  selectedFile,
   revisionHandlers
 }) => {
   const assignmentFields = [
@@ -2280,6 +2282,7 @@ const Version1 = ({
         showBlankValidation={extractionAttempted}
       />
 
+      <MapAndSketchExhibitsSection id="map-sketch-exhibits-section" data={data} allData={allData} selectedFile={selectedFile} />
       <PhotosGallerySection id="photos-exhibits-section" data={data} allData={allData} extractedPhotos={allData?.EXTRACTED_PHOTOS || data?.EXTRACTED_PHOTOS || []} />
     </>
   );
