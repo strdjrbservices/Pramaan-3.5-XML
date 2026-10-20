@@ -47,6 +47,7 @@ import {
   DirectionsCar as GarageIcon,
   MeetingRoom as RoomIcon
 } from '@mui/icons-material';
+import { API_BASE_URL } from '../utils/utils.js';
 
 const ROOM_THEMES = {
   bedrooms: { label: 'Bedrooms', color: '#4338ca', bg: '#eef2ff', border: '#c7d2fe' },
@@ -729,7 +730,7 @@ export const MapAndSketchExhibitsSection = ({
         });
       }
 
-      const response = await fetch('http://127.0.0.1:8000/api/extract-maps/', {
+      const response = await fetch(`${API_BASE_URL}/api/extract-maps/`, {
         method: 'POST',
         headers: headers,
         body: bodyData
