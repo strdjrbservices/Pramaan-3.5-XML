@@ -228,7 +228,7 @@ export const checkEffectiveDatesConsistency = (field, text, allData) => {
 
 
     const val1 = allData.SUMMARY?.['Effective Date of Appraisal'] || allData['Effective Date of Appraisal'];
-    const val2 = allData.SUMMARY?.['Inspection Date'] || allData['Inspection Date'];
+    // const val2 = allData.SUMMARY?.['Inspection Date'] || allData['Inspection Date'];
     const val3 = allData['Effective Date'] || allData.COST_APPROACH?.['Effective Date'];
     const val4 = allData.RECONCILIATION?.['Effective Date of Appraisal'];
 
@@ -238,7 +238,7 @@ export const checkEffectiveDatesConsistency = (field, text, allData) => {
     };
 
     const d1 = cleanDate(val1);
-    const d2 = cleanDate(val2);
+    // const d2 = cleanDate(val2);
     const d3 = cleanDate(val3);
     const d4 = cleanDate(val4);
 
@@ -247,13 +247,13 @@ export const checkEffectiveDatesConsistency = (field, text, allData) => {
         return `'${String(val).trim()}'`;
     };
 
-    const msg = `values is not same. SUMMARY Effective Date of Appraisal: ${formatValForMessage(val1)}, Scope of Inspection by Appraiser Inspection Date: ${formatValForMessage(val2)}, General Description Effective Date: ${formatValForMessage(val3)}, Appraisal Summary Effective Date of Appraisal in Reconciliation: ${formatValForMessage(val4)}`;
+    const msg = `values is not same. SUMMARY Effective Date of Appraisal: ${formatValForMessage(val1)}, General Description Effective Date: ${formatValForMessage(val3)}, Appraisal Summary Effective Date of Appraisal in Reconciliation: ${formatValForMessage(val4)}`;
 
-    if (d1 === null || d2 === null || d3 === null || d4 === null) {
+    if (d1 === null || d3 === null || d4 === null) {
         return { isError: true, message: msg };
     }
 
-    if (d1 === d2 && d2 === d3 && d3 === d4) {
+    if (d1 === d3 && d3 === d4) {
         return { isMatch: true, message: "validated" };
     } else {
         return { isError: true, message: msg };

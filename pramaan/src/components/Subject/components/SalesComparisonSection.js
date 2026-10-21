@@ -43,7 +43,19 @@ const SalesComparisonSection = ({
     const s1 = (typeof data.Subject === 'object' && data.Subject) || {};
     const s2 = (typeof data.SUBJECT === 'object' && data.SUBJECT) || {};
     const s3 = (data.SALES_GRID && typeof data.SALES_GRID.Subject === 'object' && data.SALES_GRID.Subject) || {};
-    return { ...s2, ...s1, ...s3 };
+    const s4 = (data['Sales Grid'] && typeof data['Sales Grid'].Subject === 'object' && data['Sales Grid'].Subject) || {};
+    const s5 = (data.sales_grid && typeof data.sales_grid.Subject === 'object' && data.sales_grid.Subject) || {};
+    const merged = {};
+    [s2, s3, s4, s5, s1].forEach(source => {
+      Object.keys(source).forEach(key => {
+        if (source[key] !== undefined && source[key] !== null && source[key] !== '') {
+          merged[key] = source[key];
+        } else if (!(key in merged)) {
+          merged[key] = source[key];
+        }
+      });
+    });
+    return merged;
   };
 
   const subjectObj = getSubjectData();
@@ -303,37 +315,54 @@ const SalesComparisonSection = ({
                 </TableRow>
               </TableHead>
               <TableBody>
-                {salesHistoryFields.map((feature, idx) => (
-                  <TableRow key={idx} hover>
-                    <TableCell sx={{ fontWeight: 'medium' }}>{feature}</TableCell>
-                    <TableCell>
-                      <EditableField
-                        fieldPath={['Subject', feature]}
-                        value={data.Subject?.[feature] || ''}
-                        onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField}
-                        isMissing={extractionAttempted && (!data.Subject?.[feature] || data.Subject?.[feature] === '')}
-                        allData={allData}
-                        isEditable={true}
-                        manualValidations={manualValidations}
-                        handleManualValidation={handleManualValidation}
-                      />
-                    </TableCell>
-                    {comparableSales.map((sale, cidx) => (
-                      <TableCell key={cidx}>
+                {salesHistoryFields.map((feature, idx) => {
+                  const subjectVal =
+                    subjectObj[feature] ||
+                    (data.Subject && data.Subject[feature]) ||
+                    (data.SUBJECT && data.SUBJECT[feature]) ||
+                    (data['Sales Grid']?.Subject && data['Sales Grid'].Subject[feature]) ||
+                    (data.SALES_GRID?.Subject && data.SALES_GRID.Subject[feature]) ||
+                    (data.sales_grid?.Subject && data.sales_grid.Subject[feature]) ||
+                    data[feature] ||
+                    data[`Prior Sale History: ${feature}`] ||
+                    '';
+
+                  return (
+                    <TableRow key={idx} hover>
+                      <TableCell sx={{ fontWeight: 'medium' }}>{feature}</TableCell>
+                      <TableCell>
                         <EditableField
-                          fieldPath={[sale, feature]}
-                          value={data[sale]?.[feature] || ''}
+                          fieldPath={['Subject', feature]}
+                          value={subjectVal}
                           onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField}
-                          isMissing={extractionAttempted && (!data[sale]?.[feature] || data[sale]?.[feature] === '')}
-                          allData={allData}
+                          isMissing={extractionAttempted && !subjectVal}
+                          allData={allData || data}
                           isEditable={true}
                           manualValidations={manualValidations}
                           handleManualValidation={handleManualValidation}
                         />
                       </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
+                      {comparableSales.map((sale, cidx) => {
+                        const compData = getCompData(sale);
+                        const compVal = compData[feature] || (data[sale] && data[sale][feature]) || data[`${sale} ${feature}`] || '';
+                        return (
+                          <TableCell key={cidx}>
+                            <EditableField
+                              fieldPath={[sale, feature]}
+                              value={compVal}
+                              onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField}
+                              isMissing={extractionAttempted && !compVal}
+                              allData={allData || data}
+                              isEditable={true}
+                              manualValidations={manualValidations}
+                              handleManualValidation={handleManualValidation}
+                            />
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </TableContainer>

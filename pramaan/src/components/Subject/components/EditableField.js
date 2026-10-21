@@ -925,3 +925,5 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     </div>
   );
 };
+
+export default EditableField;

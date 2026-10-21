@@ -286,20 +286,37 @@ const Form1025 = ({
                                     <td className="border border-gray-400 p-1" style={{ border: '1px solid #ccc' }}>
                                         <EditableField
                                             fieldPath={['Subject', row.key]}
-                                            value={(data.Subject && data.Subject[row.key]) || ''}
+                                            value={
+                                                (data.Subject && data.Subject[row.key]) ||
+                                                (data.SUBJECT && data.SUBJECT[row.key]) ||
+                                                (data['Sales Grid']?.Subject && data['Sales Grid'].Subject[row.key]) ||
+                                                (data.SALES_GRID?.Subject && data.SALES_GRID.Subject[row.key]) ||
+                                                (data.sales_grid?.Subject && data.sales_grid.Subject[row.key]) ||
+                                                data[row.key] ||
+                                                data[`Prior Sale History: ${row.key}`] ||
+                                                ''
+                                            }
                                             onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField}
                                             isEditable={true} allData={allData} />
                                     </td>
 
-                                    {comparableSales.map((sale, sidx) => (
-                                        <td key={sidx} className="border border-gray-400 p-1" style={{ border: '1px solid #ccc' }}>
-                                            <EditableField
-                                                fieldPath={[sale, row.key]}
-                                                value={(data[sale] && data[sale][row.key]) || ''}
-                                                onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField}
-                                                isEditable={true} allData={allData} />
-                                        </td>
-                                    ))}
+                                    {comparableSales.map((sale, sidx) => {
+                                        const compVal =
+                                            (data[sale] && data[sale][row.key]) ||
+                                            (data.SALES_GRID && data.SALES_GRID[sale] && data.SALES_GRID[sale][row.key]) ||
+                                            (data['Sales Grid'] && data['Sales Grid'][sale] && data['Sales Grid'][sale][row.key]) ||
+                                            data[`${sale} ${row.key}`] ||
+                                            '';
+                                        return (
+                                            <td key={sidx} className="border border-gray-400 p-1" style={{ border: '1px solid #ccc' }}>
+                                                <EditableField
+                                                    fieldPath={[sale, row.key]}
+                                                    value={compVal}
+                                                    onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField}
+                                                    isEditable={true} allData={allData} />
+                                            </td>
+                                        );
+                                    })}
                                 </tr>
                             ))}
                         </tbody>

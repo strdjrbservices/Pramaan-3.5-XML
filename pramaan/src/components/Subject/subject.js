@@ -161,6 +161,18 @@ const normalizeFullFileData = (raw) => {
   if (!normalized.INFO_OF_SALES || typeof normalized.INFO_OF_SALES !== 'object') {
     normalized.INFO_OF_SALES = raw.INFO_OF_SALES || raw['Sales Comparison'] || raw.sales_comparison || {};
   }
+  if (!normalized.PROJECT_INFO || typeof normalized.PROJECT_INFO !== 'object') {
+    normalized.PROJECT_INFO = raw.PROJECT_INFO || raw['Project Information'] || raw.clean_data?.['Project Information'] || {};
+  }
+  if (!normalized['Project Information'] || typeof normalized['Project Information'] !== 'object') {
+    normalized['Project Information'] = normalized.PROJECT_INFO;
+  }
+  if (!normalized.PROJECT_ANALYSIS || typeof normalized.PROJECT_ANALYSIS !== 'object') {
+    normalized.PROJECT_ANALYSIS = raw.PROJECT_ANALYSIS || raw['Project Analysis'] || raw.clean_data?.['Project Analysis'] || {};
+  }
+  if (!normalized['Project Analysis'] || typeof normalized['Project Analysis'] !== 'object') {
+    normalized['Project Analysis'] = normalized.PROJECT_ANALYSIS;
+  }
 
   const sectionKeyMap = {
     CONTRACT: [
@@ -496,6 +508,8 @@ const getCleanDisplayJson = (data) => {
     ['COST_APPROACH', 'Cost Approach'],
     ['INCOME_APPROACH', 'Income Approach'],
     ['PUD_INFO', 'PUD Information'],
+    ['PROJECT_INFO', 'Project Information'],
+    ['PROJECT_ANALYSIS', 'Project Analysis'],
     ['MARKET_CONDITIONS', 'Market Conditions Addendum'],
     ['CONDO_COOP_PROJECTS', 'Condo / Coop Projects'],
     ['CONDO_FORECLOSURE', 'Condo Foreclosure'],
@@ -1938,6 +1952,19 @@ function Subject({ defaultFormType }) {
         newData.Subject = { ...newData.Subject, [fieldKey]: value };
       } else if (flatPath.length === 2 && flatPath[0] === 'Subject') {
         newData[fieldKey] = value;
+        if (newData['Single Family Rent Schedule']) {
+          newData['Single Family Rent Schedule'] = { ...newData['Single Family Rent Schedule'], [fieldKey]: value };
+        }
+      } else if (flatPath.length === 2 && (flatPath[0] === 'Single Family Rent Schedule' || flatPath[0] === 'Subject Rent Schedule')) {
+        if (!newData.Subject) newData.Subject = {};
+        newData.Subject = { ...newData.Subject, [fieldKey]: value };
+      } else if (flatPath.length === 2 && (flatPath[0].startsWith('COMPARABLE NO') || flatPath[0].startsWith('COMPARABLE RENTAL') || flatPath[0].startsWith('Rental ') || flatPath[0].startsWith('Comp '))) {
+        const rentKey = flatPath[0];
+        if (!newData['Comparable Rental Data']) newData['Comparable Rental Data'] = {};
+        newData['Comparable Rental Data'][rentKey] = {
+          ...(newData['Comparable Rental Data'][rentKey] || {}),
+          [fieldKey]: value
+        };
       }
 
       return newData;
@@ -3015,6 +3042,7 @@ function Subject({ defaultFormType }) {
     "Other (e.g., basement, etc.)",
     "Other (e.g., basement, etc.) Adjustment",
     "Other:",
+    "Other: Adjustment",
     "Net Adj. (total)",
     "Indicated Monthly Market Rent",
   ];
@@ -3392,6 +3420,13 @@ function Subject({ defaultFormType }) {
         setNotification({ open: true, message: 'Please select a valid XML file.', severity: 'error' });
         return;
       }
+      setData({});
+      setXmlExtractedData({});
+      setComparisonData({});
+      setPdfXmlDiffResult([]);
+      setExtractionAttempted(false);
+      setLastExtractionTime(null);
+      setRawGemini('');
       setXmlFile(file);
       setExtractionSource('xml');
       try {
@@ -3633,6 +3668,44 @@ function Subject({ defaultFormType }) {
           }
         }
       });
+    }
+
+    // Unpack Comparable Rental Data comps
+    const rentGrid = result.fields?.['Comparable Rental Data'] || 
+                     result.fields?.['COMPARABLE_RENTAL_DATA'] || 
+                     result.clean_data?.['Comparable Rental Data'] || 
+                     result.clean_data?.['COMPARABLE_RENTAL_DATA'] || 
+                     result['Comparable Rental Data'] ||
+                     result['COMPARABLE_RENTAL_DATA'];
+    if (rentGrid && typeof rentGrid === 'object') {
+      normalizedFields["Comparable Rental Data"] = { ...(normalizedFields["Comparable Rental Data"] || {}), ...rentGrid };
+      normalizedFields["COMPARABLE_RENTAL_DATA"] = { ...(normalizedFields["COMPARABLE_RENTAL_DATA"] || {}), ...rentGrid };
+      Object.keys(rentGrid).forEach(compKey => {
+        if (typeof rentGrid[compKey] === 'object' && rentGrid[compKey] !== null) {
+          normalizedFields[compKey] = rentGrid[compKey];
+          const m = compKey.match(/(\d+)/);
+          if (m) {
+            const num = m[1];
+            normalizedFields[`COMPARABLE NO. ${num}`] = rentGrid[compKey];
+            normalizedFields[`COMPARABLE NO ${num}`] = rentGrid[compKey];
+            normalizedFields[`COMPARABLE RENTAL #${num}`] = rentGrid[compKey];
+            normalizedFields[`COMPARABLE #${num}`] = rentGrid[compKey];
+            normalizedFields[`Rental ${num}`] = rentGrid[compKey];
+            normalizedFields[`Comp ${num}`] = rentGrid[compKey];
+          }
+        }
+      });
+    }
+
+    // Unpack Single Family Rent Schedule (Subject)
+    const rentSubj = result.fields?.['Single Family Rent Schedule'] ||
+                     result.clean_data?.['Single Family Rent Schedule'] ||
+                     result.fields?.['Subject Rent Schedule'] ||
+                     result.clean_data?.['Subject Rent Schedule'] ||
+                     result['Single Family Rent Schedule'];
+    if (rentSubj && typeof rentSubj === 'object') {
+      normalizedFields["Single Family Rent Schedule"] = { ...(normalizedFields["Single Family Rent Schedule"] || {}), ...rentSubj };
+      normalizedFields["Subject Rent Schedule"] = { ...(normalizedFields["Subject Rent Schedule"] || {}), ...rentSubj };
     }
 
     if (result.extracted_photos && Array.isArray(result.extracted_photos)) {
@@ -4051,20 +4124,10 @@ function Subject({ defaultFormType }) {
     }
   };
 
-  const handleFhaCheck = async (forceReload = false) => {
-    const activeFile = selectedFile || xmlFile;
+  const handleFhaCheck = async (promptOrForceReload = false, fileOverride = null, dataOverride = null, formTypeOverride = null) => {
+    const activeFile = fileOverride || selectedFile || xmlFile;
     if (!activeFile) {
       setFhaError('Please select a PDF or XML file first.');
-      return;
-    }
-
-    if (fhaResponse && !forceReload) {
-      setModalContent({
-        title: 'FHA Requirement Check',
-        Component: FhaCheck,
-        props: { loading: false, response: fhaResponse, error: fhaError }
-      });
-      setIsCheckModalOpen(true);
       return;
     }
 
@@ -4072,26 +4135,24 @@ function Subject({ defaultFormType }) {
     setFhaError('');
     setFhaResponse(null);
 
-    setModalContent({
-      title: 'FHA Requirement Check',
-      Component: FhaCheck,
-      props: { loading: true }
-    });
-    setIsCheckModalOpen(true);
+    const activeFormType = formTypeOverride || selectedFormType || '1004';
+    const activeData = dataOverride || data;
+    const commentPrompt = typeof promptOrForceReload === 'string' ? promptOrForceReload : FHA_REQUIREMENTS_PROMPT;
 
     const formData = new FormData();
     formData.append('file', activeFile);
-    formData.append('form_type', selectedFormType);
-    formData.append('comment', FHA_REQUIREMENTS_PROMPT);
-    if (data && Object.keys(data).length > 0) {
-      formData.append('extracted_data', JSON.stringify(sanitizeExtractedDataForUpload(data)));
+    formData.append('form_type', activeFormType);
+    formData.append('comment', commentPrompt);
+    formData.append('category', 'FHA_REQUIREMENT_CHECK');
+    if (activeData && Object.keys(activeData).length > 0) {
+      formData.append('extracted_data', JSON.stringify(sanitizeExtractedDataForUpload(activeData)));
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/extract/`, {
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/extract/`, {
         method: 'POST',
         body: formData,
-      });
+      }, 3, 1000);
 
       const result = await res.json();
       if (!res.ok) {
@@ -4099,19 +4160,9 @@ function Subject({ defaultFormType }) {
       }
       const responseData = result.fields || result;
       setFhaResponse(responseData);
-      setModalContent({
-        title: 'FHA Requirement Check',
-        Component: FhaCheck,
-        props: { loading: false, response: responseData, error: '' }
-      });
     } catch (e) {
       const errorMsg = e.message || 'An unexpected error occurred.';
       setFhaError(errorMsg);
-      setModalContent({
-        title: 'FHA Requirement Check',
-        Component: FhaCheck,
-        props: { loading: false, response: null, error: errorMsg }
-      });
     } finally {
       setFhaLoading(false);
       if (timerRef.current) clearInterval(timerRef.current);
@@ -4235,12 +4286,27 @@ function Subject({ defaultFormType }) {
   const triggerAutoRequirementChecks = (activeFile, extractedData, formType) => {
     if (!activeFile) return;
 
-    // Concurrently trigger State, Client, and Escalation checks upon file upload
-    Promise.allSettled([
+    // Concurrently trigger State, Client, Escalation, and FHA checks upon file upload
+    const checks = [
       handleStateRequirementCheck(true, activeFile, extractedData, formType),
       handleClientRequirementCheck(true, activeFile, extractedData, formType),
       handleEscalationCheck(true, activeFile, extractedData, formType),
-    ]).catch(err => {
+    ];
+
+    const hasFha = Boolean(
+      extractedData?.['FHA Case No.'] ||
+      extractedData?.['FHA Case #'] ||
+      extractedData?.['FHA Case Number'] ||
+      extractedData?.Subject?.['FHA Case No.'] ||
+      extractedData?.Subject?.['FHA Case #'] ||
+      extractedData?.Subject?.['FHA Case Number'] ||
+      String(extractedData?.Subject?.['Loan Type'] || '').toUpperCase().includes('FHA')
+    );
+    if (hasFha) {
+      checks.push(handleFhaCheck(true, activeFile, extractedData, formType));
+    }
+
+    Promise.allSettled(checks).catch(err => {
       console.error("Auto requirement checks error:", err);
     });
   };
@@ -4536,10 +4602,22 @@ function Subject({ defaultFormType }) {
               { content: 'PRIOR SALE HISTORY', colSpan: 2 + chunk.length, styles: { fontStyle: 'bold', fillColor: [220, 230, 242], halign: 'left' } }
             ]);
             salesHistoryFields.forEach(feature => {
-              const subjVal = data.Subject?.[feature] || '';
+              const subjVal =
+                (data.Subject && data.Subject[feature]) ||
+                (data.SUBJECT && data.SUBJECT[feature]) ||
+                (data['Sales Grid']?.Subject && data['Sales Grid'].Subject[feature]) ||
+                (data.SALES_GRID?.Subject && data.SALES_GRID.Subject[feature]) ||
+                data[feature] ||
+                '';
               const rowData = [feature, subjVal];
               chunk.forEach(sale => {
-                rowData.push(data[sale]?.[feature] || '');
+                const compVal =
+                  (data[sale] && data[sale][feature]) ||
+                  (data.SALES_GRID && data.SALES_GRID[sale] && data.SALES_GRID[sale][feature]) ||
+                  (data['Sales Grid'] && data['Sales Grid'][sale] && data['Sales Grid'][sale][feature]) ||
+                  data[`${sale} ${feature}`] ||
+                  '';
+                rowData.push(compVal);
               });
               body.push(rowData);
             });
@@ -6746,8 +6824,20 @@ function Subject({ defaultFormType }) {
                               <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>FHA Case #</Typography>
                               <EditableField fieldPath={['FHA Case No.']} value={data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number'] || data?.Subject?.['FHA Case No.'] || data?.Subject?.['FHA Case #'] || data?.Subject?.['FHA Case Number'] || data?.SUBJECT?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case #'] || data?.SUBJECT?.['FHA Case Number'] || ''} onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField} isEditable={isEditable} allData={data} />
                             </Box>
-                            <Tooltip title="Check FHA Requirements">
-                              <IconButton onClick={handleFhaCheck} size="small" color="info">
+                            <Tooltip title="Scroll to FHA Requirements Check">
+                              <IconButton
+                                onClick={() => {
+                                  const elem = document.getElementById('fha-requirement-check');
+                                  if (elem) {
+                                    elem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }
+                                  if (!fhaResponse && !fhaLoading) {
+                                    handleFhaCheck();
+                                  }
+                                }}
+                                size="small"
+                                color="info"
+                              >
                                 <Info fontSize="small" />
                               </IconButton>
                             </Tooltip>
@@ -6996,6 +7086,15 @@ function Subject({ defaultFormType }) {
                   loading={escalationLoading}
                   response={escalationResponse}
                   error={escalationError}
+                />
+              </div>
+
+              <div id="fha-requirement-check" className="mb-4">
+                <FhaCheck
+                  onPromptSubmit={handleFhaCheck}
+                  loading={fhaLoading}
+                  response={fhaResponse}
+                  error={fhaError}
                 />
               </div>
 

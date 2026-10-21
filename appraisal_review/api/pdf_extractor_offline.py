@@ -14,6 +14,12 @@ try:
 except ImportError:
     import pymupdf as fitz
 
+try:
+    from .xml_extractor import find_comparable_rent_schedule_pages, extract_rent_schedule_from_pdf_page
+except ImportError:
+    from api.xml_extractor import find_comparable_rent_schedule_pages, extract_rent_schedule_from_pdf_page
+
+
 
 
 
@@ -5673,7 +5679,8 @@ def clean_appraisal_extracted_data(data):
 def detect_form_pages(doc) -> Dict[str, Any]:
     """
     Locates Form 1004 Page 1, Page 2 (Sales Grid), Page 3 (Cost/Reconciliation),
-    Comps 4-6 / 7-9 addendum pages, and Market Conditions addendum pages in the PDF.
+    Comps 4-6 / 7-9 addendum pages, Market Conditions addendum pages,
+    and Form 1007 Comparable Rent Schedule pages in the PDF.
     """
     indices: Dict[str, Any] = {
         "form_p1": None,
@@ -5681,12 +5688,23 @@ def detect_form_pages(doc) -> Dict[str, Any]:
         "form_p3": None,
         "comps_4_6": None,
         "extra_comp_pages": [],
-        "market_conditions": None
+        "market_conditions": None,
+        "rent_schedule_pages": []
     }
     if not doc:
         return indices
 
+    # Detect Form 1007 Comparable Rent Schedule pages (identified strictly by signature markers)
+    try:
+        indices["rent_schedule_pages"] = find_comparable_rent_schedule_pages(doc)
+    except Exception:
+        indices["rent_schedule_pages"] = []
+
     for idx, page in enumerate(doc):
+        # Exclude rent schedule pages from primary 1004 pages
+        if idx in indices.get("rent_schedule_pages", []):
+            continue
+
         txt = (page.get_text("text") or "").upper()
         
         # Form 1004 Page 1: Subject, Contract, Neighborhood, Site, Improvements
@@ -5724,7 +5742,7 @@ def detect_form_pages(doc) -> Dict[str, Any]:
 
     # Additional Comparables Addenda (Pages with Comps 4-6, 7-9, 10-12, etc.)
     for idx, page in enumerate(doc):
-        if idx in [indices["form_p1"], indices["form_p2"], indices["form_p3"], indices["market_conditions"]]:
+        if idx in [indices["form_p1"], indices["form_p2"], indices["form_p3"], indices["market_conditions"]] or idx in indices.get("rent_schedule_pages", []):
             continue
         txt = (page.get_text("text") or "").upper()
         if (
@@ -6053,8 +6071,16 @@ def extract_fields_from_pdf_offline(pdf_path):
                 for c_num in sorted(comp_num_map.keys()):
                     clean_sales_grid[f"Comparable Sale {c_num}"] = comp_num_map[c_num]
 
-            # Subject section and Sales Grid are two distinct sections (do not merge Sales Grid into Subject)
+            # Subject section and Sales Grid: merge subject sales comparison and prior sale fields into subj_section for UI table compatibility
             subj_section = dict(clean_data.get("SUBJECT") or {})
+            subj_grid_source = clean_sales_grid.get("Subject") or (clean_data.get("SALES_GRID") or {}).get("Subject") or {}
+            if isinstance(subj_grid_source, dict):
+                for k, v in subj_grid_source.items():
+                    if k not in subj_section or not subj_section[k]:
+                        subj_section[k] = v
+                    if k not in unified_fields or not unified_fields[k]:
+                        unified_fields[k] = v
+
             if subj_section.get("FHA Case No."):
                 unified_fields["FHA Case No."] = subj_section["FHA Case No."]
                 unified_fields["FHA Case #"] = subj_section["FHA Case No."]
@@ -6078,9 +6104,54 @@ def extract_fields_from_pdf_offline(pdf_path):
                             unified_fields[f"RENTAL #{r_num}"] = rent_v
                             unified_fields[f"Rental {r_num}"] = rent_v
 
+            # Form 1007 Comparable Rent Schedule handling
+            rent_pages = page_indices.get("rent_schedule_pages") or []
+            has_1007 = len(rent_pages) > 0
+            detected_form_type = "1004 + 1007" if has_1007 else "1004"
+
+            rent_schedule_reconciliation = {}
+            single_family_rent_schedule = {}
+            if has_1007:
+                for p_idx, rent_p_num in enumerate(rent_pages):
+                    start_comp = 1 + (p_idx * 3)
+                    rent_page_res = extract_rent_schedule_from_pdf_page(doc[rent_p_num], start_comp_num=start_comp)
+
+                    # Merge Subject rent data into subj_section, single_family_rent_schedule, and unified_fields
+                    subj_rent = rent_page_res.get("Subject") or {}
+                    for r_k, r_v in subj_rent.items():
+                        if r_v:
+                            single_family_rent_schedule[r_k] = r_v
+                            subj_section[r_k] = r_v
+                            unified_fields.setdefault(r_k, r_v)
+
+                    # Merge comps into COMPARABLE_RENTAL_DATA, clean_sales_grid, and unified_fields
+                    comps_rent = rent_page_res.get("comparables") or {}
+                    for c_label, c_dict in comps_rent.items():
+                        m_num = re.search(r'(\d+)', c_label)
+                        c_num_str = m_num.group(1) if m_num else "1"
+
+                        unified_fields[c_label] = c_dict
+                        unified_fields[f"COMPARABLE NO. {c_num_str}"] = c_dict
+                        unified_fields[f"COMPARABLE NO {c_num_str}"] = c_dict
+                        unified_fields[f"COMPARABLE #{c_num_str}"] = c_dict
+                        unified_fields[f"COMPARABLE RENTAL #{c_num_str}"] = c_dict
+                        unified_fields[f"Rental {c_num_str}"] = c_dict
+
+                        clean_data.setdefault("COMPARABLE_RENTAL_DATA", {})[f"COMPARABLE RENTAL #{c_num_str}"] = c_dict
+                        clean_data["COMPARABLE_RENTAL_DATA"][f"COMPARABLE NO. {c_num_str}"] = c_dict
+                        clean_data["COMPARABLE_RENTAL_DATA"][f"Rental {c_num_str}"] = c_dict
+                        clean_sales_grid[f"Comparable Rental {c_num_str}"] = c_dict
+
+                    # Merge reconciliation
+                    rec_rent = rent_page_res.get("reconciliation") or {}
+                    for rec_k, rec_v in rec_rent.items():
+                        if rec_v:
+                            rent_schedule_reconciliation[rec_k] = rec_v
+                            unified_fields[rec_k] = rec_v
+
             # Build clean, human-readable section dictionary where Subject and Sales Grid are distinct
             clean_section_data = {
-                "Form Type": "1004",
+                "Form Type": detected_form_type,
                 "Subject": subj_section,
                 "Contract": clean_data.get("CONTRACT") or {},
                 "Neighborhood": clean_data.get("NEIGHBORHOOD") or {},
@@ -6103,13 +6174,22 @@ def extract_fields_from_pdf_offline(pdf_path):
                 clean_section_data["Condo Foreclosure"] = clean_data["CONDO_FORECLOSURE"]
             if clean_data.get("CERTIFICATION") and any(clean_data["CERTIFICATION"].values()):
                 clean_section_data["Certification"] = clean_data["CERTIFICATION"]
+            if single_family_rent_schedule and any(single_family_rent_schedule.values()):
+                clean_section_data["Single Family Rent Schedule"] = single_family_rent_schedule
+                unified_fields["Single Family Rent Schedule"] = single_family_rent_schedule
             if clean_data.get("COMPARABLE_RENTAL_DATA") and any(clean_data["COMPARABLE_RENTAL_DATA"].values()):
                 clean_section_data["Comparable Rental Data"] = clean_data["COMPARABLE_RENTAL_DATA"]
+                unified_fields["Comparable Rental Data"] = clean_data["COMPARABLE_RENTAL_DATA"]
+                unified_fields["COMPARABLE_RENTAL_DATA"] = clean_data["COMPARABLE_RENTAL_DATA"]
+            if rent_schedule_reconciliation:
+                clean_section_data["Comparable Rent Schedule Reconciliation"] = rent_schedule_reconciliation
+                unified_fields["Comparable Rent Schedule Reconciliation"] = rent_schedule_reconciliation
 
             raw_json_str = json.dumps(unified_fields, indent=2)
             unified_fields["raw"] = raw_json_str
 
             return {
+                "form_type": detected_form_type,
                 "fields": unified_fields,
                 "unified_fields": unified_fields,
                 "clean_data": clean_section_data,

@@ -32,6 +32,7 @@ from .offline_requirement_checks import (
     evaluate_client_requirements,
     evaluate_adu_requirements,
     evaluate_escalation_check,
+    evaluate_fha_requirements,
 )
 from .xml_extractor import extract_fields_from_xml, extract_photos_from_xml
 
@@ -796,7 +797,16 @@ def extract_pdf(request):
             elif category_clean == "ESCALATION_CHECK" or "escalation" in prompt_lower:
                 return Response(evaluate_escalation_check(tmp_path, extracted_data=extracted_data_obj))
 
-            # 6. XML Field Extraction (When not a specialized check request)
+            # 6. FHA Requirement Check (Supports both PDF and XML)
+            elif category_clean in ["FHA_REQUIREMENT_CHECK", "FHA_CHECK", "FHA_REQUIREMENTS"] or any(
+                term in prompt_lower for term in [
+                    "fha-specific", "fha specific", "fha requirement", "fha req",
+                    "hud handbook 4000.1", "hud 4000.1", "fha case number"
+                ]
+            ):
+                return Response(evaluate_fha_requirements(tmp_path, extracted_data=extracted_data_obj))
+
+            # 7. XML Field Extraction (When not a specialized check request)
             if is_xml:
                 xml_result = extract_fields_from_xml(tmp_path)
                 if xml_result.get("status") == "success":

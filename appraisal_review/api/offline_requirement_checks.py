@@ -2648,6 +2648,314 @@ def evaluate_escalation_check(pdf_path: str, extracted_data: Optional[Dict[str, 
     }
 
 
+def evaluate_fha_requirements(pdf_path: str, extracted_data: Optional[Dict[str, Any]] = None) -> dict:
+    """Evaluates the 8 core FHA-specific appraisal requirements offline using 100% pure regex and parsed data."""
+    data = _normalize_extracted_data(pdf_path, extracted_data)
+    pages_text = _extract_full_text_with_pages(pdf_path)
+    full_text = "\n".join([p["text"] for p in pages_text])
+
+    details = []
+
+    # 1. FHA Case Number
+    fha_case_val = (
+        _get_field_val(data, "Subject", "FHA Case #") or 
+        _get_field_val(data, "Subject", "FHA Case No.") or
+        _get_field_val(data, "Subject", "FHA Case Number") or
+        data.get("FHA Case No.") or
+        data.get("FHA Case #") or
+        data.get("FHA Case Number") or
+        ""
+    )
+    if isinstance(fha_case_val, dict):
+        fha_case_val = fha_case_val.get("value", "")
+    fha_case_val = str(fha_case_val).strip()
+
+    fha_case_page = None
+    if not fha_case_val or fha_case_val in ["000-0000000", "N/A", "NA", "None"]:
+        fha_case_page, fha_case_snip = _find_keyword_in_pages(pages_text, [
+            r"\bFHA\s+Case\s+(?:Number|No\.?|#)?\s*[:\-]?\s*([0-9]{3}[-\s][0-9]{7}(?:[-\s][0-9]{1,4})?)\b",
+            r"\bCase\s*#?\s*[:\-]?\s*([0-9]{3}-[0-9]{7})\b",
+            r"\bFHA\s+Case\s+(?:Number|No\.?|#)?\s*[:\-]?\s*([0-9A-Z\-]{9,15})\b"
+        ])
+        if fha_case_snip and fha_case_snip not in ["000-0000000", "N/A", "NA"]:
+            fha_case_val = fha_case_snip
+
+    is_valid_fha = bool(fha_case_val) and fha_case_val not in ["000-0000000", "N/A", "NA", "None", ""]
+
+    if is_valid_fha:
+        details.append({
+            "requirement": "FHA Case Number",
+            "status": "Fulfilled",
+            "value_or_comment": f"FHA Case Number identified: {fha_case_val}" + (f" (Page {fha_case_page})" if fha_case_page else " (Page 1)")
+        })
+    else:
+        details.append({
+            "requirement": "FHA Case Number",
+            "status": "Not Fulfilled",
+            "value_or_comment": "FHA Case Number is missing or not identified in the appraisal report."
+        })
+
+    # 2. FHA as Intended User
+    intended_user_page, intended_user_snip = _find_keyword_in_pages(pages_text, [
+        r"\b(?:FHA|Federal\s+Housing\s+Administration|HUD)\b[^\n\r.?!;]{0,120}\b(?:intended\s+user|additional\s+intended\s+user)\b",
+        r"\b(?:intended\s+user|additional\s+intended\s+user)[^\n\r.?!;]{0,120}\b(?:FHA|Federal\s+Housing\s+Administration|HUD)\b",
+        r"\bintended\s+users?\s*(?:are|is|include|including)[^\n\r;]{0,150}\b(?:FHA|HUD|Federal\s+Housing\s+Administration)\b",
+        r"\bintended\s+user[^\n\r]{0,80}\bFHA/HUD\b",
+        r"\bHUD/FHA\s+is\s+an\s+intended\s+user\b"
+    ])
+    if intended_user_page:
+        details.append({
+            "requirement": "FHA as Intended User",
+            "status": "Fulfilled",
+            "value_or_comment": f"FHA verified as intended user on Page {intended_user_page}: '{intended_user_snip}'."
+        })
+    else:
+        details.append({
+            "requirement": "FHA as Intended User",
+            "status": "Not Fulfilled",
+            "value_or_comment": "Per FHA guidelines, a statement identifying FHA/HUD as an additional intended user is required. Statement not found in Intended Use or Addenda."
+        })
+
+    # 3. HUD Handbook 4000.1 Compliance
+    hud_page, hud_snip = _find_keyword_in_pages(pages_text, [
+        r"\b(?:HUD\s+(?:Handbook\s+)?4000\.1|Handbook\s+4000\.1|4000\.1)\b[^\n\r.?!;]{0,120}\b(?:meets|compliance|complies|guidelines|standards|minimum\s+property\s+requirements|MPR|MPS)\b",
+        r"\b(?:meets|complies\s+with|in\s+compliance\s+with)\s+(?:all\s+)?(?:applicable\s+)?(?:HUD|FHA|Handbook\s+4000\.1|4000\.1)\b",
+        r"\bHUD\s+(?:Handbook\s+)?4000\.1\b",
+        r"\bHandbook\s+4000\.1\b",
+        r"\bHUD\s+4000\.1\b",
+        r"\bMinimum\s+Property\s+Requirements\s*\(MPR\)\b",
+        r"\bmeets\s+FHA/HUD\s+guidelines\b",
+        r"\bmeets\s+HUD\s+guidelines\b"
+    ])
+    if hud_page:
+        details.append({
+            "requirement": "HUD Handbook 4000.1 Compliance",
+            "status": "Fulfilled",
+            "value_or_comment": f"HUD Handbook 4000.1 compliance commentary verified on Page {hud_page}: '{hud_snip}'."
+        })
+    else:
+        details.append({
+            "requirement": "HUD Handbook 4000.1 Compliance",
+            "status": "Not Fulfilled",
+            "value_or_comment": "HUD Handbook 4000.1 compliance statement not found. Report must address whether the subject property meets HUD 4000.1 / MPR guidelines."
+        })
+
+    # 4. Attic/Crawl Space Inspection
+    attic_page, attic_snip = _find_keyword_in_pages(pages_text, [
+        r"\b(?:attic|crawl\s*space|scuttle)\b[^\n\r.?!;]{0,120}\b(?:head\s+and\s+shoulders|inspected|observed|entered|viewed|visual\s+inspection)\b",
+        r"\b(?:head\s+and\s+shoulders|inspected|observed|entered|viewed)\b[^\n\r.?!;]{0,120}\b(?:attic|crawl\s*space|scuttle)\b",
+        r"\bhead\s+(?:and|&)\s+shoulders\s+(?:inspection|observation|view)\b",
+        r"\b(?:attic|crawl\s*space)\s+was\s+(?:visually\s+)?inspected\b",
+        r"\binspected\s+the\s+attic\b",
+        r"\binspected\s+the\s+crawl\s*space\b",
+        r"\b(?:no\s+access|inaccessible|unable\s+to\s+access|not\s+accessible|no\s+attic|no\s+crawl\s*space)\b[^\n\r.?!;]{0,80}\b(?:attic|crawl\s*space)?"
+    ])
+
+    attic_type = str(_get_field_val(data, "Improvements", "Attic") or "").lower()
+    foundation_crawl = str(_get_field_val(data, "Improvements", "Crawl Space") or "").lower()
+    is_none_attic = "none" in attic_type
+    is_no_crawl = "none" in foundation_crawl or "slab" in str(_get_field_val(data, "Improvements", "Foundation") or "").lower()
+
+    if attic_page:
+        details.append({
+            "requirement": "Attic/Crawl Space Inspection",
+            "status": "Fulfilled",
+            "value_or_comment": f"Attic/Crawl space observation verified on Page {attic_page}: '{attic_snip}'."
+        })
+    elif is_none_attic and is_no_crawl:
+        details.append({
+            "requirement": "Attic/Crawl Space Inspection",
+            "status": "Fulfilled",
+            "value_or_comment": "Report indicates No Attic ('None') and Slab foundation (No Crawl Space). Head and shoulders inspection not required."
+        })
+    else:
+        details.append({
+            "requirement": "Attic/Crawl Space Inspection",
+            "status": "Not Fulfilled",
+            "value_or_comment": "FHA requires appraiser to perform a head and shoulders inspection of attic and crawl space (or clearly document if inaccessible). Commentary not found."
+        })
+
+    # 5. Amenities on Sketch
+    amenity_str = str(_get_field_val(data, "Improvements", "Patio/Deck") or _get_field_val(data, "Subject", "Patio/Deck") or "").lower()
+    sketch_pages = [p for p in pages_text if any(sk in p["text"].upper() for sk in ["BUILDING SKETCH", "SKETCH ADDENDUM", "FLOOR PLAN", "INSTAPLAN"])]
+    sketch_text = "\n".join([p["text"].upper() for p in sketch_pages])
+
+    photos = data.get("EXTRACTED_PHOTOS", [])
+    sketch_in_photos = any(any(sk in str(ph.get("caption", "")).upper() for sk in ["SKETCH", "FLOOR PLAN"]) for ph in photos)
+
+    depicted_amenities = []
+    missing_amenities = []
+    checked_amenities = ["deck", "patio", "porch"]
+
+    for am in checked_amenities:
+        if am in amenity_str:
+            if am.upper() in sketch_text:
+                depicted_amenities.append(am.title())
+            else:
+                missing_amenities.append(am.title())
+
+    if depicted_amenities and not missing_amenities:
+        details.append({
+            "requirement": "Amenities on Sketch",
+            "status": "Fulfilled",
+            "value_or_comment": f"Reported amenities ({', '.join(depicted_amenities)}) confirmed depicted on building sketch."
+        })
+    elif missing_amenities:
+        details.append({
+            "requirement": "Amenities on Sketch",
+            "status": "Needs Review",
+            "value_or_comment": f"Report indicates {', '.join(missing_amenities)}, but not confirmed labeled on building sketch. Verify all exterior amenities (patio, deck, porch) are depicted."
+        })
+    elif sketch_pages or sketch_in_photos:
+        details.append({
+            "requirement": "Amenities on Sketch",
+            "status": "Fulfilled",
+            "value_or_comment": "Building sketch verified in report. No ungridded or undeclared exterior amenities detected."
+        })
+    else:
+        details.append({
+            "requirement": "Amenities on Sketch",
+            "status": "Needs Review",
+            "value_or_comment": "Building sketch not clearly detected. Please verify building sketch is included with all amenities depicted."
+        })
+
+    # 6. Well and Septic Distances
+    water_val = str(_get_field_val(data, "Site", "Water") or _get_field_val(data, "Site", "Public Water") or "").lower()
+    sewer_val = str(_get_field_val(data, "Site", "Sanitary Sewer") or _get_field_val(data, "Site", "Public Sewer") or "").lower()
+
+    is_well = "well" in water_val or "private" in water_val
+    is_septic = "septic" in sewer_val or "private" in sewer_val
+
+    if not is_well and not is_septic:
+        ws_page, ws_snip = _find_keyword_in_pages(pages_text, [
+            r"\b(?:private\s+well|well\s+water)\b",
+            r"\b(?:private\s+septic|septic\s+system|septic\s+tank)\b"
+        ])
+        if ws_page:
+            if "well" in (ws_snip or "").lower():
+                is_well = True
+            if "septic" in (ws_snip or "").lower():
+                is_septic = True
+
+    if is_well or is_septic:
+        dist_page, dist_snip = _find_keyword_in_pages(pages_text, [
+            r"\b(?:distance|separation)\s+between\s+(?:well|septic)\b",
+            r"\b(?:well\s+and\s+septic|septic\s+and\s+well)\b[^\n\r.?!;]{0,120}\b(?:distance|separation|meet|meets|hud|guidelines|feet|50\s*ft|75\s*ft|100\s*ft)\b",
+            r"\bmeets\s+(?:all\s+)?HUD\s+(?:minimum\s+)?(?:distance|separation)\s+requirements\b",
+            r"\b(?:well|septic)\s+distances?\s+meet\b"
+        ])
+        if dist_page:
+            details.append({
+                "requirement": "Well and Septic Distances",
+                "status": "Fulfilled",
+                "value_or_comment": f"Well/septic separation distance compliance verified on Page {dist_page}: '{dist_snip}'."
+            })
+        else:
+            details.append({
+                "requirement": "Well and Septic Distances",
+                "status": "Not Fulfilled",
+                "value_or_comment": "Subject property utilizes well and/or septic system. Appraiser must comment on whether separation distances meet HUD guidelines (e.g., 50-100 ft)."
+            })
+    else:
+        details.append({
+            "requirement": "Well and Septic Distances",
+            "status": "Not Applicable",
+            "value_or_comment": "Subject property utilizes Public Water and Public Sewer. Well and septic separation distance check is Not Applicable."
+        })
+
+    # 7. Outbuilding Photos
+    outbuilding_page, outbuilding_snip = _find_keyword_in_pages(pages_text, [
+        r"\b(?:storage\s+shed|detached\s+shed|detached\s+workshop|barn|outbuilding|pole\s+barn|guest\s+house|pool\s+house)\b"
+    ])
+    has_outbuilding = bool(outbuilding_page)
+
+    if has_outbuilding:
+        photos = data.get("EXTRACTED_PHOTOS", [])
+        interior_outbldg_found = False
+        for ph in photos:
+            cap = str(ph.get("caption", "")).upper()
+            if any(ob in cap for ob in ["SHED", "BARN", "OUTBUILDING", "WORKSHOP"]) and any(it in cap for it in ["INTERIOR", "INSIDE"]):
+                interior_outbldg_found = True
+                break
+        if not interior_outbldg_found:
+            int_page, _ = _find_keyword_in_pages(pages_text, [
+                r"\b(?:interior\s+of\s+(?:the\s+)?(?:shed|barn|outbuilding|workshop)|shed\s+interior|barn\s+interior)\b"
+            ])
+            if int_page:
+                interior_outbldg_found = True
+
+        if interior_outbldg_found:
+            details.append({
+                "requirement": "Outbuilding Photos",
+                "status": "Fulfilled",
+                "value_or_comment": "Interior photograph of outbuilding/shed verified in report photo exhibits."
+            })
+        else:
+            details.append({
+                "requirement": "Outbuilding Photos",
+                "status": "Needs Review",
+                "value_or_comment": f"Outbuilding/shed noted on Page {outbuilding_page} ('{outbuilding_snip}'), but interior photo was not confirmed. FHA requires interior photos of significant outbuildings."
+            })
+    else:
+        details.append({
+            "requirement": "Outbuilding Photos",
+            "status": "Not Applicable",
+            "value_or_comment": "No outbuildings, barns, or storage sheds identified on the subject property."
+        })
+
+    # 8. Crawl Space/Attic Access Issues
+    access_issue_page, access_issue_snip = _find_keyword_in_pages(pages_text, [
+        r"\b(?:no\s+access|inaccessible|unable\s+to\s+access|could\s+not\s+(?:access|inspect)|not\s+accessible|access\s+was\s+not\s+possible|scuttle\s+sealed|locked|obstructed)\b[^\n\r.?!;]{0,80}\b(?:attic|crawl\s*space|scuttle)\b",
+        r"\b(?:attic|crawl\s*space|scuttle)\b[^\n\r.?!;]{0,80}\b(?:was\s+not\s+accessible|is\s+inaccessible|could\s+not\s+be\s+(?:inspected|accessed)|no\s+access)\b"
+    ])
+
+    if access_issue_page:
+        recon_cond = str(_get_field_val(data, "Reconciliation", "Appraisal Made") or "").lower()
+        subj_to_page, _ = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']subject to",
+            r"\[X\]\s*subject to",
+            r"\bsubject to a required inspection\b"
+        ])
+        is_subj_to = bool(subj_to_page) or ("subject to" in recon_cond)
+        damage_page, damage_snip = _find_keyword_in_pages(pages_text, [
+            r"\b(?:structural\s+damage|water\s+damage|leak|termite|infestation|deficienc(?:y|ies)|adverse\s+condition)\b"
+        ])
+
+        if is_subj_to:
+            details.append({
+                "requirement": "Crawl Space/Attic Access Issues",
+                "status": "Fulfilled",
+                "value_or_comment": f"Appraiser noted attic/crawl space access issue on Page {access_issue_page} ('{access_issue_snip}') and properly conditioned report 'Subject To' inspection."
+            })
+        elif damage_page:
+            details.append({
+                "requirement": "Crawl Space/Attic Access Issues",
+                "status": "Not Fulfilled",
+                "value_or_comment": f"Attic/crawl space was inaccessible and report is 'As Is', but physical deficiency noted on Page {damage_page} ('{damage_snip}'). Per FHA, report must be 'Subject To' inspection."
+            })
+        else:
+            details.append({
+                "requirement": "Crawl Space/Attic Access Issues",
+                "status": "Needs Review",
+                "value_or_comment": f"Appraiser noted limited or no access to attic/crawl space on Page {access_issue_page} ('{access_issue_snip}') while report is marked 'As Is'. Verify that no adverse structural, moisture, or insect conditions were observed."
+            })
+    else:
+        details.append({
+            "requirement": "Crawl Space/Attic Access Issues",
+            "status": "Fulfilled",
+            "value_or_comment": "No crawl space or attic access restrictions noted in the appraisal report."
+        })
+
+    fulfilled_count = sum(1 for d in details if d["status"] in ["Fulfilled", "Not Applicable"])
+    total_count = len(details)
+    summary = f"FHA Requirement Check completed. {fulfilled_count} of {total_count} FHA requirements verified."
+
+    return {
+        "summary": summary,
+        "details": details
+    }
+
+
 def evaluate_photo_requirements(pdf_path: str, extracted_data: Optional[Dict[str, Any]] = None) -> dict:
     """
     Evaluates presence of mandatory photos according to GSE (Fannie Mae / Freddie Mac) appraisal standards:

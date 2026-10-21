@@ -73,7 +73,7 @@ export const checkLeaseDates = (field, text, allData, path, saleName) => {
 };
 
 export const checkOtherBasement = (field, text, allData, path, saleName) => {
-    if (field !== 'Other (e.g., basement, etc.)') {
+    if (field !== 'Other (e.g., basement, etc.)' && field !== 'Other (e.g., basement)' && field !== 'Other Basement') {
         return null;
     }
 
@@ -81,7 +81,20 @@ export const checkOtherBasement = (field, text, allData, path, saleName) => {
         return null;
     }
 
-    const subjectValue = allData?.Subject?.['Other (e.g., basement, etc.)'];
+    const subjRent = allData?.['Single Family Rent Schedule'] ||
+                     allData?.clean_data?.['Single Family Rent Schedule'] ||
+                     allData?.['Subject Rent Schedule'] ||
+                     allData?.clean_data?.['Subject Rent Schedule'] ||
+                     allData?.Subject ||
+                     allData?.clean_data?.Subject ||
+                     {};
+
+    const subjectValue = subjRent['Other (e.g., basement, etc.)'] ??
+                         subjRent['Other (e.g., basement)'] ??
+                         subjRent['Other Basement'] ??
+                         allData?.Subject?.['Other (e.g., basement, etc.)'] ??
+                         allData?.Subject?.['Other (e.g., basement)'] ??
+                         allData?.Subject?.['Other Basement'];
     const comparableValue = text;
 
     const subjectValueStr = String(subjectValue || '').trim();
