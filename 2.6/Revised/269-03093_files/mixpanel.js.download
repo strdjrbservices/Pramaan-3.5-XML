@@ -1,0 +1,61 @@
+var _currentHref = window.location.href;
+if (sessionStorage.getItem('currentUrl') !== _currentHref) {
+    sessionStorage.setItem('previousUrl', sessionStorage.getItem('currentUrl') || document.referrer);
+    sessionStorage.setItem('currentUrl', _currentHref);
+}
+function addMixpanelEvent(moduleName, description, user, userRole) {
+    if (enableMixpanel.toLowerCase() === 'true') {
+        if (userRole == 'AMSStaff' || userRole == 'AMSAdmin') {
+            var activeEl = document.activeElement; var redirectedTo = (activeEl && activeEl.href && activeEl.href.indexOf('javascript') === -1)
+                ? activeEl.href
+                : window.location.href;
+
+            mixpanel.identify(user);
+            mixpanel.people.set({
+                '$name': user,
+            });
+            mixpanel.track(moduleName, {
+                'description': description,
+                'user': user,
+                'user role': userRole,
+                'Previous Url': sessionStorage.getItem('currentUrl') || document.referrer,
+                'Redirected To': redirectedTo
+            });
+        }
+    }
+}
+
+function addMixpanelEventScorecard(moduleName, description, user, userRole, companyname, userEmail) {
+    if (enableMixpanel.toLowerCase() === 'true') {
+        if (userRole == 'AMSStaff' || userRole == 'AMSAdmin') {
+            mixpanel.identify(user);
+            mixpanel.people.set({
+                '$name': user,
+            });
+            var trackingData = {
+                'description': description,
+                'user': user,
+                'user role': userRole
+            };
+            if (companyname) {
+                trackingData['company name'] = companyname;
+            }
+            if (userEmail) {
+                trackingData['user email'] = userEmail;
+            }
+            mixpanel.track(moduleName, trackingData);
+
+        }
+    }
+}
+function addMixpanelEventWithoutUserId(moduleName,description){
+    mixpanel.track(moduleName, {
+        'description': description,
+        'userTimezone': Intl.DateTimeFormat().resolvedOptions().timeZone
+    });            
+}
+   
+               
+function resetUserInMixpanel(){
+    mixpanel.reset();
+}

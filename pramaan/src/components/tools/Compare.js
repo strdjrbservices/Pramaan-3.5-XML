@@ -233,19 +233,51 @@ const Compare = () => {
       const doc = parser.parseFromString(content, 'text/html');
 
       let extractedText = '';
-      const fieldNameToFind = 'report rejection reason';
-      const allElements = doc.body.querySelectorAll('*');
 
-      for (let i = 0; i < allElements.length; i++) {
-        const element = allElements[i];
-        if (element.textContent.trim().toLowerCase().replace(/:$/, '') === fieldNameToFind) {
-          let nextElement = element.nextElementSibling;
-          if (nextElement) {
-            extractedText = nextElement.innerText.trim();
-            break;
+      // 1. Direct check for known FastApp/portal ID pattern
+      const rejectSpan = doc.querySelector('[id*="lblFileRejectReason"], [id*="FileRejectReason"], [id*="lblRejectReason"]');
+      if (rejectSpan) {
+        extractedText = rejectSpan.innerText ? rejectSpan.innerText.trim() : rejectSpan.textContent.trim();
+      }
+
+      // 2. Search through elements matching "report rejection reason"
+      if (!extractedText) {
+        const fieldNameToFind = 'report rejection reason';
+        const allElements = doc.body.querySelectorAll('*');
+
+        for (let i = 0; i < allElements.length; i++) {
+          const element = allElements[i];
+          const text = element.textContent.trim().toLowerCase().replace(/:$/, '');
+          if (text === fieldNameToFind || text.includes('report rejection reason')) {
+            let nextElement = element.nextElementSibling;
+            if (!nextElement && element.parentElement) {
+              nextElement = element.parentElement.nextElementSibling;
+            }
+            if (nextElement) {
+              const val = nextElement.innerText ? nextElement.innerText.trim() : nextElement.textContent.trim();
+              if (val && !val.toLowerCase().includes('report rejection reason')) {
+                extractedText = val;
+                break;
+              }
+            }
           }
         }
       }
+
+      // 3. Fallback regex on HTML raw text
+      if (!extractedText) {
+        const match = content.match(/report\s*rejection\s*reason[\s\S]*?<span[^>]*id=["'][^"']*lblFileRejectReason[^"']*["'][^>]*>([\s\S]*?)<\/span>/i) ||
+                      content.match(/report\s+rejection\s+reason\s*:?\s*<\/?[^>]+>\s*([^<]+)/i) ||
+                      content.match(/report\s+rejection\s+reason[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/i);
+        if (match && match[1]) {
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = match[1];
+          extractedText = tempDiv.innerText ? tempDiv.innerText.trim() : tempDiv.textContent.trim();
+        }
+      }
+
+      // Clean redundant title echo
+      extractedText = extractedText.replace(/^(?:report\s+rejection\s+reason\s*:?\s*)+/i, '').trim();
 
       setRevisionText(extractedText);
     };
@@ -318,17 +350,23 @@ const Compare = () => {
 
     if (mode === 'revision') {
       if (!newPdfFile || !revisionText) {
-        setError('Please provide a PDF file and ensure revision text is extracted.');
+        setError('Please provide a report file (PDF or XML) and ensure revision text is extracted or entered.');
         setLoading(false);
         return;
       }
       formData.append('file', newPdfFile);
       formData.append('form_type', '1004');
       formData.append('revision_request', revisionText);
+      if (oldPdfFile) {
+        formData.append('old_file', oldPdfFile);
+      }
+      if (htmlFile) {
+        formData.append('html_file', htmlFile);
+      }
       endpoint = `${API_BASE_URL}/api/extract/`;
     } else if (mode === 'checklist') {
       if (!oldPdfFile || !newPdfFile) {
-        setError('Both Old and New PDF files must be provided for this check.');
+        setError('Both Old and Revised report files (PDF or XML) must be provided for this check.');
         setLoading(false);
         return;
       }
@@ -338,7 +376,7 @@ const Compare = () => {
       endpoint = `${API_BASE_URL}/api/compare-pdfs/`;
     } else if (mode === 'pdf-html') {
       if (!newPdfFile || !htmlFile) {
-        setError('Both PDF and HTML files must be provided for this comparison.');
+        setError('Both Report (PDF or XML) and HTML files must be provided for this comparison.');
         setLoading(false);
         return;
       }
@@ -347,7 +385,7 @@ const Compare = () => {
       endpoint = `${API_BASE_URL}/api/compare/`;
     } else { // 'pdf-pdf'
       if (!oldPdfFile || !newPdfFile) {
-        setError('Both Old and New PDF files must be provided for this comparison.');
+        setError('Both Old and Revised report files (PDF or XML) must be provided for this comparison.');
         setLoading(false);
         return;
       }
@@ -377,7 +415,7 @@ const Compare = () => {
 
       const result = JSON.parse(rawText);
       if (mode === 'revision') {
-        setResponse(result.fields);
+        setResponse(result.fields || result);
       } else if (mode === 'checklist') {
         setResponse(result);
       } else {
@@ -448,13 +486,13 @@ const Compare = () => {
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid item xs={6}>
             <Paper variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="caption" color="text.secondary">Old PDF Page Count</Typography>
+              <Typography variant="caption" color="text.secondary">Old Report Page Count</Typography>
               <Typography variant="h6">{oldPdfPageCount || 'N/A'}</Typography>
             </Paper>
           </Grid>
           <Grid item xs={6}>
             <Paper variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="caption" color="text.secondary">New PDF Page Count</Typography>
+              <Typography variant="caption" color="text.secondary">New Report Page Count</Typography>
               <Typography variant="h6">{newPdfPageCount || 'N/A'}</Typography>
             </Paper>
           </Grid>
@@ -598,21 +636,42 @@ const Compare = () => {
   const showNewPdf = true;
   const showHtml = comparisonMode === 'revision' || comparisonMode === 'pdf-html';
 
+  const renderFileBadge = (file) => {
+    if (!file) return null;
+    const isXml = file.name.toLowerCase().endsWith('.xml');
+    return (
+      <Chip
+        size="small"
+        label={isXml ? "XML" : "PDF"}
+        color={isXml ? "secondary" : "primary"}
+        variant="filled"
+        sx={{ ml: 1, height: 20, fontSize: '0.68rem', fontWeight: 'bold' }}
+      />
+    );
+  };
+
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
       <Box
         sx={{
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 2,
-          mb: 5,
+          gap: 1,
+          mb: 4,
         }}
       >
-        <PremiumLogo size={70} fullScreen={false} />
-        <Typography variant="h4" component="h1" sx={{ fontWeight: 800, letterSpacing: '-0.5px', background: 'linear-gradient(45deg, #1976d2, #9c27b0)', backgroundClip: 'text', textFillColor: 'transparent', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-          REVISED FILE REVIEW
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <PremiumLogo size={70} fullScreen={false} />
+          <Typography variant="h4" component="h1" sx={{ fontWeight: 800, letterSpacing: '-0.5px', background: 'linear-gradient(45deg, #1976d2, #9c27b0)', backgroundClip: 'text', textFillColor: 'transparent', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            REVISED FILE REVIEW
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Chip label="100% Offline Mode" color="success" size="small" variant="outlined" sx={{ fontWeight: 700 }} />
+          <Typography variant="caption" color="text.secondary">Supports XML, PDF & HTML files</Typography>
+        </Stack>
       </Box>
 
       <Paper elevation={0} sx={{ p: 3, mb: 4, borderRadius: 4, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
@@ -648,7 +707,7 @@ const Compare = () => {
           >
             <ToggleButton value="revision">Revision Verification</ToggleButton>
             <ToggleButton value="checklist">Confirmation Checklist</ToggleButton>
-            <ToggleButton value="pdf-html">PDF/HTML</ToggleButton>
+            <ToggleButton value="pdf-html">New XML / PDF to HTML</ToggleButton>
             <ToggleButton value="pdf-pdf">PDF/PDF</ToggleButton>
           </ToggleButtonGroup>
 
@@ -659,12 +718,15 @@ const Compare = () => {
               <Grid item xs={12} sm={6} md={4}>
                 <Paper variant="outlined" sx={{ p: 2, textAlign: 'center', borderStyle: 'dashed', borderColor: oldPdfFile ? 'success.main' : 'divider', bgcolor: oldPdfFile ? 'success.lighter' : 'transparent' }}>
                   <Button component="label" fullWidth startIcon={<CloudUploadIcon />} sx={{ mb: 1 }}>
-                    Upload Old PDF
-                    <input type="file" hidden accept=".pdf,application/pdf" onChange={handleOldPdfFileChange} />
+                    Upload Old PDF / XML
+                    <input type="file" hidden accept=".pdf,.xml,application/pdf,text/xml" onChange={handleOldPdfFileChange} />
                   </Button>
-                  <Typography variant="caption" display="block" noWrap color={oldPdfFile ? "success.main" : "text.secondary"}>
-                    {oldPdfFile ? oldPdfFile.name : "No file selected"}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography variant="caption" noWrap color={oldPdfFile ? "success.main" : "text.secondary"} sx={{ maxWidth: 180 }}>
+                      {oldPdfFile ? oldPdfFile.name : "No file selected"}
+                    </Typography>
+                    {renderFileBadge(oldPdfFile)}
+                  </Box>
                 </Paper>
               </Grid>
             )}
@@ -672,12 +734,15 @@ const Compare = () => {
               <Grid item xs={12} sm={6} md={4}>
                 <Paper variant="outlined" sx={{ p: 2, textAlign: 'center', borderStyle: 'dashed', borderColor: newPdfFile ? 'success.main' : 'divider', bgcolor: newPdfFile ? 'success.lighter' : 'transparent' }}>
                   <Button component="label" fullWidth startIcon={<CloudUploadIcon />} sx={{ mb: 1 }}>
-                    Upload New PDF
-                    <input type="file" hidden accept=".pdf,application/pdf" onChange={handleNewPdfFileChange} />
+                    Upload New PDF / XML
+                    <input type="file" hidden accept=".pdf,.xml,application/pdf,text/xml" onChange={handleNewPdfFileChange} />
                   </Button>
-                  <Typography variant="caption" display="block" noWrap color={newPdfFile ? "success.main" : "text.secondary"}>
-                    {newPdfFile ? newPdfFile.name : "No file selected"}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography variant="caption" noWrap color={newPdfFile ? "success.main" : "text.secondary"} sx={{ maxWidth: 180 }}>
+                      {newPdfFile ? newPdfFile.name : "No file selected"}
+                    </Typography>
+                    {renderFileBadge(newPdfFile)}
+                  </Box>
                 </Paper>
               </Grid>
             )}
@@ -688,9 +753,14 @@ const Compare = () => {
                     Upload HTML
                     <input type="file" hidden accept=".html,text/html" onChange={handleHtmlFileChange} />
                   </Button>
-                  <Typography variant="caption" display="block" noWrap color={htmlFile ? "success.main" : "text.secondary"}>
-                    {htmlFile ? htmlFile.name : "No file selected"}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography variant="caption" noWrap color={htmlFile ? "success.main" : "text.secondary"} sx={{ maxWidth: 180 }}>
+                      {htmlFile ? htmlFile.name : "No file selected"}
+                    </Typography>
+                    {htmlFile && (
+                      <Chip size="small" label="HTML" color="info" variant="filled" sx={{ ml: 1, height: 20, fontSize: '0.68rem', fontWeight: 'bold' }} />
+                    )}
+                  </Box>
                 </Paper>
               </Grid>
             )}
@@ -731,7 +801,7 @@ const Compare = () => {
             }
             sx={{ px: 6, py: 1.5, borderRadius: 3, fontSize: '1.1rem', fontWeight: 'bold', boxShadow: 4 }}
           >
-            {comparisonMode === 'revision' ? 'Verify Revisions' : (comparisonMode === 'checklist' ? 'Run Confirmation Check' : 'Compare')}
+            {comparisonMode === 'revision' ? 'Verify Revisions' : (comparisonMode === 'checklist' ? 'Run Confirmation Check' : (comparisonMode === 'pdf-html' ? 'Compare XML/PDF to HTML' : 'Compare'))}
           </LoadingButton>
         </Box>
         {loading && <Typography variant="body2" sx={{ mt: -2, mb: 3, textAlign: 'center', color: 'text.secondary' }}>Processing... {Math.floor(timer / 60)}m {timer % 60}s</Typography>}
@@ -762,7 +832,7 @@ const Compare = () => {
                         <TableRow>
                           <TableCell sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }}>Field</TableCell>
                           <TableCell sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }}>Value from HTML</TableCell>
-                          <TableCell sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }}>Value from PDF</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }}>Value from Report (PDF/XML)</TableCell>
                           <TableCell sx={{ fontWeight: 'bold', bgcolor: 'background.paper' }} align="center">Status</TableCell>
                         </TableRow>
                       </TableHead>
@@ -809,7 +879,9 @@ const Compare = () => {
                           const normalizedHtml = normalize(htmlValue);
                           const normalizedPdf = normalize(pdfValue);
 
-                          if (item.field === 'Property Address') {
+                          if (item.status) {
+                            isMatch = item.status === 'Match';
+                          } else if (item.field === 'Property Address') {
                             const getFirstWord = (str) => (str || '').toLowerCase().replace(/[^\w\s]/g, '').trim().split(/\s+/)[0] || '';
                             const htmlFirstWord = getFirstWord(htmlValue);
                             const pdfFirstWord = getFirstWord(pdfValue);
@@ -821,7 +893,11 @@ const Compare = () => {
                           const handleDataChange = (path, newValue) => {
                             setComparisonData(prevData => {
                               const newData = [...prevData];
-                              newData[path[0]][path[1]] = newValue;
+                              newData[path[0]] = {
+                                ...newData[path[0]],
+                                [path[1]]: newValue,
+                                status: undefined,
+                              };
                               return newData;
                             });
                           };

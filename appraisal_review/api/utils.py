@@ -101,7 +101,7 @@ WEBSITE_B_USERNAME_SELECTOR = "xpath=//label[contains(., 'Username')]/following-
 WEBSITE_B_PASSWORD_SELECTOR = "xpath=//label[contains(., 'Password')]/following-sibling::div/input | //input[@type='password']"
 WEBSITE_B_LOGIN_BUTTON_SELECTOR = 'button[type="submit"]'
 PDF_UPLOAD_SELECTOR = "xpath=//div[contains(@class, 'MuiPaper-root') and .//*[contains(., 'PDF')]]//input[@type='file'] | //input[@type='file'][contains(@accept, '.pdf')]"
-NEW_FILE_UPLOAD_SELECTOR_REVISED = "xpath=//label[contains(., 'Upload New PDF')]//input[@type='file'] | //button[contains(., 'Upload New PDF')]//input[@type='file'] | //label[normalize-space()='Upload New PDF']/..//input[@type='file']"
+NEW_FILE_UPLOAD_SELECTOR_REVISED = "xpath=//label[contains(., 'Upload New PDF')]//input[@type='file'] | //button[contains(., 'Upload New PDF')]//input[@type='file'] | //label[contains(., 'Upload New')]//input[@type='file'] | //button[contains(., 'Upload New')]//input[@type='file']"
 HTML_UPLOAD_SELECTOR_REVISED = "xpath=//label[contains(., 'Upload HTML')]//input[@type='file'] | //button[contains(., 'Upload HTML')]//input[@type='file'] | //label[normalize-space()='Upload HTML']/..//input[@type='file']"
 SUBMIT_BUTTON_SELECTOR = '#submit-form-button'
 MAIN_LOADING_INDICATOR_SELECTOR = "xpath=//*[contains(@class, 'MuiCircularProgress-root')]"
@@ -113,7 +113,7 @@ verify_Check_Client_Requirements = "xpath=//button[contains(., 'Check Client Req
 verify_Run_Escalation_Check = "xpath=//button[contains(., 'Run Escalation Check')]"
 REVISED_PROCESS_BUTTON_SELECTOR = "xpath=//button[contains(., 'Verify Revisions')]"
 CONFIRMATION_CHECKLIST_BUTTON_SELECTOR = "xpath=//button[contains(., 'Confirmation Checklist')] | //*[contains(@class, 'MuiToggleButton-root') and contains(., 'Confirmation Checklist')]"
-OLD_PDF_UPLOAD_SELECTOR = "xpath=//label[contains(., 'Upload Old PDF')]//input[@type='file'] | //button[contains(., 'Upload Old PDF')]//input[@type='file'] | //label[normalize-space()='Upload Old PDF']/..//input[@type='file']"
+OLD_PDF_UPLOAD_SELECTOR = "xpath=//label[contains(., 'Upload Old PDF')]//input[@type='file'] | //button[contains(., 'Upload Old PDF')]//input[@type='file'] | //label[contains(., 'Upload Old')]//input[@type='file'] | //button[contains(., 'Upload Old')]//input[@type='file']"
 PIN_SIDEBAR_BUTTON_SELECTOR = "xpath=//button[contains(@class, 'sidebar-toggle-btn')] | //button[@aria-label='Pin Sidebar'] | //button[@title='Pin Sidebar']"
 DOWNLOAD_PATH = BASE_DIR / "Downloads"
 

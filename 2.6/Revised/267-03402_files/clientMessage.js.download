@@ -1,0 +1,36 @@
+﻿var ClientMessage = (function () {
+    var index = 0;
+    function showMessage(type, message) {
+
+        var controlid = 'clientMessage' + (++index);
+        var html = '<label id="' + controlid + '" class="margin-all-10" style="position: fixed; top: 1%; left: 0; right: 0; margin: 0 auto; width: 270px; text-align: center; z-index: 9999; box-shadow: 6px 6px 10px rgba(0,0,0,.11); white-space: pre-wrap;"></label>';
+
+        var controlid = '#' + controlid;
+
+        $('form').append(html);
+        $(controlid).text(message);
+
+        if (type == 'error') {
+            $(controlid).addClass('admin-error');
+        }
+        else if (type == 'success') {
+            $(controlid).addClass('admin-success');
+        }
+
+
+        setTimeout(function () {
+            $(controlid).fadeOut(750)
+            $(controlid).remove();
+        }, 3000);
+
+    }
+
+    return {
+        showError: function (message) {
+            showMessage('error', message);
+        },
+        showSuccess: function (message) {
+            showMessage('success', message);
+        }
+    }
+}());

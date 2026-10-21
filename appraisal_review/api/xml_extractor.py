@@ -2457,7 +2457,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
             loc = r.find("LOCATION")
             st1 = loc.attrib.get("PropertyStreetAddress", "") if loc is not None else ""
             st2 = loc.attrib.get("PropertyStreetAddress2", "") if loc is not None else ""
-            full_addr = ", ".join([p for p in [st1, st2] if p]) if (st1 or st2) else ""
+            rental_full_addr = ", ".join([p for p in [st1, st2] if p]) if (st1 or st2) else ""
             prox = loc.attrib.get("ProximityToSubjectDescription", "") if loc is not None else ""
             
             l_start = r.attrib.get("LeaseStartDate", "")
@@ -2476,7 +2476,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
             mkt_rent = _clean_currency(r.attrib.get("MarketAdjustedMonthlyRentAmount", ""))
             
             c_dict = {
-                "Address": full_addr,
+                "Address": rental_full_addr,
                 "Proximity to Subject": prox,
                 "Date Lease Begins": l_start,
                 "Date Lease Expires": l_exp,

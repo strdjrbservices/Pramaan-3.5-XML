@@ -33,9 +33,16 @@ try:
 except ImportError:
     fitz: Any = None
 
+import warnings
+
 # OCR Engines
+_GLOBAL_EASYOCR_READER = None
+
 try:
-    import easyocr
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning)
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        import easyocr
 except ImportError:
     easyocr: Any = None
 
@@ -61,11 +68,16 @@ class MapExtractor:
         self._init_ocr()
 
     def _init_ocr(self):
-        """Initializes available OCR engine (EasyOCR or PyTesseract)."""
+        """Initializes available OCR engine (EasyOCR or PyTesseract). Reuses singleton to avoid memory overhead."""
+        global _GLOBAL_EASYOCR_READER
         if self.ocr_engine_type in ["auto", "easyocr"] and easyocr is not None:
             try:
-                print("Initializing EasyOCR engine (CPU mode)...")
-                self._easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+                if _GLOBAL_EASYOCR_READER is None:
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", category=UserWarning)
+                        warnings.filterwarnings("ignore", category=FutureWarning)
+                        _GLOBAL_EASYOCR_READER = easyocr.Reader(['en'], gpu=False, verbose=False)
+                self._easyocr_reader = _GLOBAL_EASYOCR_READER
                 self.active_engine = "easyocr"
                 return
             except Exception as e:

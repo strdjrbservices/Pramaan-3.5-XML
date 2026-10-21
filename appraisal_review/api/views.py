@@ -23,6 +23,15 @@ from .pdf_extractor import (
     extract_fields_from_html,
     compare_documents,
 )
+from .offline_comparison import (
+    compare_report_to_html_offline,
+    compare_documents_offline,
+    evaluate_confirmation_checklist_offline,
+    verify_revision_request_offline,
+    compare_contract_offline,
+    compare_engagement_letter_offline,
+    extract_fields_from_html_offline,
+)
 from .pdf_extractor_offline import extract_fields_from_pdf_offline
 from .pdf_extractor_ecr_offline import extract_fields_from_pdf_ecr_offline
 from .pdf_extractor_v1_offline import extract_fields_from_pdf_v1_offline
@@ -78,12 +87,12 @@ FOLDER_MAP = {
 
 VALID_EXTENSIONS = {
     'html_ref': ['.html'],
-    'new_revised': ['_revised.pdf'],
-    'old_revised': ['.pdf'],
-    'processed': ['.pdf', '.xlsx'],
+    'new_revised': ['_revised.pdf', '.pdf', '.xml', '_revised.xml'],
+    'old_revised': ['.pdf', '.xml'],
+    'processed': ['.pdf', '.xlsx', '.xml'],
     'logs': ['.log', '.xlsx', '.html'],
     'errors': ['.png', '.pdf'],
-    'full_file': ['.pdf'],
+    'full_file': ['.pdf', '.xml'],
     'full_file_logs': ['.log', '.xlsx', '.html']
 }
 
@@ -293,17 +302,46 @@ class SaveReportView(APIView):
 class GetReportsView(APIView):
     """
     API endpoint to retrieve saved appraisal reports.
+    Optimized to eliminate MySQL Error 1038 (Out of sort memory) on shared hosts like PythonAnywhere.
     """
     permission_classes = (AllowAny,)
     authentication_classes = ()
 
     def get(self, request, *args, **kwargs):
         try:
-            reports = AppraisalReport.objects.defer('validation_log').all().order_by('-created_at')[:50]
+            # 1. Attempt to increase MySQL session sort_buffer_size if running on MySQL
+            try:
+                from django.db import connection
+                with connection.cursor() as cursor:
+                    cursor.execute("SET SESSION sort_buffer_size = 4194304")  # 4MB
+            except Exception:
+                pass
+
+            # 2. Fetch lightweight IDs first to avoid loading heavy JSON blobs into MySQL sort buffer
+            try:
+                report_ids = list(AppraisalReport.objects.values_list('id', flat=True).order_by('-created_at')[:50])
+                if report_ids:
+                    reports_dict = {
+                        r.id: r for r in AppraisalReport.objects.filter(id__in=report_ids).defer('validation_log')
+                    }
+                    reports = [reports_dict[rid] for rid in report_ids if rid in reports_dict]
+                else:
+                    reports = []
+            except Exception as sort_err:
+                # 3. Bulletproof fallback: If MySQL still fails on filesort, retrieve without database-side ordering and sort in Python memory
+                print(f"Notice: Database sort failed ({sort_err}); falling back to in-memory sort.")
+                raw_reports = list(AppraisalReport.objects.defer('validation_log').all().order_by()[:100])
+                raw_reports.sort(
+                    key=lambda r: (r.created_at.timestamp() if hasattr(r, 'created_at') and r.created_at else 0),
+                    reverse=True
+                )
+                reports = raw_reports[:50]
+
             serializer = AppraisalReportListSerializer(reports, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
             print(f"Error fetching reports: {e}")
+            traceback.print_exc()
             return Response(
                 {"detail": "An internal error occurred while fetching reports."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -442,46 +480,46 @@ def _save_temp_file(file):
 @parser_classes([MultiPartParser, FormParser])
 def compare_html_to_pdf_with_prompt(request):
     """
-    Compares an HTML file to a new PDF file based on a custom prompt/checklist.
-    This is designed to support the 1004D Confirmation feature's HTML vs. PDF mode.
+    Compares an HTML file to a new PDF or XML file based on a custom prompt/checklist 100% offline.
     """
     html_file = request.data.get("html_file")
-    pdf_file = request.data.get("pdf_file")
-    comment = request.data.get(
-        "comment"
-    )  
+    pdf_file = request.data.get("pdf_file") or request.data.get("file") or request.data.get("xml_file")
+    comment = request.data.get("comment") or request.data.get("revision_request")
+    old_file = request.data.get("old_file") or request.data.get("old_pdf_file")
 
-    if not html_file or not pdf_file:
+    if not html_file and not comment:
         return Response(
-            {"detail": "Both HTML and PDF files must be provided."},
+            {"detail": "Either an HTML file or a rejection reason prompt must be provided."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not pdf_file:
+        return Response(
+            {"detail": "A report file (PDF or XML) must be provided."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if not comment:
-        return Response(
-            {"detail": "A prompt/checklist (comment) must be provided."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
+    html_tmp_path = ""
     pdf_tmp_path = ""
+    old_tmp_path = ""
     try:
-        pdf_tmp_path = _save_temp_file(pdf_file)
-        
-        pdf_data_response = extract_fields_from_pdf(
-            pdf_tmp_path,
-            form_type="1004D", 
-            custom_prompt=comment,
-        )
+        if not comment and html_file:
+            html_tmp_path = _save_temp_file(html_file)
+            h_data = extract_fields_from_html_offline(html_tmp_path)
+            comment = h_data.get("report_rejection_reason", "")
 
-        if pdf_data_response.get("error"):
+        if not comment:
             return Response(
-                {"detail": f"PDF check failed: {pdf_data_response.get('message')}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {"detail": "No rejection reason or revision prompt could be found in the HTML file or provided parameters."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        pdf_results = pdf_data_response.get("fields", {})
+        pdf_tmp_path = _save_temp_file(pdf_file)
+        if old_file:
+            old_tmp_path = _save_temp_file(old_file)
+
+        pdf_results = verify_revision_request_offline(pdf_tmp_path, comment, old_path=old_tmp_path if old_tmp_path else None)
         if "comparison_summary" in pdf_results:
-            pdf_results["details"] = pdf_results.pop("comparison_summary")
+            pdf_results["details"] = pdf_results["comparison_summary"]
 
         return Response(pdf_results)
 
@@ -491,16 +529,20 @@ def compare_html_to_pdf_with_prompt(request):
             {"detail": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     finally:
-        if os.path.exists(pdf_tmp_path):
+        if html_tmp_path and os.path.exists(html_tmp_path):
+            os.remove(html_tmp_path)
+        if pdf_tmp_path and os.path.exists(pdf_tmp_path):
             os.remove(pdf_tmp_path)
+        if old_tmp_path and os.path.exists(old_tmp_path):
+            os.remove(old_tmp_path)
 
 
 @api_view(["POST"])
 @parser_classes([MultiPartParser, FormParser])
 def compare_contract_to_report(request):
     """
-    Compares a main report PDF to a contract copy PDF to verify
-    'Contract Price' and 'Contract Date'.
+    Compares a main report PDF/XML to a contract copy PDF/DOC to verify
+    'Contract Price' and 'Contract Date' 100% offline.
     """
     main_report_file = request.data.get("main_report_file")
     contract_copy_file = request.data.get("contract_copy_file")
@@ -508,7 +550,7 @@ def compare_contract_to_report(request):
     if not main_report_file or not contract_copy_file:
         return Response(
             {
-                "detail": "Both main report and contract copy PDF files must be provided."
+                "detail": "Both main report and contract copy files must be provided."
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -519,37 +561,7 @@ def compare_contract_to_report(request):
         main_tmp_path = _save_temp_file(main_report_file)
         contract_tmp_path = _save_temp_file(contract_copy_file)
 
-        prompt = textwrap.dedent(
-            """
-            You are an expert appraisal data extractor. You are given two PDFs: an 'Original PDF' (the main appraisal report) and a 'Revised PDF' (the contract copy).
-
-            Your task is to extract the 'Contract Price' and 'Date of Contract' from both documents and compare them.
-
-            **CRITICAL INSTRUCTIONS:**
-            1.  **JSON Output:** Your response MUST be a single, clean JSON object. Do not include any introductory text, explanations, or markdown formatting like ```json.
-            2.  **JSON Structure:** The JSON object must be an array. Each item in the array represents a field you compared and must have the following keys:
-                - 'field': The name of the field (either "Contract Price" or "Contract Date").
-                - 'old_value': The value extracted from the 'Original PDF' (main report).
-                - 'new_value': The value extracted from the 'Revised PDF' (contract copy).
-                - 'status': A string, either 'Match' or 'Mismatch'.
-            3.  **Data Cleaning:**
-                - For 'Contract Price', extract only numeric digits. Remove dollar signs, commas, etc. (e.g., "$1,250,000" becomes "1250000").
-                - For 'Contract Date', format it as MM/DD/YYYY.
-            4.  **Not Found:** If a value cannot be found in a document, use "N/A".
-            5.  **Comparison:** The 'status' should be 'Match' only if the cleaned values are identical.
-
-            Example Response:
-            [
-              { "field": "Contract Price", "old_value": "550000", "new_value": "550000", "status": "Match" },
-              { "field": "Contract Date", "old_value": "05/15/2024", "new_value": "05/16/2024", "status": "Mismatch" }
-            ]
-        """
-        )
-
-        data = compare_documents(
-            main_tmp_path, contract_tmp_path, revision_request=prompt
-        )
-
+        data = compare_contract_offline(main_tmp_path, contract_tmp_path)
         return Response(data)
 
     except Exception as exc:
@@ -568,8 +580,8 @@ def compare_contract_to_report(request):
 @parser_classes([MultiPartParser, FormParser])
 def compare_engagement_letter(request):
     """
-    Compares a main report PDF to an engagement letter PDF to verify
-    'Property Address' and 'Vendor's Fee'.
+    Compares a main report PDF/XML to an engagement letter PDF/DOC to verify
+    'Property Address' and 'Vendor's Fee' 100% offline.
     """
     main_report_file = request.data.get("main_report_file")
     engagement_letter_file = request.data.get("engagement_letter_file")
@@ -577,7 +589,7 @@ def compare_engagement_letter(request):
     if not main_report_file or not engagement_letter_file:
         return Response(
             {
-                "detail": "Both main report and engagement letter PDF files must be provided."
+                "detail": "Both main report and engagement letter files must be provided."
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -588,39 +600,7 @@ def compare_engagement_letter(request):
         main_tmp_path = _save_temp_file(main_report_file)
         engagement_tmp_path = _save_temp_file(engagement_letter_file)
 
-        prompt = textwrap.dedent(
-            """
-            You are an expert appraisal data extractor. You are given two PDFs: an 'Original PDF' (the main appraisal report) and a 'Revised PDF' (the engagement letter).
-
-            Your task is to extract the 'Property Address' and 'Vendor's Fee' (which might be labeled as 'Appraisal Fee', 'Fee', or similar) from both documents and compare them.
-
-            **CRITICAL INSTRUCTIONS:**
-            1.  **JSON Output:** Your response MUST be a single, clean JSON object. Do not include any introductory text, explanations, or markdown formatting like ```json.
-            2.  **JSON Structure:** The JSON object must contain a key "comparison_results" which is an array. Each item in the array represents a field you compared and must have the following keys:
-                - 'field': The name of the field (either "Property Address" or "Vendor's Fee").
-                - 'main_report_value': The value extracted from the 'Original PDF' (main report).
-                - 'engagement_letter_value': The value extracted from the 'Revised PDF' (engagement letter).
-                - 'status': A string, either 'Match' or 'Mismatch'.
-            3.  **Data Cleaning:**
-                - For 'Vendor's Fee', extract only numeric digits. Remove dollar signs, commas, etc. (e.g., "$1,250.00" becomes "1250").
-                - For 'Property Address', normalize whitespace and make it a single line.
-            4.  **Not Found:** If a value cannot be found in a document, use "N/A".
-            5.  **Comparison:** The 'status' should be 'Match' only if the cleaned values are identical.
-
-            Example Response:
-            {
-              "comparison_results": [
-                { "field": "Property Address", "main_report_value": "123 Main St, Anytown, USA", "engagement_letter_value": "123 Main St, Anytown, USA", "status": "Match" },
-                { "field": "Vendor's Fee", "main_report_value": "650", "engagement_letter_value": "700", "status": "Mismatch" }
-              ]
-            }
-        """
-        )
-
-        data = compare_documents(
-            main_tmp_path, engagement_tmp_path, revision_request=prompt
-        )
-
+        data = compare_engagement_letter_offline(main_tmp_path, engagement_tmp_path)
         return Response(data)
 
     except Exception as exc:
@@ -765,6 +745,31 @@ def extract_pdf(request):
             category_clean = str(category or "").strip().upper()
             prompt_lower = str(custom_prompt or "").lower()
 
+            # 0. Revision Verification Check (100% Offline)
+            if revision_request or request.data.get("html_file"):
+                rev_req = revision_request
+                html_tmp_path = ""
+                if not rev_req and request.data.get("html_file"):
+                    html_f = request.data.get("html_file")
+                    html_tmp_path = _save_temp_file(html_f)
+                    try:
+                        h_data = extract_fields_from_html_offline(html_tmp_path)
+                        rev_req = h_data.get("report_rejection_reason", "")
+                    finally:
+                        if os.path.exists(html_tmp_path):
+                            os.remove(html_tmp_path)
+
+                if rev_req:
+                    old_file = request.data.get("old_file") or request.data.get("old_pdf_file")
+                    old_tmp_path = ""
+                    if old_file:
+                        old_tmp_path = _save_temp_file(old_file)
+                    try:
+                        return Response(verify_revision_request_offline(tmp_path, rev_req, old_path=old_tmp_path if old_tmp_path else None))
+                    finally:
+                        if old_tmp_path and os.path.exists(old_tmp_path):
+                            os.remove(old_tmp_path)
+
             # 1. State Requirement Check (Supports both PDF and XML)
             if category_clean in ["STATE_REQUIREMENT_CHECK", "STATE_REQUIREMENTS"] or any(
                 term in prompt_lower for term in [
@@ -886,125 +891,25 @@ def extract_pdf(request):
 @parser_classes([MultiPartParser, FormParser])
 def compare_pdf_to_html(request):
     """
-    Compares a PDF file to an HTML file.
+    Compares a PDF or XML appraisal report file to an HTML order file 100% offline.
     """
-    pdf_file = request.data.get("pdf_file")
+    pdf_file = request.data.get("pdf_file") or request.data.get("file") or request.data.get("xml_file")
     html_file = request.data.get("html_file")
 
     if not pdf_file or not html_file:
         return Response(
-            {"detail": "Both PDF and HTML files must be provided."},
+            {"detail": "Both report (PDF/XML) and HTML files must be provided."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     pdf_tmp_path = ""
     try:
         pdf_tmp_path = _save_temp_file(pdf_file)
-
         html_content_bytes = b"".join(chunk for chunk in html_file.chunks())
-        html_content = html_content_bytes.decode("utf-8")
+        html_content = html_content_bytes.decode("utf-8", errors="ignore")
 
-        fields_to_compare = [
-            "Client/Lender on Report",
-            "Client Address",
-            "Transaction Type",
-            "FHA Case Number",
-            "Borrower (and Co-Borrower)",
-            "Property Address",
-            "Property County",
-            "Property Type",
-            "Assigned to Vendor(s)",
-            "AMC Reg. Number",
-            "Appraisal Type",
-            "Unit Number",
-            "UAD XML Report",
-            "Appraiser's Fee",
-        ]
-
-        pdf_prompt = textwrap.dedent(f"""\
-            You are an expert data extractor for appraisal reports. Your task is to analyze the provided PDF and extract the values for the fields listed below with high accuracy.
-
-            **CRITICAL INSTRUCTIONS:**
-            1.  **JSON Output:** Your response MUST be a single, clean JSON object. Do not include any introductory text, explanations, or markdown formatting like ```json.
-            2.  **JSON Structure:** Each key in the JSON must be the field name from the list. The value for each key must be another JSON object with two keys: 'value' and 'page_no'.
-                - 'value': The extracted text or finding.
-                - 'page_no': The page number where the information was found.
-                - Example: {{ "Client Name": {{ "value": "Example Bank", "page_no": 1 }} }}
-            3.  **Not Found:** If a field's value cannot be found, use "N/A" for the 'value' and `null` for 'page_no'.
-            4.  **Data Cleaning:**
-                - For fields with choices (e.g., checkboxes, Yes/No), return only the selected option's text (e.g., "Purchase", "Yes").
-                - Normalize addresses to a single line with standard spacing.
-
-            **FIELD-SPECIFIC EXTRACTION RULES & HINTS:**
-            - **'Client Name'**: Find the 'Lender/Client', usually on the first page in the Subject section or if not found then get Lender/Client Company Name in certification page don't take Appraisal Management Company as output.
-            - **'Client Address'**: Find the full address associated with the 'Lender/Client', combining street, city, state, and zip into a single line.
-            - **'Transaction Type'**: Look for a 'Transaction Type' or 'Assignment Type' section. It's often a checkbox with options like 'Purchase', 'Refinance', 'Construction', 'REO'. Extract only the selected option's text.
-            - **'FHA Case Number'**: Find the 'FHA Case No.' or 'Case Number' field, typically in the header or top section of the first page. It usually has a format like 'XXX-XXXXXXX'. If not present, check for a 'VA Case Number'.
-            - **'Borrower (and Co-Borrower)'**: Extract the name(s) from the 'Borrower' field. If there is a co-borrower, combine them with ' & '.
-            - **'Property Address'**: Extract the full property address, usually found in the 'Subject' section. This should include street, city, state, and zip code.
-            - **'Property County'**: Extract the county for the subject property, often found near the property address.
-            - **'Property Type'**: Look for a 'Property Type' or similar field, often in the 'Improvements' section. It's often a checkbox with options like 'Single Family', 'Condo', 'PUD', '2-4 Unit'. Extract the selected option.
-            - **'Assigned to Vendor(s)'**: This is the Appraiser's Name. Find it in the 'Appraiser' or 'Supervisory Appraiser' signature block in the 'Certification' section at the end of the report.
-            - **'AMC Reg. Number'**: Search all pages of the report for a field labeled 'AMC License #', 'AMC Reg. Number', 'AMC Registration', or 'AMC Information'. This can appear on any page including the client section, appraiser certification page, state disclosure page, or addenda.
-            - **'Appraisal Type'**: Identify the primary appraisal form type and any additional forms present in the PDF. Scan headers and footers for form numbers. Combine multiple forms with ' + ' (e.g., '1004 + 1007'). Primary Types: 1004 (URAR), 1073 (Condo), 1025 (Multi-family), 2055 (Exterior), 1004C (Manufactured), 2090, 1075. Additional Types: 1007 (Rent Schedule), 1004D (Update/Completion), 92051, Compliance Inspection. Allowed Values: [1025, 1073, 1004, 1007, 1004D, 2090, 1007, 92051, 2055, As-is + ARV Reports, 203K FHA, 1075, 71A/71B, 1004C, ACE + PDR, Appraisal Version #1, ERC, ECR].
-            - **'Unit Number'**: If the property is part of a multi-unit building (like a condo or apartment), find the specific unit number, often part of the 'Property Address' or in a separate 'Unit #' field.
-            - **'UAD XML Report'**: This is often not explicitly stated. Infer 'True' if you see "UAD" mentioned in relation to compliance or definitions, especially in an addendum titled "UNIFORM APPRAISAL DATASET (UAD) DEFINITIONS ADDENDUM". Otherwise, look for a checkbox. If no evidence, return 'False'.
-            - **'Appraiser's Fee'**: Search all pages of the report for a field labeled 'Appraiser's Fee', 'Appraisal Fee', 'Fee', or 'Fee Disclosed'. This can appear on any page of the report including the main subject section, contract section, certification section, fee disclosure page, invoice page, or addendum.
-
-            **Fields to Extract:** {', '.join(fields_to_compare)}
-            """)
-
-        pdf_data_response = extract_fields_from_pdf(
-            pdf_tmp_path, form_type="1004", custom_prompt=pdf_prompt, prompt_type="direct"
-        )
-
-        if pdf_data_response.get("error"):
-            return Response(
-                {
-                    "detail": f"PDF extraction failed: {pdf_data_response.get('message')}"
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        pdf_data = pdf_data_response.get("fields", {})
-        html_data = extract_fields_from_html(html_content, fields_to_compare)
-
-        comparison_results = []
-        for field in fields_to_compare:
-            pdf_field_data = pdf_data.get(field, {})
-            pdf_value = (
-                pdf_field_data.get("value")
-                if isinstance(pdf_field_data, dict)
-                else pdf_field_data
-            )
-            html_value = html_data.get(field)
-
-            pdf_value_str = str(pdf_value).strip() if pdf_value is not None else "N/A"
-            html_value_str = (
-                str(html_value).strip() if html_value is not None else "N/A"
-            )
-
-            if not pdf_value_str:
-                pdf_value_str = "N/A"
-            if not html_value_str:
-                html_value_str = "N/A"
-
-            match_status = (
-                "Match"
-                if pdf_value_str.lower() == html_value_str.lower()
-                else "Mismatch"
-            )
-
-            comparison_results.append(
-                {
-                    "field": field,
-                    "html_value": html_value_str,
-                    "pdf_value": pdf_value_str,
-                    "status": match_status,
-                }
-            )
-
-        return Response({"comparison_results": comparison_results})
+        data = compare_report_to_html_offline(pdf_tmp_path, html_content)
+        return Response(data)
 
     except Exception as exc:
         traceback.print_exc()
@@ -1113,7 +1018,7 @@ def compare_pdf_to_xml(request):
 @parser_classes([MultiPartParser, FormParser])
 def compare_pdfs(request):
     """
-    Compares two PDF files.
+    Compares two report files (PDF or XML) 100% offline.
     """
     old_pdf_file = request.data.get("old_pdf_file")
     new_pdf_file = request.data.get("new_pdf_file")
@@ -1122,7 +1027,7 @@ def compare_pdfs(request):
 
     if not old_pdf_file or not new_pdf_file:
         return Response(
-            {"detail": "Both old and new PDF files must be provided."},
+            {"detail": "Both old and new files must be provided."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -1132,7 +1037,7 @@ def compare_pdfs(request):
         old_tmp_path = _save_temp_file(old_pdf_file)
         new_tmp_path = _save_temp_file(new_pdf_file)
 
-        data = compare_documents(
+        data = compare_documents_offline(
             old_tmp_path, new_tmp_path, revision_request=revision_request, form_type=form_type
         )
 
@@ -1159,7 +1064,7 @@ def compare_pdfs(request):
 @parser_classes([MultiPartParser, FormParser])
 def extract_from_html_view(request):
     """
-    Extracts specific fields from an HTML file.
+    Extracts specific fields from an HTML file 100% offline.
     """
     html_file = request.data.get("html_file")
     if not html_file:
@@ -1169,7 +1074,7 @@ def extract_from_html_view(request):
 
     try:
         html_content_bytes = b"".join(chunk for chunk in html_file.chunks())
-        html_content = html_content_bytes.decode("utf-8")
+        html_content = html_content_bytes.decode("utf-8", errors="replace")
 
         fields_to_extract = [
             "Client/Lender on Report",
@@ -1188,7 +1093,7 @@ def extract_from_html_view(request):
             "UAD XML Report",
         ]
 
-        extracted_data = extract_fields_from_html(html_content, fields_to_extract)
+        extracted_data = extract_fields_from_html_offline(html_content, fields_to_extract)
 
         return Response({"extracted_data": extracted_data})
     except Exception as exc:

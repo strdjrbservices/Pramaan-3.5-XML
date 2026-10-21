@@ -30,7 +30,7 @@ class AppraisalReport(models.Model):
     report_data: Any = models.JSONField()
     validation_log: Any = models.JSONField(blank=True, null=True)
     status: Any = models.CharField(max_length=50, default='Completed')
-    created_at: Any = models.DateTimeField(auto_now_add=True)
+    created_at: Any = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at: Any = models.DateTimeField(auto_now=True)
 
     def __str__(self):

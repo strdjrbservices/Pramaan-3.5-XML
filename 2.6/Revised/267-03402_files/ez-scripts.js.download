@@ -1,0 +1,41 @@
+
+// Tabs Functionality
+
+jQuery(function () {
+    jQuery('.main-tabs > .tab-btn, .section-tabs > .tab-btn').click(function () {   
+        jQuery(this).addClass('active').siblings().removeClass('active');
+    });
+});
+
+jQuery(function () {
+    jQuery('.main-tabs > .tab-btn, .section-tabs > .tab-btn').click(function () {
+        jQuery(this).addClass('active').siblings().removeClass('active');
+    });
+});
+
+
+// Side Menu
+
+jQuery(".hp-tabbtn").click(function () {
+    jQuery('.hp-tabbtn').removeClass('active');
+    jQuery(this).addClass('active');
+});
+
+
+// Ratings JS
+
+jQuery(document).ready(function () {
+    // Check Radio-box
+    jQuery(".rating input:radio").attr("checked", false);
+
+    jQuery('.rating input').click(function () {
+        //jQuery(this).parent().siblings.removeClass('checked');
+        jQuery(this).parent().addClass('checked');
+    });
+
+    jQuery('input:radio').change(
+        function () {
+            var userRating = this.value;
+            jQuery(this).parent().siblings(".value").html(userRating);
+        });
+});

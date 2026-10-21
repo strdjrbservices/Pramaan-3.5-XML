@@ -64,19 +64,51 @@ const ResponsePage = () => {
       const doc = parser.parseFromString(content, 'text/html');
 
       let extractedText = '';
-      const fieldNameToFind = 'report rejection reason';
-      const allElements = doc.body.querySelectorAll('*');
 
-      for (let i = 0; i < allElements.length; i++) {
-        const element = allElements[i];
-        if (element.textContent.trim().toLowerCase().replace(/:$/, '') === fieldNameToFind) {
-          let nextElement = element.nextElementSibling;
-          if (nextElement) {
-            extractedText = nextElement.innerText.trim();
-            break;
+      // 1. Direct check for known FastApp/portal ID pattern
+      const rejectSpan = doc.querySelector('[id*="lblFileRejectReason"], [id*="FileRejectReason"], [id*="lblRejectReason"]');
+      if (rejectSpan) {
+        extractedText = rejectSpan.innerText ? rejectSpan.innerText.trim() : rejectSpan.textContent.trim();
+      }
+
+      // 2. Search elements matching "report rejection reason"
+      if (!extractedText) {
+        const fieldNameToFind = 'report rejection reason';
+        const allElements = doc.body.querySelectorAll('*');
+
+        for (let i = 0; i < allElements.length; i++) {
+          const element = allElements[i];
+          const text = element.textContent.trim().toLowerCase().replace(/:$/, '');
+          if (text === fieldNameToFind || text.includes('report rejection reason')) {
+            let nextElement = element.nextElementSibling;
+            if (!nextElement && element.parentElement) {
+              nextElement = element.parentElement.nextElementSibling;
+            }
+            if (nextElement) {
+              const val = nextElement.innerText ? nextElement.innerText.trim() : nextElement.textContent.trim();
+              if (val && !val.toLowerCase().includes('report rejection reason')) {
+                extractedText = val;
+                break;
+              }
+            }
           }
         }
       }
+
+      // 3. Fallback regex on HTML raw text
+      if (!extractedText) {
+        const match = content.match(/report\s*rejection\s*reason[\s\S]*?<span[^>]*id=["'][^"']*lblFileRejectReason[^"']*["'][^>]*>([\s\S]*?)<\/span>/i) ||
+                      content.match(/report\s+rejection\s+reason\s*:?\s*<\/?[^>]+>\s*([^<]+)/i) ||
+                      content.match(/report\s+rejection\s+reason[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/i);
+        if (match && match[1]) {
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = match[1];
+          extractedText = tempDiv.innerText ? tempDiv.innerText.trim() : tempDiv.textContent.trim();
+        }
+      }
+
+      // Clean redundant title echo
+      extractedText = extractedText.replace(/^(?:report\s+rejection\s+reason\s*:?\s*)+/i, '').trim();
 
       if (!extractedText) {
         setError("Could not find 'report rejection reason' field in the HTML file.");
@@ -126,7 +158,7 @@ const ResponsePage = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!pdfFile || !revisionText) {
-      setError('Please provide a PDF file and ensure revision text is extracted.');
+      setError('Please provide a report file (PDF or XML) and ensure revision text is extracted.');
       return;
     }
 
@@ -247,11 +279,11 @@ const ResponsePage = () => {
           </Grid>
 
           <Grid item xs={12} md={8}>
-            <Typography variant="h6" gutterBottom>2. Upload Revised PDF</Typography>
+            <Typography variant="h6" gutterBottom>2. Upload Revised PDF / XML Report</Typography>
             <Stack spacing={2}>
               <Button variant="outlined" component="label">
-                Upload PDF File
-                <input type="file" hidden accept=".pdf,application/pdf" onChange={handlePdfFileChange} />
+                Upload Report File (PDF or XML)
+                <input type="file" hidden accept=".pdf,.xml,application/pdf,text/xml,application/xml" onChange={handlePdfFileChange} />
               </Button>
               {pdfFile && <Typography variant="body2" noWrap>Selected: {pdfFile.name}</Typography>}
             </Stack>

@@ -1,0 +1,251 @@
+(function ($) {
+    var BANNER_TOGGLE_ANIMATION_MS = 150;
+    // How close to the bottom of the scrollable grid (in px) triggers loading the next batch - small
+    // enough to feel responsive, large enough that the fetch usually finishes before the user hits the
+    // literal bottom.
+    var SCROLL_NEAR_BOTTOM_THRESHOLD_PX = 80;
+    // Safety cap on consecutive auto-triggered loads when the scroll container still isn't tall
+    // enough to show a scrollbar (see maybeAutoContinueValueHistoryLoad) - prevents a request storm
+    // if HasMore is ever stuck true across many near-empty batches.
+    var MAX_AUTO_CONTINUE_FETCHES = 5;
+
+    var valueHistoryState = {
+        isLoading: false,
+        hasMore: true,
+        visibleOffset: 0,
+        visibleBatchSize: 25,
+        initialized: false,
+        autoContinueCount: 0
+    };
+
+    var $bannerBody, $bannerSummary, $bannerWrapper, $skeletonTable, $loadingIndicator, $sectionLoader,
+        $tableBody, $emptyState, $scrollContainer, $appraisalIdField, $criteriaField;
+
+    function escapeHtml(value) {
+        if (value === undefined || value === null) {
+            return '';
+        }
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function renderValueHistoryRows(rows) {
+        var html = '';
+
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            html += '<tr>';
+            if (row.IsCurrentOrder) {
+                html += '<td>' + escapeHtml(row.OrderNumber) + '</td>';
+            } else {
+                var targetPage = row.IsAppraisalOrder ? 'ViewAppraisal.aspx' : 'ViewOrder.aspx';
+                html += '<td><a href="' + targetPage + '?ApprID=' + encodeURIComponent(row.AppraisalId) + '" target="_blank" rel="noopener">' + escapeHtml(row.OrderNumber) + '</a></td>';
+            }
+            html += '<td>' + escapeHtml(row.OrderDate) + '</td>';
+            html += '<td>' + escapeHtml(row.AgeDays) + '</td>';
+            html += '<td>' + escapeHtml(row.Client) + '</td>';
+            html += '<td>' + escapeHtml(row.Valuation) + '</td>';
+            html += '<td>' + escapeHtml(row.Variance) + '</td>';
+            html += '<td>' + escapeHtml(row.Vendor) + '</td>';
+            html += '<td>' + escapeHtml(row.EffectiveDate) + '</td>';
+            html += '<td>' + escapeHtml(row.Product) + '</td>';
+            html += '</tr>';
+        }
+
+        // Appends only - never re-renders rows already in the DOM. This is why
+        // ValueHistoryService.GetValueHistory's pagination has to hold back a row whose variance isn't
+        // confirmed yet (server-side comment there): once a row is appended here with a value, there's
+        // no mechanism to go back and correct it if the backend later recomputes it differently.
+        $tableBody.append(html);
+    }
+
+    function toggleValueHistoryLoading(isLoading) {
+        var isFirstLoad = valueHistoryState.visibleOffset === 0;
+        $skeletonTable.toggle(isLoading && isFirstLoad);
+        $loadingIndicator.toggle(isLoading && !isFirstLoad);
+        $sectionLoader.css('display', isLoading && !isFirstLoad ? 'flex' : 'none');
+    }
+
+    function handleLoadFailure(logPrefix, detail) {
+        console.error(logPrefix, detail);
+
+        if (!valueHistoryState.initialized) {
+            valueHistoryState.initialized = true;
+            $tableBody.empty();
+            $emptyState.text('Unable to load Value History right now. Please refresh the page to try again.').show();
+            $scrollContainer.hide();
+        }
+
+        valueHistoryState.hasMore = false;
+    }
+
+    function isValueHistoryContainerScrollable() {
+        var el = $scrollContainer[0];
+        return !!el && el.scrollHeight > el.clientHeight;
+    }
+
+    // Rows load on scroll, but a batch can come back with HasMore still true and too few rows to
+    // make the container scrollable in the first place - which means the scroll event that would
+    // normally fetch the next batch never fires. This keeps auto-fetching (bounded) until the
+    // container is actually scrollable or there's genuinely nothing left to load.
+    function maybeAutoContinueValueHistoryLoad(endpoint) {
+        if (!valueHistoryState.hasMore || valueHistoryState.isLoading) {
+            return;
+        }
+        if (!$scrollContainer.is(':visible')) {
+            return;
+        }
+        if (isValueHistoryContainerScrollable()) {
+            valueHistoryState.autoContinueCount = 0;
+            return;
+        }
+        if (valueHistoryState.autoContinueCount >= MAX_AUTO_CONTINUE_FETCHES) {
+            console.warn('Value History: stopped auto-continue after ' + MAX_AUTO_CONTINUE_FETCHES +
+                ' consecutive fetches; container is still not scrollable.');
+            return;
+        }
+        valueHistoryState.autoContinueCount++;
+        loadValueHistory(endpoint);
+    }
+
+    function loadValueHistory(endpoint) {
+        if (valueHistoryState.isLoading || !valueHistoryState.hasMore) {
+            return;
+        }
+
+        var appraisalId = $appraisalIdField.val();
+        var selectedCriteriaCsv = $criteriaField.val();
+
+        if (!appraisalId || !selectedCriteriaCsv) {
+            $emptyState.show();
+            return;
+        }
+
+        valueHistoryState.isLoading = true;
+        toggleValueHistoryLoading(true);
+
+        $.ajax({
+            type: 'POST',
+            url: endpoint,
+            contentType: 'application/json; charset=utf-8',
+            dataType: 'json',
+            data: JSON.stringify({
+                appraisalId: appraisalId,
+                selectedCriteriaCsv: selectedCriteriaCsv,
+                visibleOffset: valueHistoryState.visibleOffset.toString(),
+                visibleBatchSize: valueHistoryState.visibleBatchSize.toString()
+            }),
+            success: function (response) {
+                var result;
+                try {
+                    result = response && response.d ? JSON.parse(response.d) : null;
+                } catch (parseError) {
+                    handleLoadFailure('Value History: failed to parse response.', parseError);
+                    return;
+                }
+
+                var rows = result && result.Rows ? result.Rows : [];
+
+                if (!valueHistoryState.initialized) {
+                    valueHistoryState.initialized = true;
+                    if (result && result.NoPriorMatches === true) {
+                        $tableBody.empty();
+                        $emptyState.show();
+                        $scrollContainer.hide();
+                        valueHistoryState.hasMore = false;
+                    } else {
+                        $emptyState.hide();
+                        $scrollContainer.show();
+                    }
+                }
+
+                if (rows.length > 0) {
+                    renderValueHistoryRows(rows);
+                }
+
+                // The server-rendered page load only knows the AWE variance-triggered flag, not
+                // whether a prior order actually exists (that search is async). ShouldShowBanner
+                // applies the same AWE eligibility rule plus the async prior-match result, so the
+                // wrapper is corrected here when the page-load placeholder turns out not to qualify.
+                if ($bannerWrapper.length > 0) {
+                    $bannerWrapper.toggle(!!(result && result.ShouldShowBanner));
+                }
+
+                if ($bannerBody.length > 0) {
+                    $bannerBody.html(result && result.RenderedBannerHtml || '');
+                }
+
+                if ($bannerSummary.length > 0) {
+                    $bannerSummary.text(result && result.RenderedBannerSummary || '');
+                }
+
+                valueHistoryState.visibleOffset = result && result.NextVisibleOffset ? result.NextVisibleOffset : valueHistoryState.visibleOffset + rows.length;
+                valueHistoryState.hasMore = !!(result && result.HasMore);
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                handleLoadFailure('Value History: failed to load history data.', textStatus + ' ' + errorThrown);
+            },
+            complete: function () {
+                valueHistoryState.isLoading = false;
+                toggleValueHistoryLoading(false);
+                maybeAutoContinueValueHistoryLoad(endpoint);
+            }
+        });
+    }
+
+    $(function () {
+        var root = $('#valueHistoryRoot');
+        var endpoint = root.data('endpoint');
+
+        $scrollContainer = $('#valueHistoryScrollContainer');
+        $bannerBody = $('#divValueHistoryBannerBody');
+        $bannerSummary = $('#divValueHistoryBannerSummary');
+        $bannerWrapper = $('#divValueHistoryBannerWrapper');
+        $skeletonTable = $('#valueHistorySkeletonTable');
+        $loadingIndicator = $('#valueHistoryLoading');
+        $sectionLoader = $('#valueHistorySectionLoader');
+        $tableBody = $('#valueHistoryTableBody');
+        $emptyState = $('#valueHistoryEmpty');
+        $appraisalIdField = $('#hdnValueHistoryAppraisalId');
+        $criteriaField = $('#hdnValueHistoryCriteria');
+
+        var valueHistoryToggle = $('#btnValueHistoryRotate');
+
+        valueHistoryToggle.on('click', function (event) {
+            event.preventDefault();
+
+            if ($bannerBody.is(':visible')) {
+                $bannerBody.stop(true, true).slideUp(BANNER_TOGGLE_ANIMATION_MS);
+                $bannerSummary.stop(true, true).slideDown(BANNER_TOGGLE_ANIMATION_MS);
+                valueHistoryToggle.addClass('rotate');
+            } else {
+                $bannerSummary.stop(true, true).slideUp(BANNER_TOGGLE_ANIMATION_MS);
+                $bannerBody.stop(true, true).slideDown(BANNER_TOGGLE_ANIMATION_MS);
+                valueHistoryToggle.removeClass('rotate');
+            }
+        });
+
+        if (!root.length || !endpoint) {
+            return;
+        }
+
+        if ($appraisalIdField.val()) {
+            loadValueHistory(endpoint);
+        }
+
+        $scrollContainer.on('scroll', function () {
+            if (!valueHistoryState.hasMore || valueHistoryState.isLoading) {
+                return;
+            }
+
+            var remaining = this.scrollHeight - this.scrollTop - this.clientHeight;
+            if (remaining <= SCROLL_NEAR_BOTTOM_THRESHOLD_PX) {
+                loadValueHistory(endpoint);
+            }
+        });
+    });
+})(jQuery);

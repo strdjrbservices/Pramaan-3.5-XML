@@ -1,0 +1,65 @@
+﻿function CheckInvalidCharacters(list , showerror)
+{
+
+    var errorMsg = "";
+    for (var i = 0; i < list.length; i++)
+    {
+        var content = $('#' + list[i].Id).val();
+        if (content) {
+            if (CheckPotentiallyDangerousContent(content)) {
+                if (showerror === true) {
+                    errorMsg += list[i].Message + "</br>";
+                }
+                else {
+                    var CleanText = ClearUnwantedCharacters(content);
+                    $('#' + list[i].Id).val(CleanText);
+                }
+            }
+        }
+    }
+   
+    if (showerror === true && errorMsg !== "") {
+        return errorMsg;
+    }
+    else
+    {
+        return true;
+    }
+}
+
+function CheckPotentiallyDangerousContent(fieldText) {
+    var reg = new RegExp("<[a-zA-Z!/?]|&#");
+    var match = fieldText.match(reg);
+    if (match) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+function ClearUnwantedCharacters(fieldText)
+{
+    var reg = new RegExp("<[a-zA-Z!/?]|&#");
+    var match;
+    do {
+        match = reg.exec(fieldText);
+        if (match) {
+            if (fieldText[match.index] == '&') {
+                fieldText = fieldText.replaceAt(match.index, '& ');
+            } else {
+                fieldText = fieldText.replaceAt(match.index, '< ');
+            }
+            //fieldText = fieldText.replace(match, '');
+            
+            
+        }
+    } while (match);
+    return fieldText;
+}
+
+
+String.prototype.replaceAt = function (index, char) {
+    return this.substr(0, index) + char + this.substr(index + 1);
+    //   this will 'replace' the character at index with char ^
+}

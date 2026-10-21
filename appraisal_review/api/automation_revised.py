@@ -99,19 +99,26 @@ async def process_revised_file_review(
 
         file_name = Path(new_pdf_path).name
 
-        logger.info("Uploading old file (PDF)...")
+        logger.info("Uploading old file (PDF / XML)...")
         try:
             old_file_input = await page.wait_for_selector(OLD_PDF_UPLOAD_SELECTOR, state="attached", timeout=5000)
             target_old_pdf = Path(old_pdf_path) if old_pdf_path else OLD_FILES_REVISED_PATH / file_name
+            if not target_old_pdf.exists():
+                stem = Path(file_name).stem
+                for old_cand in [f"{stem}.xml", f"{stem}.XML", f"{stem}.pdf", f"{stem}.PDF"]:
+                    cand_p = OLD_FILES_REVISED_PATH / old_cand
+                    if cand_p.exists():
+                        target_old_pdf = cand_p
+                        break
             if target_old_pdf.exists():
                 await old_file_input.set_input_files(str(target_old_pdf))
-                logger.info(f"Old file (PDF) selected from: {target_old_pdf}")
+                logger.info(f"Old file (PDF/XML) selected from: {target_old_pdf}")
             else:
-                logger.warning(f"Old PDF file not found. Skipping Old PDF upload.")
+                logger.warning(f"Old report file not found. Skipping Old file upload.")
         except Exception:
-            logger.warning("Old PDF upload input not found or timed out. Skipping.")
+            logger.warning("Old report upload input not found or timed out. Skipping.")
 
-        logger.info("Uploading new file (PDF)...")
+        logger.info("Uploading new file (PDF / XML)...")
         new_file_input = await page.wait_for_selector(NEW_FILE_UPLOAD_SELECTOR_REVISED, state="attached")
         revised_pdf_path = Path(new_pdf_path)
         if not revised_pdf_path.exists():
@@ -121,6 +128,15 @@ async def process_revised_file_review(
                 f"{base_name}_revised{ext}",
                 f"{base_name} Revised{ext}",
                 f"{base_name}_Revised{ext}",
+                f"{base_name}(1){ext}",
+                f"{base_name}(1).xml",
+                f"{base_name}(1).XML",
+                f"{base_name}_revised.xml",
+                f"{base_name}_revised.XML",
+                f"{base_name}.xml",
+                f"{base_name}.XML",
+                f"{base_name}.pdf",
+                f"{base_name}.PDF",
             ]
             for candidate in candidates:
                 candidate_path = NEW_FILES_REVISED_PATH / candidate
@@ -129,7 +145,7 @@ async def process_revised_file_review(
                     break
         if revised_pdf_path.exists():
             await new_file_input.set_input_files(str(revised_pdf_path))
-            logger.info(f"New file (PDF) selected from: {revised_pdf_path}")
+            logger.info(f"New file (PDF/XML) selected from: {revised_pdf_path}")
         else:
             raise FileNotFoundError(
                 f"File not found in 'new_files_revised': {file_name} (or variations). Please ensure the file exists in the New Files (Revised Input) folder."

@@ -1,0 +1,76 @@
+﻿$("body").ready(function () {
+    LoadTooltipHandler();
+});
+
+function LoadTooltipHandler() {
+    $(document).tooltip({
+        selector: '.tooltipper',
+        placement: 'right',
+        trigger: 'focus',
+        animation: false
+    });
+
+    $(".checkbox").tooltip({
+        selector: '.checktipper',
+        placement: 'right',
+        trigger: 'hover',
+        animation: false
+    });
+
+    $(".dropdown").tooltip({
+        selector: '.droptipper',
+        placement: 'right',
+        trigger: 'hover',
+        animation: false
+    });
+
+    $(".ddtooltip").tooltip({
+        selector: '.droptipper',
+        placement: 'right',
+        trigger: 'hover',
+        animation: false
+    });
+
+    $(".radio-buttons").tooltip({
+        selector: '.radiotipper',
+        placement: 'right',
+        trigger: 'hover',
+        animation: false
+    });
+    $('.admin-header').tooltip({
+        selector: '.checktipper',
+        placement: 'right',
+        trigger: 'hover',
+        animation: false
+    });
+    $('.admin-subheader').tooltip({
+        selector: '.checktipper',
+        placement: 'right',
+        trigger: 'hover',
+        animation: false
+    });
+    $('.admin-label-tipper').tooltip({
+        selector: '.labeltipper',
+        placement: 'right',
+        trigger: 'hover',
+        animation: false
+    });
+
+    $(".checkbox1").tooltip({
+        selector: '.checktipper1',
+        placement: 'top',
+        trigger: 'hover',
+        animation: false
+    });
+
+    $(".tooltip-top").tooltip({
+        selector: '.tt-top',
+        placement: 'top',
+        trigger: 'hover',
+        animation: false
+    });
+
+   
+
+    $('[data-toggle="tooltip"]').tooltip();
+}
