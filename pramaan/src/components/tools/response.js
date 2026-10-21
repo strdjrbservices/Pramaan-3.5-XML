@@ -15,6 +15,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Chip,
 } from '@mui/material';
 import uploadSoundFile from '../../Assets/upload.mp3';
 import { API_BASE_URL } from '../Subject/utils/utils.js';
@@ -39,6 +40,25 @@ const playSound = (soundType) => {
   } catch (e) {
     console.error("Error playing sound:", e);
   }
+};
+
+const renderFinalOutput = (output) => {
+  if (!output) return 'N/A';
+  const outputLower = String(output).toLowerCase().trim();
+  const positiveWords = ['yes', 'present', 'corrected', 'match', 'fulfilled', 'consistent', 'ok', 'pass', 'correct'];
+  const negativeWords = ['no', 'not corrected', 'mismatch', 'not fulfilled', 'inconsistent', 'absent', 'missing', 'fail', 'incorrect', 'no match'];
+
+  let style = {};
+  if (positiveWords.includes(outputLower)) {
+    style = { backgroundColor: '#91ff00ff', color: '#000000', padding: '4px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-block' };
+  } else if (negativeWords.includes(outputLower)) {
+    style = { backgroundColor: '#ff0000', color: '#ffffff', padding: '4px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-block' };
+  }
+
+  if (Object.keys(style).length > 0) {
+    return <span style={style}>{output}</span>;
+  }
+  return output;
 };
 
 const ResponsePage = () => {
@@ -215,45 +235,100 @@ const ResponsePage = () => {
   const renderResponse = (data) => {
     if (!data) return null;
 
-    const comparisonSummary = data?.fields?.comparison_summary || [];
-    const summaryText = data?.fields?.summary || '';
+    const comparisonSummary = data?.fields?.comparison_summary || data?.comparison_summary || [];
+    const summaryText = data?.fields?.summary || data?.summary || '';
 
     if (comparisonSummary.length === 0) {
       return (
         <Alert severity="success" sx={{ mt: 3 }}>
-          No differences were found between the two PDF documents.
+          No differences were found between the two documents.
         </Alert>
       );
     }
 
+    const verifiedCount = comparisonSummary.filter(c => ['fulfilled', 'corrected', 'pass', 'match'].includes(String(c.status).toLowerCase())).length;
+
     return (
-      <Paper elevation={1} sx={{ p: 2, mt: 3 }}>
-        <Typography variant="h6" gutterBottom>Verification Results</Typography>
+      <Paper elevation={1} sx={{ p: 3, mt: 3, borderRadius: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+          <Typography variant="h6" fontWeight="bold">
+            Revision Verification Findings
+          </Typography>
+          <Chip
+            label={`${verifiedCount} of ${comparisonSummary.length} Verified`}
+            color={verifiedCount === comparisonSummary.length ? 'success' : 'warning'}
+            size="small"
+            sx={{ fontWeight: 'bold' }}
+          />
+        </Box>
+
         {summaryText && (
-          <Paper elevation={2} sx={{ p: 3, mb: 3, borderLeft: 5, borderColor: 'primary.main', bgcolor: 'action.hover' }}>
-            <Typography variant="h6" gutterBottom component="div" color="text.primary">
+          <Paper elevation={0} sx={{ p: 2.5, mb: 3, borderLeft: 5, borderColor: 'primary.main', bgcolor: 'action.hover', borderRadius: 2 }}>
+            <Typography variant="subtitle1" fontWeight="bold" gutterBottom component="div" color="text.primary">
               Summary
             </Typography>
-            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
               {summaryText}
             </Typography>
           </Paper>
         )}
-        <TableContainer>
-          <Table sx={{ minWidth: 650 }} aria-label="comparison table">
-            <TableHead>
+
+        <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+          <Table sx={{ minWidth: 800 }} aria-label="revision verification table">
+            <TableHead sx={{ bgcolor: 'action.hover' }}>
               <TableRow>
-                <TableCell sx={{ fontWeight: 'bold' }}>Corrected/Not Corrected</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Section</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Comment</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', width: '50px' }}>#</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '220px' }}>Revision Request</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '170px' }}>Section & Page</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '180px' }}>Original Finding / Issue</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '220px' }}>Revised Finding (Verified)</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '130px' }} align="center">Status</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '220px' }}>Confirmation Details</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {comparisonSummary.map((change, index) => (
-                <TableRow key={index} sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                  <TableCell component="th" scope="row">{change.status}</TableCell>
-                  <TableCell>{change.section}</TableCell>
-                  <TableCell>{change.comment}</TableCell>
+                <TableRow key={index} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                  <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>
+                    {change.item_no || index + 1}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.875rem' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.primary' }}>
+                      {change.revision_request || `Revision Item ${index + 1}`}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {change.section}
+                    </Typography>
+                    {change.page_no && (
+                      <Chip
+                        label={change.page_no}
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        sx={{ mt: 0.5, fontSize: '0.72rem', height: '20px' }}
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.85rem' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {change.original_finding || change.original_value || 'Report Rejection Note'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.85rem' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.dark' }}>
+                      {change.revised_finding || change.revised_value || change.comment}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="center">
+                    {renderFinalOutput(change.status)}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.85rem' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {change.finding || change.comment}
+                    </Typography>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

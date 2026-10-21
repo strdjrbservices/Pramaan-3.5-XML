@@ -557,37 +557,88 @@ const Compare = () => {
       );
     }
 
+    const verifiedCount = comparisonSummary.filter(c => ['fulfilled', 'corrected', 'pass', 'match'].includes(String(c.status).toLowerCase())).length;
+
     return (
-      <Paper elevation={1} sx={{ p: 2, mt: 3 }}>
-        <Typography variant="h6" gutterBottom>Verification Results</Typography>
+      <Paper elevation={1} sx={{ p: 3, mt: 3, borderRadius: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+          <Typography variant="h6" fontWeight="bold">
+            Revision Verification Findings
+          </Typography>
+          <Chip
+            label={`${verifiedCount} of ${comparisonSummary.length} Verified`}
+            color={verifiedCount === comparisonSummary.length ? 'success' : 'warning'}
+            size="small"
+            sx={{ fontWeight: 'bold' }}
+          />
+        </Box>
+
         {summaryText && (
-          <Paper elevation={2} sx={{ p: 3, mb: 3, borderLeft: 5, borderColor: 'primary.main', bgcolor: 'action.hover' }}>
-            <Typography variant="h6" gutterBottom component="div" color="text.primary">
+          <Paper elevation={0} sx={{ p: 2.5, mb: 3, borderLeft: 5, borderColor: 'primary.main', bgcolor: 'action.hover', borderRadius: 2 }}>
+            <Typography variant="subtitle1" fontWeight="bold" gutterBottom component="div" color="text.primary">
               Summary
             </Typography>
-            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
               <HighlightKeywords text={summaryText} keywordGroups={keywordGroups} />
             </Typography>
           </Paper>
         )}
-        <TableContainer>
-          <Table sx={{ minWidth: 650 }} aria-label="comparison table">
-            <TableHead>
+
+        <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+          <Table sx={{ minWidth: 800 }} aria-label="revision verification table">
+            <TableHead sx={{ bgcolor: 'action.hover' }}>
               <TableRow>
-                <TableCell sx={{ fontWeight: 'bold' }}>Corrected/Not Corrected</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Section</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Comment</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', width: '50px' }}>#</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '220px' }}>Revision Request</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '170px' }}>Section & Page</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '180px' }}>Original Finding / Issue</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '220px' }}>Revised Finding (Verified)</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '130px' }} align="center">Status</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: '220px' }}>Confirmation Details</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {comparisonSummary.map((change, index) => (
-                <TableRow key={index} sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                  <TableCell component="th" scope="row">{renderFinalOutput(change.status)}</TableCell>
-                  <TableCell>
-                    <HighlightKeywords text={change.section} keywordGroups={keywordGroups} />
+                <TableRow key={index} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                  <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>
+                    {change.item_no || index + 1}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.875rem' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.primary' }}>
+                      {change.revision_request || `Revision Item ${index + 1}`}
+                    </Typography>
                   </TableCell>
                   <TableCell>
-                    <HighlightKeywords text={change.comment} keywordGroups={keywordGroups} />
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      <HighlightKeywords text={change.section} keywordGroups={keywordGroups} />
+                    </Typography>
+                    {change.page_no && (
+                      <Chip
+                        label={change.page_no}
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        sx={{ mt: 0.5, fontSize: '0.72rem', height: '20px' }}
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.85rem' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {change.original_finding || change.original_value || 'Report Rejection Note'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.85rem' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.dark' }}>
+                      {change.revised_finding || change.revised_value || change.comment}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="center">
+                    {renderFinalOutput(change.status)}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.85rem' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      <HighlightKeywords text={change.finding || change.comment} keywordGroups={keywordGroups} />
+                    </Typography>
                   </TableCell>
                 </TableRow>
               ))}
