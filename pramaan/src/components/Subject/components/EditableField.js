@@ -12,7 +12,7 @@ import { checkCostNew, checkSourceOfCostData, checkIndicatedValueByCostApproach,
 import { checkResearchHistory, checkSubjectPriorSales, checkComparablePriorSales, checkDataSourceNotBlank, checkEffectiveDateIsCurrentYear, checkSubjectPriorSaleDate, checkCompPriorSaleDate } from '../../../validations/salesHistoryValidation';
 import { checkStateRequirements } from '../../../validations/stateValidation';
 import { checkLenderAddressInconsistency as checkLenderAddressHtmlInconsistency, checkSubjectLenderNameVsHtml, checkBorrowerNameVsHtml } from '../../../validations/htmldatavaliadtion';
-import { checkLeaseDates, checkOtherBasement } from '../../../validations/rentScheduleValidation';
+import { checkLeaseDates, checkOtherBasement, checkSubjectMonthlyRental, checkSubjectUtilities, checkSubjectFurniture, checkSubjectAdjustedMonthlyRent } from '../../../validations/rentScheduleValidation';
 import { checkIncomeApproachFieldsNotBlank, checkIncomeApproach1007Required, INCOME_APPROACH_1007_REQUIRED_FIELDS } from '../../../validations/incomeApproachValidation';
 import { checkPudInformationFieldsNotBlank, checkPudControlAndFees } from '../../../validations/pudInformationValidation';
 import { checkMarketConditionsFieldsNotBlank } from '../../../validations/marketConditionsValidation';
@@ -275,6 +275,10 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     // Rent Schedule Validations
     'Date Lease Begins': [checkLeaseDates],
     'Date Lease Expires': [checkLeaseDates],
+    'Monthly Rental': [checkSubjectMonthlyRental],
+    'Less: Utilities': [checkSubjectUtilities],
+    'Furniture': [checkSubjectFurniture],
+    'Adjusted Monthly Rent': [checkSubjectAdjustedMonthlyRent],
     'Other (e.g., basement, etc.)': [checkOtherBasement],
 
     // Reconciliation Validations
@@ -757,7 +761,7 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
       }
     }
 
-    if (validationResult?.message) {
+    if (validationResult?.message && !validationResult.skipBlankFilter) {
       const isMsgBlank = (
         validationResult.message.includes('should not be blank') ||
         validationResult.message.includes('must not be blank') ||

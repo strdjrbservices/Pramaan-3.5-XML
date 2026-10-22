@@ -1,3 +1,5 @@
+import { getSubjectRentFieldVal, parseMMDDYYYY, is1007Active } from './rentScheduleValidation';
+
 const checkNotBlank = (field, text, fieldName) => {
     if (field === fieldName) {
         if (!text || String(text).trim() === '') {
@@ -253,7 +255,7 @@ export const checkFhaCaseNo = (field, text) => {
     return { isMatch: true };
 };
 
-export const checkOccupancy = (field, text) => {
+export const checkOccupancy = (field, text, allData) => {
     const targetFields = ['Occupant', 'Occupancy'];
     if (!targetFields.includes(field)) return null;
 
@@ -263,14 +265,92 @@ export const checkOccupancy = (field, text) => {
     const validOptions = ['owner', 'tenant', 'vacant'];
     const valueLower = value.toLowerCase();
 
-    const isValid = validOptions.some(opt => valueLower === opt);
+    const matchedOption = validOptions.find(opt => valueLower === opt || valueLower.includes(opt));
 
-    if (!isValid) {
+    if (!matchedOption) {
         return {
             isError: true,
             skipBlankFilter: true,
             message: `Invalid value for '${field}': '${value}'. Expected one of: Owner, Tenant, Vacant.`
         };
+    }
+
+    if (!allData) return { isMatch: true };
+
+    if (is1007Active(allData)) {
+        const leaseBegins = getSubjectRentFieldVal(allData, 'Date Lease Begins');
+        const leaseExpires = getSubjectRentFieldVal(allData, 'Date Lease Expires');
+
+        // If occupant is owner or vacant, lease dates must be blank and vice versa
+        if (matchedOption === 'owner' || matchedOption === 'vacant') {
+            if (leaseBegins || leaseExpires) {
+                return {
+                    isError: true,
+                    skipBlankFilter: true,
+                    message: `Occupant is '${value}', but lease dates are present in Rental Grid. Lease start and end dates must be blank.`
+                };
+            }
+        } else if (matchedOption === 'tenant') {
+            // If occupant is tenant, start and end date must be present and valid
+            if (!leaseBegins || !leaseExpires) {
+                return {
+                    isError: true,
+                    skipBlankFilter: true,
+                    message: `Occupant is 'Tenant', but lease start and end dates must be present in Rental Grid.`
+                };
+            }
+
+            const beginsDateObj = parseMMDDYYYY(leaseBegins);
+            const expiresDateObj = parseMMDDYYYY(leaseExpires);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            if (!beginsDateObj || !expiresDateObj) {
+                return {
+                    isError: true,
+                    skipBlankFilter: true,
+                    message: `Occupant is 'Tenant', but lease dates in Rental Grid must be valid dates in MM/DD/YYYY format.`
+                };
+            }
+
+            // Logical: end date should be greater than start date
+            if (beginsDateObj >= expiresDateObj) {
+                return {
+                    isError: true,
+                    skipBlankFilter: true,
+                    message: `Occupant is 'Tenant', but in Rental Grid 'Date Lease Expires' (${leaseExpires}) must be greater than 'Date Lease Begins' (${leaseBegins}).`
+                };
+            }
+
+            // Logical: end date should be greater than current date
+            if (expiresDateObj <= today) {
+                return {
+                    isError: true,
+                    skipBlankFilter: true,
+                    message: `Occupant is 'Tenant', but in Rental Grid 'Date Lease Expires' (${leaseExpires}) must be greater than current date.`
+                };
+            }
+
+            // Monthly Rental, Less: Utilities (zero allowed), Furniture (zero allowed), Adjusted Monthly Rent should be present
+            const monthlyRental = getSubjectRentFieldVal(allData, 'Monthly Rental');
+            const utilities = getSubjectRentFieldVal(allData, 'Less: Utilities');
+            const furniture = getSubjectRentFieldVal(allData, 'Furniture');
+            const adjRent = getSubjectRentFieldVal(allData, 'Adjusted Monthly Rent');
+
+            const missing = [];
+            if (!monthlyRental) missing.push('Monthly Rental');
+            if (utilities === '' || utilities === undefined || utilities === null) missing.push('Less: Utilities (zero allowed)');
+            if (furniture === '' || furniture === undefined || furniture === null) missing.push('Furniture (zero allowed)');
+            if (!adjRent) missing.push('Adjusted Monthly Rent');
+
+            if (missing.length > 0) {
+                return {
+                    isError: true,
+                    skipBlankFilter: true,
+                    message: `Occupant is 'Tenant', but Rental Grid is missing: ${missing.join(', ')}.`
+                };
+            }
+        }
     }
 
     return { isMatch: true };

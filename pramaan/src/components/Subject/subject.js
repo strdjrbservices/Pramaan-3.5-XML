@@ -1068,6 +1068,13 @@ function Subject({ defaultFormType }) {
       "Data Source(s) (Contract)": [contractValidation.checkContractFieldsMandatory, contractValidation.checkContractAnalysisConsistency],
       "Is there any financial assistance (loan charges, sale concessions, gift or downpayment assistance, etc.) to be paid by any party on behalf of the borrower?": [contractValidation.checkContractFieldsMandatory, contractValidation.checkContractAnalysisConsistency, (field, text, data) => contractValidation.checkYesNoOnly(field, text, data, { name: 'Is there any financial assistance (loan charges, sale concessions, gift or downpayment assistance, etc.) to be paid by any party on behalf of the borrower?' }), contractValidation.checkFinancialAssistanceInconsistency],
       "If Yes, report the total dollar amount and describe the items to be paid": [contractValidation.checkContractFieldsMandatory, contractValidation.checkFinancialAssistanceInconsistency, contractValidation.checkContractAnalysisConsistency],
+      'Date Lease Begins': [rentScheduleValidation.checkLeaseDates],
+      'Date Lease Expires': [rentScheduleValidation.checkLeaseDates],
+      'Monthly Rental': [rentScheduleValidation.checkSubjectMonthlyRental],
+      'Less: Utilities': [rentScheduleValidation.checkSubjectUtilities],
+      'Furniture': [rentScheduleValidation.checkSubjectFurniture],
+      'Adjusted Monthly Rent': [rentScheduleValidation.checkSubjectAdjustedMonthlyRent],
+      'Other (e.g., basement, etc.)': [rentScheduleValidation.checkOtherBasement],
     };
 
     marketConditionsFields.forEach(field => {
@@ -1244,7 +1251,13 @@ function Subject({ defaultFormType }) {
 
   const rentScheduleValidationRegistry = {
     'Proximity to Subject': [rentScheduleValidation.checkRentProximityToSubject],
-
+    'Date Lease Begins': [rentScheduleValidation.checkLeaseDates],
+    'Date Lease Expires': [rentScheduleValidation.checkLeaseDates],
+    'Monthly Rental': [rentScheduleValidation.checkSubjectMonthlyRental],
+    'Less: Utilities': [rentScheduleValidation.checkSubjectUtilities],
+    'Furniture': [rentScheduleValidation.checkSubjectFurniture],
+    'Adjusted Monthly Rent': [rentScheduleValidation.checkSubjectAdjustedMonthlyRent],
+    'Other (e.g., basement, etc.)': [rentScheduleValidation.checkOtherBasement],
   };
 
   const getProperSectionName = (path, defaultSection) => {
@@ -1263,11 +1276,12 @@ function Subject({ defaultFormType }) {
     if (key === 'IMPROVEMENTS') return 'Improvements Section';
     if (key === 'COST_APPROACH') return 'Cost Approach';
     if (key === 'PUD_INFO') return 'PUD Information';
+    const fieldToCheck = path.length > 1 ? path[1] : path[0];
+    if (['Date Lease Begins', 'Date Lease Expires', 'Monthly Rental', 'Less: Utilities', 'Furniture', 'Adjusted Monthly Rent'].includes(fieldToCheck)) return 'Rent Schedule';
     if (key === 'Subject') return 'Subject Information';
     if (comparableSales.includes(key)) return 'Sales Comparison';
     if (comparableRents.includes(key) || ComparableRentAdjustments.includes(key)) return 'Rent Schedule';
 
-    const fieldToCheck = path.length > 1 ? path[1] : path[0];
     if (summaryFields.includes(fieldToCheck)) return 'Subject Information';
     if (contractFields.includes(fieldToCheck)) return 'Contract Section';
     if (neighborhoodFields.includes(fieldToCheck)) return 'Neighborhood Section';
@@ -1462,6 +1476,16 @@ function Subject({ defaultFormType }) {
       const isContractSpecialCheck = Boolean(path && path[0] === 'CONTRACT');
       const is1007SpecialCheck = incomeApproachValidation.INCOME_APPROACH_1007_REQUIRED_FIELDS.includes(lookupField) &&
         (String(selectedFormType || '').toLowerCase().includes('1007') || String(selectedFormType || '').toLowerCase().includes('1025'));
+      const isRentScheduleSubjectSpecialCheck = (
+        saleName === 'Subject' || (path && path[0] === 'Subject')
+      ) && [
+        'Date Lease Begins',
+        'Date Lease Expires',
+        'Monthly Rental',
+        'Less: Utilities',
+        'Furniture',
+        'Adjusted Monthly Rent'
+      ].includes(lookupField);
 
       const comparativeFields = [
         'Actual Age', 'Actual Age Adjustment',
@@ -1551,7 +1575,7 @@ function Subject({ defaultFormType }) {
 
       const isOtherLandUseSpecialCheck = lookupField === 'Present Land Use for other';
 
-      if (isFieldValBlank(value) && !isPudSpecialCheck && !isContractSpecialCheck && !is1007SpecialCheck && !isComparativeCheck && !isFiveValCheck && !isVersion1UtilitySubField && !isVersion1RequiredCheck && !isOtherLandUseSpecialCheck) {
+      if (isFieldValBlank(value) && !isPudSpecialCheck && !isContractSpecialCheck && !is1007SpecialCheck && !isRentScheduleSubjectSpecialCheck && !isComparativeCheck && !isFiveValCheck && !isVersion1UtilitySubField && !isVersion1RequiredCheck && !isOtherLandUseSpecialCheck) {
         return;
       }
 
@@ -1649,6 +1673,23 @@ function Subject({ defaultFormType }) {
         });
       }
     });
+
+    const is1007GridActive = rentScheduleValidation.is1007Active(allData, selectedFormType);
+    if (is1007GridActive) {
+      const subjectRentFields = [
+        'Date Lease Begins',
+        'Date Lease Expires',
+        'Monthly Rental',
+        'Less: Utilities',
+        'Furniture',
+        'Adjusted Monthly Rent'
+      ];
+      subjectRentFields.forEach(fieldKey => {
+        const val = rentScheduleValidation.getSubjectRentFieldVal(allData, fieldKey);
+        const path = ['Subject', fieldKey];
+        runChecksForField('Rent Schedule', fieldKey, val, path, 'Subject', rentScheduleValidationRegistry);
+      });
+    }
 
     const isV1Form = isV1FormType;
 
