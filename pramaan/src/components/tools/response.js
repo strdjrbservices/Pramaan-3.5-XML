@@ -16,7 +16,11 @@ import {
   TableHead,
   TableRow,
   Chip,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckIcon from '@mui/icons-material/Check';
 import uploadSoundFile from '../../Assets/upload.mp3';
 import { API_BASE_URL } from '../Subject/utils/utils.js';
 import successSoundFile from '../../Assets/success.mp3';
@@ -47,12 +51,15 @@ const renderFinalOutput = (output) => {
   const outputLower = String(output).toLowerCase().trim();
   const positiveWords = ['yes', 'present', 'corrected', 'match', 'fulfilled', 'consistent', 'ok', 'pass', 'correct'];
   const negativeWords = ['no', 'not corrected', 'mismatch', 'not fulfilled', 'inconsistent', 'absent', 'missing', 'fail', 'incorrect', 'no match'];
+  const warningWords = ['needs review', 'warning', 'inconclusive', 'check', 'uncertain'];
 
   let style = {};
   if (positiveWords.includes(outputLower)) {
     style = { backgroundColor: '#91ff00ff', color: '#000000', padding: '4px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-block' };
   } else if (negativeWords.includes(outputLower)) {
     style = { backgroundColor: '#ff0000', color: '#ffffff', padding: '4px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-block' };
+  } else if (warningWords.includes(outputLower)) {
+    style = { backgroundColor: '#ff9800', color: '#000000', padding: '4px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-block' };
   }
 
   if (Object.keys(style).length > 0) {
@@ -69,6 +76,8 @@ const ResponsePage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [timer, setTimer] = useState(0);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [copiedFindings, setCopiedFindings] = useState(false);
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -247,25 +256,105 @@ const ResponsePage = () => {
     }
 
     const verifiedCount = comparisonSummary.filter(c => ['fulfilled', 'corrected', 'pass', 'match'].includes(String(c.status).toLowerCase())).length;
+    const needsReviewCount = comparisonSummary.filter(c => ['needs review', 'warning', 'inconclusive'].includes(String(c.status).toLowerCase())).length;
+    const unfulfilledCount = comparisonSummary.filter(c => ['not fulfilled', 'mismatch', 'fail', 'inconsistent', 'absent', 'no match'].includes(String(c.status).toLowerCase())).length;
+
+    const filteredSummary = comparisonSummary.filter(item => {
+      const st = String(item.status || '').toLowerCase().trim();
+      if (statusFilter === 'fulfilled') {
+        return ['fulfilled', 'corrected', 'pass', 'match'].includes(st);
+      }
+      if (statusFilter === 'review') {
+        return ['needs review', 'warning', 'inconclusive'].includes(st);
+      }
+      if (statusFilter === 'unfulfilled') {
+        return ['not fulfilled', 'mismatch', 'fail', 'inconsistent', 'absent', 'no match'].includes(st);
+      }
+      return true;
+    });
+
+    const handleCopyFindings = () => {
+      const lines = [
+        `Revision Verification Findings (${verifiedCount} of ${comparisonSummary.length} Verified):`,
+        '',
+        ...comparisonSummary.map((c, i) => {
+          let text = `Item #${c.item_no || i + 1} [${c.status || 'N/A'}]` +
+            `\nSection & Page: ${c.section || 'General'}${c.page_no ? ` (${c.page_no})` : ''}` +
+            `\nRevision Request: ${c.revision_request || ''}` +
+            `\nOriginal Finding: ${c.original_finding || 'N/A'}` +
+            `\nRevised Finding: ${c.revised_finding || 'N/A'}`;
+          if (c.excerpt) {
+            text += `\nReport Excerpt (${c.page_no || 'Addenda'}${c.is_new ? ' - Newly Added in Revision' : ''}): "${c.excerpt}"`;
+          }
+          text += `\nConfirmation Details: ${c.finding || c.comment || ''}\n`;
+          return text;
+        })
+      ];
+      navigator.clipboard.writeText(lines.join('\n'));
+      setCopiedFindings(true);
+      setTimeout(() => setCopiedFindings(false), 2500);
+    };
 
     return (
       <Paper elevation={1} sx={{ p: 3, mt: 3, borderRadius: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
-          <Typography variant="h6" fontWeight="bold">
-            Revision Verification Findings
-          </Typography>
-          <Chip
-            label={`${verifiedCount} of ${comparisonSummary.length} Verified`}
-            color={verifiedCount === comparisonSummary.length ? 'success' : 'warning'}
-            size="small"
-            sx={{ fontWeight: 'bold' }}
-          />
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Typography variant="h6" fontWeight="bold">
+              Revision Verification Findings
+            </Typography>
+            <Chip
+              label={`${verifiedCount} of ${comparisonSummary.length} Verified`}
+              color={verifiedCount === comparisonSummary.length ? 'success' : 'warning'}
+              size="small"
+              sx={{ fontWeight: 'bold' }}
+            />
+            {needsReviewCount > 0 && (
+              <Chip
+                label={`${needsReviewCount} Needs Review`}
+                size="small"
+                sx={{ bgcolor: '#fff3e0', color: '#e65100', fontWeight: 'bold', border: '1px solid #ffe0b2' }}
+              />
+            )}
+          </Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <ToggleButtonGroup
+              size="small"
+              value={statusFilter}
+              exclusive
+              onChange={(e, next) => next && setStatusFilter(next)}
+              aria-label="Filter status"
+            >
+              <ToggleButton value="all" sx={{ px: 1.5, py: 0.5, fontSize: '0.78rem' }}>
+                All ({comparisonSummary.length})
+              </ToggleButton>
+              <ToggleButton value="fulfilled" sx={{ px: 1.5, py: 0.5, fontSize: '0.78rem', color: 'success.main' }}>
+                Fulfilled ({verifiedCount})
+              </ToggleButton>
+              {needsReviewCount > 0 && (
+                <ToggleButton value="review" sx={{ px: 1.5, py: 0.5, fontSize: '0.78rem', color: '#e65100' }}>
+                  Review ({needsReviewCount})
+                </ToggleButton>
+              )}
+              <ToggleButton value="unfulfilled" sx={{ px: 1.5, py: 0.5, fontSize: '0.78rem', color: unfulfilledCount > 0 ? 'error.main' : 'inherit' }}>
+                Unfulfilled ({unfulfilledCount})
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={copiedFindings ? <CheckIcon /> : <ContentCopyIcon />}
+              onClick={handleCopyFindings}
+              sx={{ textTransform: 'none', fontWeight: 600 }}
+            >
+              {copiedFindings ? 'Copied Findings!' : 'Copy Findings'}
+            </Button>
+          </Stack>
         </Box>
 
         {summaryText && (
-          <Paper elevation={0} sx={{ p: 2.5, mb: 3, borderLeft: 5, borderColor: 'primary.main', bgcolor: 'action.hover', borderRadius: 2 }}>
+          <Paper elevation={0} sx={{ p: 2.5, mb: 3, borderLeft: 5, borderColor: verifiedCount === comparisonSummary.length ? 'success.main' : 'warning.main', bgcolor: 'action.hover', borderRadius: 2 }}>
             <Typography variant="subtitle1" fontWeight="bold" gutterBottom component="div" color="text.primary">
-              Summary
+              Verification Summary
             </Typography>
             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
               {summaryText}
@@ -287,13 +376,13 @@ const ResponsePage = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {comparisonSummary.map((change, index) => (
+              {filteredSummary.map((change, index) => (
                 <TableRow key={index} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
                   <TableCell component="th" scope="row" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>
                     {change.item_no || index + 1}
                   </TableCell>
                   <TableCell sx={{ fontSize: '0.875rem' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.primary' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.primary', whiteSpace: 'pre-wrap' }}>
                       {change.revision_request || `Revision Item ${index + 1}`}
                     </Typography>
                   </TableCell>
@@ -316,16 +405,64 @@ const ResponsePage = () => {
                       {change.original_finding || change.original_value || 'Report Rejection Note'}
                     </Typography>
                   </TableCell>
-                  <TableCell sx={{ fontSize: '0.85rem' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.dark' }}>
-                      {change.revised_finding || change.revised_value || change.comment}
-                    </Typography>
+                  <TableCell sx={{ fontSize: '0.85rem', verticalAlign: 'top', minWidth: '260px' }}>
+                    {change.revised_finding && change.revised_finding !== change.excerpt && (
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.dark', mb: change.excerpt ? 1 : 0 }}>
+                        {change.revised_finding}
+                      </Typography>
+                    )}
+                    {change.excerpt ? (
+                      <Paper
+                        variant="outlined"
+                        sx={{
+                          p: 1.25,
+                          bgcolor: 'rgba(25, 118, 210, 0.04)',
+                          borderLeft: 4,
+                          borderColor: change.is_new ? 'success.main' : 'primary.main',
+                          borderRadius: 1.5,
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5, flexWrap: 'wrap' }}>
+                          <Typography
+                            variant="caption"
+                            sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5, fontSize: '0.7rem' }}
+                          >
+                            {change.source || 'Report Excerpt'}
+                            {change.page_no ? ` • ${change.page_no}` : ''}
+                          </Typography>
+                          {change.is_new && (
+                            <Chip
+                              label="Newly Added in Revision"
+                              size="small"
+                              color="success"
+                              sx={{ fontSize: '0.65rem', height: '18px', fontWeight: 700 }}
+                            />
+                          )}
+                        </Box>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            fontStyle: 'italic',
+                            color: 'text.primary',
+                            display: 'block',
+                            lineHeight: 1.55,
+                            fontSize: '0.8rem',
+                          }}
+                        >
+                          "{change.excerpt}"
+                        </Typography>
+                      </Paper>
+                    ) : (
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.dark' }}>
+                        {change.revised_finding || change.revised_value || change.comment}
+                      </Typography>
+                    )}
                   </TableCell>
-                  <TableCell align="center">
+                  <TableCell align="center" sx={{ verticalAlign: 'top' }}>
                     {renderFinalOutput(change.status)}
                   </TableCell>
-                  <TableCell sx={{ fontSize: '0.85rem' }}>
-                    <Typography variant="body2" color="text.secondary">
+                  <TableCell sx={{ fontSize: '0.85rem', verticalAlign: 'top', minWidth: '240px' }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
                       {change.finding || change.comment}
                     </Typography>
                   </TableCell>

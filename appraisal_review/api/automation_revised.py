@@ -250,7 +250,18 @@ async def process_revised_file_review(
             logger.info("Captured data for 'Confirmation Check'.")
         await asyncio.sleep(5)
 
-        await wait_and_click(page, "xpath=//button[normalize-space()='PDF/HTML']", "PDF/HTML Button")
+        await wait_and_click(
+            page,
+            "xpath=//button[normalize-space()='PDF/HTML' or contains(., 'HTML')] | //*[contains(@class, 'MuiToggleButton-root') and contains(., 'HTML')]",
+            "PDF/HTML Button"
+        )
+        await asyncio.sleep(1)
+        try:
+            btn = await page.wait_for_selector("xpath=//button[@type='submit' and not(@disabled)]", timeout=3000)
+            if btn:
+                await btn.click()
+        except Exception:
+            pass
         try:
             await page.wait_for_selector(MAIN_LOADING_INDICATOR_SELECTOR, state="visible", timeout=5000)
         except Exception:
@@ -267,7 +278,18 @@ async def process_revised_file_review(
             logger.info("Captured data for 'PDF/HTML Output'.")
         await asyncio.sleep(5)
 
-        await wait_and_click(page, "xpath=//button[normalize-space()='PDF/PDF']", "PDF/PDF Button")
+        await wait_and_click(
+            page,
+            "xpath=//button[normalize-space()='PDF/PDF' or contains(., 'PDF/PDF')] | //*[contains(@class, 'MuiToggleButton-root') and contains(., 'PDF/PDF')]",
+            "PDF/PDF Button"
+        )
+        await asyncio.sleep(1)
+        try:
+            btn = await page.wait_for_selector("xpath=//button[@type='submit' and not(@disabled)]", timeout=3000)
+            if btn:
+                await btn.click()
+        except Exception:
+            pass
         try:
             await page.wait_for_selector(MAIN_LOADING_INDICATOR_SELECTOR, state="visible", timeout=5000)
         except Exception:

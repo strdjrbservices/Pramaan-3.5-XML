@@ -615,19 +615,27 @@ def _detect_form_type_from_xml(root: ET.Element) -> str:
         if res_rent_sched is not None:
             rentals = res_rent_sched.findall(".//RESIDENTIAL_RENTAL")
             if rentals:
-                has_rent_data = any(
-                    r.attrib.get("MonthlyRentAmount")
-                    or r.attrib.get("ExpenseAdjustedMonthlyRentAmount")
-                    or r.attrib.get("MarketAdjustedMonthlyRentAmount")
-                    or r.find("LOCATION") is not None
-                    or r.find("RENT_ADJUSTMENT") is not None
-                    for r in rentals
-                )
-                if has_rent_data:
+                def _rental_has_real_data(r):
+                    rent_amt = (r.attrib.get("MonthlyRentAmount") or r.attrib.get("GrossMonthlyRentAmount") or "").strip()
+                    if rent_amt and re.search(r"\d", rent_amt) and rent_amt not in ["0", "0.0", "0.00"]:
+                        return True
+                    seq = str(r.attrib.get("PropertySequenceIdentifier", "")).strip()
+                    loc = r.find("LOCATION")
+                    loc_has_addr = bool(loc is not None and (loc.attrib or list(loc) or (loc.text and loc.text.strip())))
+                    if seq in ["1", "2", "3", "4"] and loc_has_addr:
+                        return True
+                    adj = r.find("RENT_ADJUSTMENT")
+                    if adj is not None and (adj.attrib or list(adj)):
+                        return True
+                    return False
+
+                if any(_rental_has_real_data(r) for r in rentals):
                     has_1007 = True
 
-    if not has_1007 and root.find(".//SINGLE_FAMILY_RENT_SCHEDULE") is not None:
-        has_1007 = True
+    if not has_1007:
+        sfrs = root.find(".//SINGLE_FAMILY_RENT_SCHEDULE")
+        if sfrs is not None and (sfrs.attrib or list(sfrs) or (sfrs.text and sfrs.text.strip())):
+            has_1007 = True
 
     # Check embedded PDF if present
     if not has_1007 and fitz is not None:
