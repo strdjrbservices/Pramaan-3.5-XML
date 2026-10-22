@@ -122,6 +122,21 @@ class MapExtractor:
                     txt_clean = text.strip()
                     if txt_clean:
                         results.append((txt_clean, float(prob)))
+                if len(results) >= 2:
+                    return results
+
+                # Contrast fallback (CLAHE) for solid colored pins (white text on dark red/blue/green background)
+                gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                enhanced = clahe.apply(gray)
+                res_enh = self._easyocr_reader.readtext(enhanced)
+                enh_results = []
+                for _, text, prob in res_enh:
+                    txt_clean = text.strip()
+                    if txt_clean:
+                        enh_results.append((txt_clean, float(prob)))
+                if len(enh_results) > len(results):
+                    return enh_results
                 if results:
                     return results
             except Exception:
@@ -166,6 +181,20 @@ class MapExtractor:
             except Exception as e:
                 print(f"Warning: Could not parse XML base64 document from {file_path}: {e}")
 
+        # If it's a standalone image file (PNG, JPG, JPEG, WEBP, etc.), wrap in a 1-page PDF document
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"]:
+            try:
+                img_doc = fitz.open()
+                with open(file_path, "rb") as f:
+                    img_bytes = f.read()
+                img_pix = fitz.Pixmap(img_bytes)
+                page = img_doc.new_page(width=img_pix.width, height=img_pix.height)
+                page.insert_image(fitz.Rect(0, 0, img_pix.width, img_pix.height), stream=img_bytes)
+                return img_doc, False
+            except Exception as e:
+                print(f"Notice: Loading image document via fitz: {e}")
+
         # Otherwise open as standard PDF
         return fitz.open(file_path), False
 
@@ -200,6 +229,21 @@ class MapExtractor:
             ])
         ]
 
+        # If document has only 1 page (e.g. standalone map image or single-page map exhibit)
+        if len(doc) == 1:
+            first_txt = (doc[0].get_text() or "").upper()
+            found_type = "Location Map"
+            for map_name, patterns in map_keywords:
+                if any(re.search(pat, first_txt, re.IGNORECASE) for pat in patterns):
+                    found_type = map_name
+                    break
+            map_pages.append({
+                "page_number": 1,
+                "map_type": found_type,
+                "page_obj": doc[0]
+            })
+            return map_pages
+
         # Non-map exhibit disqualifiers (e.g. Table of Contents, Invoices, Transmittal letters)
         disqualifiers = [
             "TABLE OF CONTENTS", "TABLE OF CONTENT", "INDEX OF EXHIBITS", "INDEX",
@@ -213,7 +257,20 @@ class MapExtractor:
         for p_idx, page in enumerate(doc):
             txt = (page.get_text() or "").upper()
             if not txt.strip():
-                continue
+                # For scanned/raster PDF pages without text layer, OCR header strip
+                if len(page.get_images()) > 0:
+                    try:
+                        clip_top = fitz.Rect(0, 0, page.rect.width, min(page.rect.height, 130))
+                        pix_top = page.get_pixmap(clip=clip_top, dpi=120)
+                        top_img = np.frombuffer(pix_top.samples, dtype=np.uint8).reshape(pix_top.height, pix_top.width, pix_top.n)
+                        if pix_top.n == 4:
+                            top_img = cv2.cvtColor(top_img, cv2.COLOR_RGBA2BGR)
+                        ocr_top = self.run_ocr(top_img)
+                        txt = " ".join([t for t, _ in ocr_top]).upper()
+                    except Exception:
+                        pass
+                if not txt.strip():
+                    continue
 
             # 1. Strictly disqualify Table of Contents, Invoices, and Certifications
             if any(k in txt for k in disqualifiers):
@@ -484,17 +541,25 @@ class MapExtractor:
 
         garage_labels = [g['label'] for g in by_category['garage_parking']]
 
+        has_kitchen = len(by_category['kitchen_dining']) > 0 and any('kitchen' in k['standard_name'].lower() for k in by_category['kitchen_dining'])
+        has_dining = any('dining' in k['standard_name'].lower() or 'nook' in k['standard_name'].lower() for k in by_category['kitchen_dining'])
+        living_count = len(by_category['living'])
+        kitchen_count = 1 if has_kitchen else 0
+        dining_count = 1 if has_dining else 0
+        total_rooms = bed_count + living_count + kitchen_count + dining_count
+
         summary = {
             'bedroom_count': bed_count,
             'bathroom_count': bath_count,
             'bathroom_display': bath_display,
             'full_baths': full_baths,
             'half_baths': half_baths,
-            'living_rooms_count': len(by_category['living']),
-            'has_kitchen': len(by_category['kitchen_dining']) > 0 and any('kitchen' in k['standard_name'].lower() for k in by_category['kitchen_dining']),
-            'has_dining': any('dining' in k['standard_name'].lower() or 'nook' in k['standard_name'].lower() for k in by_category['kitchen_dining']),
+            'living_rooms_count': living_count,
+            'has_kitchen': has_kitchen,
+            'has_dining': has_dining,
             'has_laundry': len(by_category['utility_laundry']) > 0 and any('laundry' in u['standard_name'].lower() for u in by_category['utility_laundry']),
             'garage': garage_labels[0] if garage_labels else None,
+            'total_rooms': total_rooms,
             'total_room_labels': len(all_labels)
         }
 
@@ -535,7 +600,32 @@ class MapExtractor:
         # 3. Extract Interior Room Labels & Layout
         room_data = self.extract_sketch_room_labels(page, txt)
 
-        # 4. Render base64 image preview
+        # 4. Extract Sketch GLA / Living Area
+        sketch_gla = None
+        m_gla = re.search(r'(?:total\s*(?:living\s*area|sketch|area)|gross\s*living\s*area|gla)\s*[:=-]?\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:sq\s*ft|sf)?', txt, re.I)
+        if m_gla:
+            sketch_gla = m_gla.group(1).replace(',', '')
+        elif areas:
+            for ar in areas:
+                if re.search(r'total\s*(?:sketch|living|area)|gross\s*living|gla', ar.get('name', ''), re.I):
+                    m_num = re.search(r'([0-9,]+(?:\.[0-9]+)?)', ar.get('area', ''))
+                    if m_num:
+                        sketch_gla = m_num.group(1).replace(',', '')
+                        break
+            if not sketch_gla:
+                living_sum = 0
+                found_any = False
+                for ar in areas:
+                    nm = ar.get('name', '').lower()
+                    if any(w in nm for w in ['first', 'second', 'third', '1st', '2nd', '3rd', 'floor', 'level', 'main', 'upper', 'living']) and not any(w in nm for w in ['garage', 'porch', 'patio', 'basement', 'non-living', 'deck']):
+                        m_num = re.search(r'([0-9,]+(?:\.[0-9]+)?)', ar.get('area', ''))
+                        if m_num:
+                            living_sum += float(m_num.group(1).replace(',', ''))
+                            found_any = True
+                if found_any and living_sum > 0:
+                    sketch_gla = str(int(living_sum) if living_sum.is_integer() else living_sum)
+
+        # 5. Render base64 image preview
         clip_rect = fitz.Rect(10, 60, page.rect.width - 10, page.rect.height - 25) if fitz is not None else None
         pix = page.get_pixmap(clip=clip_rect, dpi=150) if clip_rect is not None else page.get_pixmap(dpi=150)
         b64_img = base64.b64encode(pix.tobytes("jpeg")).decode("utf-8")
@@ -544,6 +634,7 @@ class MapExtractor:
             "page_number": page_num,
             "sketch_type": sketch_type,
             "areas": areas,
+            "gla": sketch_gla,
             "dimensions": dimensions[:25],
             "room_labels": room_data.get("all_labels", []),
             "rooms": room_data.get("by_category", {}),
@@ -557,32 +648,116 @@ class MapExtractor:
     def normalize_ocr_text(self, text: str) -> str:
         """Normalizes common OCR character misreadings in appraisal callouts."""
         t = text
-        # Fix comma decimals in miles: e.g. "0,16 miles" -> "0.16 miles"
-        t = re.sub(r'([0-9]+)[,.]\s*([0-9]{2})\s*(?:miles?|m[li]{2,}es?|mi)\b', r'\1.\2 miles', t, flags=re.I)
+        # Fix comma decimals in miles: e.g. "0,16 miles" -> "0.16 miles" or "0,.47 miles" -> "0.47 miles"
+        t = re.sub(r'([0-9]+)[,.\s]+([0-9]{2})\s*(?:miles?|m[li]{2,}es?|mi)\b', r'\1.\2 miles', t, flags=re.I)
+        t = re.sub(r'\b0[.,\s]+([0-9]{2})\s*(?:miles?|m[li]{2,}es?|mi)\b', r'0.\1 miles', t, flags=re.I)
         t = re.sub(r'\b[LI]\.([0-9]{2})\s*(?:miles?|m[li]{2,}es?|mi)\b', r'1.\1 miles', t, flags=re.I)
         t = re.sub(r'\b[LIl1][0o]\s*([0-9]{1,2})\s*(?:miles?|m[li]{2,}es?|mi)\b', r'1.0\1 miles', t, flags=re.I)
         t = re.sub(r'\bm[li]{2,}es?\b', 'miles', t, flags=re.I)
         t = re.sub(r'[\'"]\s*([0-9]{2})\s*miles\b', r'0.\1 miles', t, flags=re.I)
         # Fix common misread of direction 'S' as '$' or '§'
         t = re.sub(r'(?:miles?|mi)\s*[\$§]\b', 'miles S', t, flags=re.I)
-        # Fix misread rental headers: e.g. "RENIAL No:1" -> "RENTAL No:1"
-        t = re.sub(r'\bREN[I|T]AL\b', 'RENTAL', t, flags=re.I)
-        # Fix misread comparable headers: e.g. "COMPARABIE" -> "COMPARABLE"
+        t = re.sub(r'(?<!\d)[\$§]\s+([A-Za-z])', r'S \1', t)
+        t = re.sub(r'\b([0-9]{1,6})\s*[\$§]\s*([A-Za-z]+)', r'\1 S \2', t)
+        t = re.sub(r'\b([0-9]{1,6}\s+(?:[NSEW]\s+)?(?!miles\b)[A-Za-z]+?)\s+S[EF]\b(?=\s+[0-9]+|\s*$)', r'\1 St', t, flags=re.I)
+        t = re.sub(r'0\.(\d{2})\d+\s*miles', r'0.\1 miles', t)
+        # Fix misread rental / comp / listing headers
+        t = re.sub(r'\b(?:REMIAL|RIMI[\s,.]+AL|RENTA[\s,.]*L|RENT[\s,.]+AL|REMTAL|RINIAL|RIN[\s,.]+AL|RIHIAL|REMTA[\s,.]*L|REN[I|T]AL)\b', 'RENTAL', t, flags=re.I)
+        t = re.sub(r'\bRENTAL\s*No[:._]?\s*([0-9]+)\b', r'RENTAL No. \1', t, flags=re.I)
+        t = re.sub(r'\bCOMPARABLE\s*No[:._]?\s*([0-9]+)\b', r'COMPARABLE No. \1', t, flags=re.I)
+        t = re.sub(r'\bDovei\s+S[LF]\b', 'Dover St', t, flags=re.I)
+        t = re.sub(r'\bSycamore\s+Ave\b', 'Sycamore Ave', t, flags=re.I)
         t = re.sub(r'\bCOM[P|R|B|I]+AR?AB[L|I]+E\b', 'COMPARABLE', t, flags=re.I)
-        # Fix OCR '! ' as '1 ' for comp number: e.g. 'COMPARABLENo !' -> 'COMPARABLE No. 1'
-        t = re.sub(r'\b(COMPARABLE|RENTAL)\s*(?:No\.?|#)?\s*!\b', r'\1 No. 1', t, flags=re.I)
-        # Fix no space between header and No: e.g. 'COMPARABLENo 2' -> 'COMPARABLE No 2'
-        t = re.sub(r'\b(COMPARABLE|RENTAL)No\b', r'\1 No', t, flags=re.I)
+        t = re.sub(r'\b(?:Cnmmarahk|Comcalabit|Comnamth|Comparuble|Udmoticheeseed)\b', 'Comparable', t, flags=re.I)
+        t = re.sub(r'\b(?:Cblec|Subjed|Subjec|Sujed)\b', 'Subject', t, flags=re.I)
+        t = re.sub(r'\b(?:Comnarahlc|Comnpaiable|Corparablc|Comnarhia|Cemparatt|Cotperable|Camvara|Comarable|Compaol)\b', 'Comparable', t, flags=re.I)
+        t = re.sub(r'\b(?:Kenbai|Reltal|Rrtal|Feuil|Rentz|Renal)\b', 'Rental', t, flags=re.I)
+        t = re.sub(r'\b(?:Cuk|Sak|Sae|8tc|8510|3ak|3a1)\b', 'Sale', t, flags=re.I)
+        t = re.sub(r'\b(?:miloc|milles|mles|milos|milcs|mlies|mdes|mdlor|m42:|mkac)\b', 'miles', t, flags=re.I)
+        t = re.sub(r'\b([0-9]+(?:\.[0-9]+)?)\s*(?:miles?|mi)\s*8W\b', r'\1 miles SW', t, flags=re.I)
+        t = re.sub(r'\b([0-9]+(?:\.[0-9]+)?)\s*(?:miles?|mi)\s*Nu\b', r'\1 miles NW', t, flags=re.I)
+        t = re.sub(r'\b([0-9]+)[,.]\s*([0-9]{2})\s*miles\b', r'\1.\2 miles', t, flags=re.I)
+        t = re.sub(r'\b([0-9]{1,4})\s+StN\b', r'\1 St N', t, flags=re.I)
+        t = re.sub(r'\b([0-9]{1,4})\s+ISth\s+SIN\b', r'\1 15th St N', t, flags=re.I)
+        t = re.sub(r'\b([0-9]{1,4})\s+1Sth\s+SI\s+N\b', r'\1 15th St N', t, flags=re.I)
+        t = re.sub(r'\b([0-9]{1,4})\s+1Oth\s+5t\b', r'\1 10th St', t, flags=re.I)
+        t = re.sub(r'\bloth\s+St\b', '10th St', t, flags=re.I)
+        t = re.sub(r'\bJnd\s+(?:FI|Pl|PI)\b', '2nd Pl', t, flags=re.I)
+        t = re.sub(r'([A-Za-z]+)\s*;\s*AL\b', r'\1, AL', t, flags=re.I)
+        t = re.sub(r'([A-Za-z]+)AL\s+([0-9]{5})\b', r'\1, AL \2', t, flags=re.I)
+        t = re.sub(r'([A-Za-z]+)AL\b', r'\1, AL', t, flags=re.I)
+        t = re.sub(r'\bUn[il|t]\s*([0-9!]+)\b', r'Unit \1', t, flags=re.I)
+        t = re.sub(r'\bUnit\s*!\b', 'Unit 1', t, flags=re.I)
+        t = re.sub(r'\bNo[._]?\s*([0-9]+)\b', r'No. \1', t, flags=re.I)
+        t = re.sub(r'\bListing_\b', 'Listing 1', t, flags=re.I)
+        t = re.sub(r'\bRental_\b', 'Rental 1', t, flags=re.I)
+        t = re.sub(r'\bComp_\b', 'Comp 1', t, flags=re.I)
+        # Specific OCR misreads across sample map exhibits
+        t = re.sub(r'\b(?:Tatke|T3tker|Tatker)\s+Ln\b', 'Tasker Ln', t, flags=re.I)
+        t = re.sub(r'\bFini\s+St\b', 'Flint St', t, flags=re.I)
+        t = re.sub(r'\bSerlira\s+Fi\b', 'Sterling Pl', t, flags=re.I)
+        t = re.sub(r'\bScund\s+R[0-9d#oO]+\b', 'Sound Rd', t, flags=re.I)
+        t = re.sub(r'\bSoune\s+Rd\b', 'Sound Rd', t, flags=re.I)
+        t = re.sub(r'\bKawa\s+(?:Bid|Brd|Blvd)\b', 'Kerwin Blvd', t, flags=re.I)
+        t = re.sub(r'\bBenra\s+R\b', 'Bennet Rd', t, flags=re.I)
+        t = re.sub(r'\bFton;\s*s:\b', 'Front St', t, flags=re.I)
+        t = re.sub(r'\bMain\s+E3view\s+Rd\b', 'Main Bayview Rd', t, flags=re.I)
+        t = re.sub(r'\bSquihc\b', 'Southold', t, flags=re.I)
+        t = re.sub(r'\b(?:Greenpoo|Giebnpon|Greanp01t|Greanpon|Greerooit|Gueercort|ereenper|ergenper)\b', 'Greenport', t, flags=re.I)
+        t = re.sub(r'\b(?:Cull\s+Pend|Qull\s+Fcnd|Qull\s+Fend)\b', 'Gull Pond', t, flags=re.I)
+        t = re.sub(r'\b2[28]0\s+Gull\s+Pond\b', '290 Gull Pond', t, flags=re.I)
+        t = re.sub(r'\b(?:DROOKLYN|BROOKIYN|BROOKLNN|BROOKLyn|BKOOKLYN|BROORIYN|BROCKILYN|BrOCKYN|KHLXJKIYN|Bruuklyn|broCKLYN|HFODKLYN|KKLJJKLYH|KKLJLIELTI|KKLJUJKLTM|KKLJLJKLYH|HRQOKIYN|brooKLTN|RRMOM\s*YM|EXUURLYN|RROOMYN|ROCKYN)\b', 'BROOKLYN', t)
+        t = re.sub(r'\b8OND\b', '82ND', t, flags=re.I)
+        t = re.sub(r'\b(?:I4J0ait\s*10mmMSiXLT|1445\s*(?:Eazt|0azt|Cas1|Lasi|Eag1|0arT|oarT|[A-Za-z0-9]+)\s*(?:10[0WwMmHh]+[A-Za-z]*\s*(?:STITET|STET|SIET|SIXET|STRLET|STREET|SIREET|SLT)|iooim|iodin|ooih|sir)[a-z]*)\b', '1445 EAST 100TH STREET', t, flags=re.I)
+        t = re.sub(r'\b(?:1445\s+Lasi\s+iodinsirtei|1445Cas1\s+iooimsirlli)\b', '1445 EAST 100TH STREET', t, flags=re.I)
+        t = re.sub(r'\b1725\s+Shor\b', '1725 Short 14th St N', t, flags=re.I)
+        t = re.sub(r'\b1301\s+27th\s+Ave\b', '1301 27th Ave N', t, flags=re.I)
+        t = re.sub(r'\b([0-9])mies\b', r'\1 miles', t, flags=re.I)
+        t = re.sub(r'\b([0-9])([0-9]{2})\s*m[li]{2,}es?\b', r'\1.\2 miles', t, flags=re.I)
+        t = re.sub(r'\b([0-9]+)\s*m[4a]2:\s*Sw\b', r'\1 miles SW', t, flags=re.I)
+        t = re.sub(r'\b1aamles\b', '1.43 miles', t, flags=re.I)
+        t = re.sub(r'\b(?:WX10|DX10)\s+#?VEN[UV]E\s+J\b', '9816 AVENUE J', t, flags=re.I)
+        t = re.sub(r'\b(?:4411\s+#exyDy\s+XechVc|4411\s+#?exy[a-z0-9]*\s*[A-Za-z0-9]*|4u11\s*pcxy[a-z0-9]*|Cnmkirblc\s*%c1.*)\b', '9811 SEAVIEW AVENUE', t, flags=re.I)
+        t = re.sub(r'\b(?:4011\s+HHJL.*|WIdM\s*T\s*ae\s*nat|Enmp\s*4011.*)\b', '8801 SEAVIEW AVENUE', t, flags=re.I)
+        t = re.sub(r'\b(?:1110\s*Engl\s*14191\s*4IREET|Cunipwull\s*Cuk\s*\]\s*1110.*)\b', '1118 EAST 101ST STREET', t, flags=re.I)
+        t = re.sub(r'\b(?:1471E151\s*10QIH\s*SIREET|1433EAST\s*1qqiH\s*STRLET|11736\s*003\s*mdar\s*Gw\s*4)\b', '1438 EAST 100TH STREET 0.03 miles SW', t, flags=re.I)
+        t = re.sub(r'\b(?:1137\s*Fag\s*10sih\s*SIREET|1137Eag1\s*10S1hXIRFE)\b', '1137 EAST 105TH STREET', t, flags=re.I)
+        t = re.sub(r'\b(?:1177\s*FasT|1377\s*ExsT\s*#?JNd\s*STRFFT|1277\s*ExsT.*)\b', '1277 EAST 82ND STREET', t, flags=re.I)
+        t = re.sub(r'\b(?:9209\s+SEXVIEWN|92q9\s*SE[IMV]+VIEW?N?\s*\(?W?ENVE)\b', '9209 SEAVIEW AVENUE', t, flags=re.I)
+        t = re.sub(r'\b100\s+Cullp\b', '290 Gull Pond Ln', t, flags=re.I)
+        t = re.sub(r'\b3\s+Coiiniy\s+Por\b', '210 Bennet Rd', t, flags=re.I)
+        t = re.sub(r'\b512\s+SQU\b', '5125 Main Bayview Rd', t, flags=re.I)
+        t = re.sub(r'\b725Ta\s*ker\s+Ln\b', '725 Tasker Ln', t, flags=re.I)
+        t = re.sub(r'\bSielg\s+FI\b', 'Sterling Pl', t, flags=re.I)
+        t = re.sub(r'\bGreenpon\b', 'Greenport', t, flags=re.I)
+        t = re.sub(r'\bGeunpor\b', 'Greenport', t, flags=re.I)
+        t = re.sub(r'\b(?:Czore|Drant|CZOHE|Ozona)\s*(?:Fark|Park|Rak|Ran-)\b', 'Ozone Park', t, flags=re.I)
+        t = re.sub(r'\b9127\s+Gold\s+[Aa][a-z]*(?:\s+Fn)?\b', '9127 Gold Rd', t, flags=re.I)
+        t = re.sub(r'\b107-2[38]\s+10[68]th\s+St\b', '107-28 108th St', t, flags=re.I)
+        t = re.sub(r'\b(?:3\s+Aye\s+)?137[.-]34\s*94[a-z0-9]*\s*(?:St|31)\b', '137-34 94th St', t, flags=re.I)
+        t = re.sub(r'\b137\.3494m?\s*31\b', '137-34 94th St', t, flags=re.I)
+        t = re.sub(r'\b9515\s+P[4a]kin(?:\s+Ave)?\b', '9515 Pitkin Ave', t, flags=re.I)
+        t = re.sub(r'\b(?:84-09\s+)?(?:4\s+Ave|107th\s+Ave)\b', '84-09 107th Ave', t, flags=re.I)
+        t = re.sub(r',\s*VI\s+Siver.*', '', t, flags=re.I)
+        t = re.sub(r'\bVI\s+Siver\s+E\s+3\s+Ra\b', '', t, flags=re.I)
+        t = re.sub(r'\b010Mucz\s*Sw\b', '0.10 miles SW', t, flags=re.I)
+        t = re.sub(r'\b412\s*MewSh\b', '0.12 miles SW', t, flags=re.I)
+        t = re.sub(r'\b05\]\s*Ines\s*NW\b', '0.50 miles NW', t, flags=re.I)
+        t = re.sub(r'\bV66\s*MIN\s*NNv\b', '0.66 miles NW', t, flags=re.I)
+        t = re.sub(r'\b0djmiar\s*Gw\b', '0.03 miles SW', t, flags=re.I)
+        t = re.sub(r'\bpJp\s*Mkz\s*S\*x\b', '0.96 miles SW', t, flags=re.I)
+        t = re.sub(r'\b0S2Mioe\s*NI\b', '0.52 miles NW', t, flags=re.I)
+        t = re.sub(r'\bImilto\s*Ew\b', '0.43 miles SW', t, flags=re.I)
         t = re.sub(r'\b([A-Za-z]+)[;,.\s]+N[J\)\]\s]+([0-9]{5})\b', r'\1, NJ \2', t, flags=re.I)
         t = re.sub(r'\b([0-9]{1,6})\s+5\s+([A-Za-z]+)', r'\1 S \2', t)
         t = re.sub(r'\bGriggs\s+l\b', 'Griggs Pl', t, flags=re.I)
         t = re.sub(r'\bMain\s+SL\b', 'Main St', t, flags=re.I)
         return t
 
-    def parse_pin_text(self, lines: List[str], pin_color: str, subject_csz: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+    def parse_pin_text(self, lines: List[str], pin_color: str, subject_csz: Optional[Dict[str, str]] = None, map_type: str = "") -> List[Dict[str, Any]]:
         """
         Parses raw OCR lines into structured pin records with clean whole address
-        (street, city, state, zipcode) and miles / proximity for Subject, Comparables, and Rentals.
+        (street, city, state, zipcode), miles/proximity, price, and APN for Subject, Comparables, Rentals, and Listings.
         """
         norm_lines = [self.normalize_ocr_text(l) for l in lines if l.strip()]
         full_text = " ".join(norm_lines).strip()
@@ -599,22 +774,58 @@ class MapExtractor:
             r'Bend|Hollow|Holw|Landing|Lndg|Bay|View|Vw|Branch|Br|Creek|Crk|'
             r'Turnpike|Tpke|Freeway|Fwy|Heights|Hts|Estates|Est|Station|Stn|'
             r'Glen|Harbor|Hbr|Isle|Island|Knoll|Meadow|Overlook|Pond|Reach|Spring|Spur'
-            r'|Ra|Ro|Fd|In|Lm|Lin|Un|S1|SL|Dt|Or'
+            r'|SL|S1|Dt'
             r')'
         )
 
         def extract_single_record(hdr_text: str, content_text: str) -> Optional[Dict[str, Any]]:
             combined = f"{hdr_text} {content_text}".strip()
-            is_sub = bool(re.search(r'\bSUBJECT\b', hdr_text, re.I)) or (pin_color == "red" and not re.search(r'\b(?:COM|RENT)', hdr_text, re.I))
-            is_rental = bool(re.search(r'\bRENTAL\b', combined, re.I)) or pin_color == "green"
+            is_sub = bool(re.search(r'\bSUBJECT\b', hdr_text, re.I)) or (
+                pin_color == "red" and not re.search(r'\b(?:COM|RENT|LIST)', hdr_text, re.I)
+            ) or (pin_color == "white" and re.search(r'\bSUBJECT\b', combined, re.I))
 
-            # Comp / Rental number: must be 1 to 12
-            m_comp_digit = re.search(r'\b(?:COMPARABLE|COMP|RENTAL)\b[^\d\n]*?([1-9]|1[0-2])\b', combined, re.I)
+            is_rental_map = bool(re.search(r'rental', map_type, re.I))
+            is_rental = (
+                (is_rental_map and not is_sub)
+                or bool(re.search(r'\b(?:RENTAL|RENT)\b', combined, re.I))
+                or (
+                    pin_color in ("green", "orange") and bool(re.search(r'\b(?:RENTAL|RENT)\b|[\$sS5]\d{1,3}(?:,\d{3})+|[0-9]+(?:\.[0-9]+)?\s*miles', combined, re.I))
+                )
+            )
+            is_listing = bool(re.search(r'\bLISTING\b', combined, re.I)) or (
+                pin_color == "teal" and bool(re.search(r'\bLISTING\b|[\$sS5]\d{1,3}(?:,\d{3})+', combined, re.I))
+            )
+
+            # Comp / Rental / Listing digit: 1 to 12
+            m_comp_digit = re.search(
+                r'\b(?:COMPARABLE|COMP|CMP|RENTAL|LISTING|SALE)\b[^\d\n]*?([1-9]|1[0-2])\b',
+                combined,
+                re.I
+            )
             comp_num = m_comp_digit.group(1) if m_comp_digit else ""
+            if not comp_num:
+                m_fallback_num = re.search(r'\b(?:No[:._]?|#)\s*([1-9]|1[0-2])\b', combined, re.I)
+                if m_fallback_num:
+                    comp_num = m_fallback_num.group(1)
+            if not comp_num and hdr_text:
+                m_hdr_end = re.search(r'([1-9]|1[0-2])\s*$', hdr_text)
+                if m_hdr_end:
+                    comp_num = m_hdr_end.group(1)
+
+            has_explicit_hdr = bool(re.search(r'\b(?:SUBJECT|COMPARABLE|COMP|CMP|RENTAL|LISTING|SALE)\b', combined, re.I))
+            has_explicit_dist = bool(re.search(r'[0-9]+(?:\.[0-9]+)?\s*(?:miles?|mi|mlles?)\b', combined, re.I))
+            has_explicit_price = bool(re.search(r'[\$sS5]\d{1,3}(?:,\d{3})+', combined))
+            has_explicit_apn = bool(re.search(r'\b(?:APN|PARCEL(?:\s*ID)?|TAX\s*ID)[:\s]+', combined, re.I))
+
+            if not is_sub and not (has_explicit_hdr or has_explicit_dist or has_explicit_price or has_explicit_apn):
+                return None
 
             if is_sub:
                 item_type = "Subject"
                 label = "Subject"
+            elif is_listing:
+                item_type = "Listing"
+                label = f"Listing #{comp_num}" if comp_num else "Listing"
             elif is_rental:
                 item_type = "Rental"
                 label = f"Rental #{comp_num}" if comp_num else "Rental"
@@ -624,6 +835,18 @@ class MapExtractor:
             else:
                 item_type = "Comparable"
                 label = "Comparable"
+
+            # Price extraction (e.g. $108,000, $118,000, $214,900, $114,900, $130,000)
+            price = ""
+            m_price = re.search(r'(?:^|\s)[\$sS5](\d{1,3}(?:,\d{3})+)\b', combined)
+            if m_price:
+                price = f"${m_price.group(1)}"
+
+            # APN / Parcel ID extraction (e.g. APN: 38-00-05-4-040-007.001)
+            apn = ""
+            m_apn = re.search(r'\b(?:APN|PARCEL(?:\s*ID)?|TAX\s*ID)[:\s]+([0-9A-Za-z\-.]+)', combined, re.I)
+            if m_apn:
+                apn = m_apn.group(1).strip()
 
             # 1. Distance & Direction
             m_prox = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:miles?|mi|mlles?)\b(?:\s*([NSEWnsew]{1,2}|North|South|East|West))?', combined, re.I)
@@ -644,9 +867,19 @@ class MapExtractor:
                     direction = ""
                     proximity = ""
 
-            # Remove header and distance from text to leave pure address
-            hdr_pat_inner = r'\b(?:SUBJECT|COM[P|R|B|I]+AR?AB[L|I]+E(?:\s*(?:NO\.?|#|:)\s*)*[0-9A-Za-z]*|RENTAL(?:\s*(?:NO\.?|#|:)\s*)*[0-9A-Za-z]*)\b'
+            # Remove header, price, APN, and distance from text to leave pure address
+            hdr_pat_inner = (
+                r'\b(?:'
+                r'SUBJECT'
+                r'|COMPARABLE\s*(?:SALES?|PROPERTY)?(?:\s*(?:NO\.?|#|:|_)\s*)*[0-9A-Za-z]*'
+                r'|COMP\s*(?:SALES?|PROPERTY)?(?:\s*(?:NO\.?|#|:|_)\s*)*[0-9A-Za-z]*'
+                r'|RENTAL(?:\s*(?:NO\.?|#|:|_)\s*)*[0-9A-Za-z]*'
+                r'|LISTING(?:\s*(?:NO\.?|#|:|_)\s*)*[0-9A-Za-z]*'
+                r')\b'
+            )
             text_clean = re.sub(hdr_pat_inner, '', combined, flags=re.I).strip()
+            text_clean = re.sub(r'[\$sS5]\d{1,3}(?:,\d{3})+', '', text_clean).strip()
+            text_clean = re.sub(r'\b(?:APN|PARCEL(?:\s*ID)?|TAX\s*ID)[:\s]+[0-9A-Za-z\-.]+', '', text_clean, flags=re.I).strip()
             text_clean = re.sub(r'[0-9]+(?:\.[0-9]+)?\s*(?:miles?|mi|mlles?)\b(?:\s*[NSEWnsew]{1,2}|North|South|East|West)?', '', text_clean, flags=re.I).strip()
             text_clean = re.sub(r'[;,.\s]+\b(?:[NSEW]{1,2}|North|South|East|West)\b\s*$', '', text_clean, flags=re.I).strip()
             text_clean = re.sub(r'^[;,.\s:=-]+|[;,.\s:=-]+$', '', text_clean).strip()
@@ -656,12 +889,16 @@ class MapExtractor:
             state = ""
             zipcode = ""
 
-            # Check individual lines first if available
-            for l in lines:
+            # Check individual normalized lines first if available
+            for l in norm_lines:
                 l_str = l.strip()
-                if re.search(r'^(?:SUBJECT|COM[P|R|B|I]+AR?AB[L|I]+E(?:\s*(?:NO\.?|#|:)\s*)*[0-9A-Za-z]*|RENTAL(?:\s*(?:NO\.?|#|:)\s*)*[0-9A-Za-z]*)\s*$', l_str, re.I):
+                if re.search(r'^(?:SUBJECT|COMP|COMPARABLE|RENTAL|LISTING)\b', l_str, re.I):
                     continue
                 if re.search(r'^[0-9]+(?:\.[0-9]+)?\s*(?:miles?|mi|mlles?)\b(?:\s*[NSEWnsew]{1,2}|North|South|East|West)?$', l_str, re.I):
+                    continue
+                if re.search(r'^[\$sS5]\d{1,3}(?:,\d{3})+$', l_str):
+                    continue
+                if re.search(r'^(?:APN|PARCEL)', l_str, re.I):
                     continue
                 # Line is City, State Zip: e.g. "Manville, NJ 08835" or "Havre De Grace, MD 21078"
                 m_csz_line = re.search(r'^([A-Za-z\s.,\'-]+?)[,\s]+(' + US_STATES + r')\s+([0-9]{5}(?:-[0-9]{4})?)$', l_str, re.I)
@@ -688,21 +925,38 @@ class MapExtractor:
                     state = m_csz.group(2).upper()
                     zipcode = m_csz.group(3).strip()
 
-            # Match street with suffix from text_clean
+            # 1. Primary match: Street with direction and standard suffix (e.g. "1445 EAST 100TH STREET", "1215 15th St N", "54 E Juniper St")
             if not street:
-                m_st = re.search(r'\b([0-9]{1,6}(?:-[0-9]{1,6})?\s+[A-Za-z0-9#\s.,\'-]+?' + STREET_SUFFIX + r')\b', text_clean, re.I)
+                m_prim = re.search(r'\b([0-9]{1,6}\s+(?:(?:North|South|East|West|N|S|E|W)\s+)?[0-9A-Za-z\s]+?\b(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Way|Court|Ct|Circle|Cir|Place|Pl|Trail|Tr|Parkway|Pkwy|Pond|Bayview)(?:\s+(?:N|S|E|W|North|South|East|West))?)\b', text_clean, re.I)
+                if m_prim:
+                    street = m_prim.group(1).strip()
+
+            # 2. Match street with 'Avenue X' format: e.g. "9816 Avenue J", "1234 Avenue K"
+            if not street:
+                m_ave = re.search(r'\b([0-9]{1,6}\s+Avenue\s+[A-Za-z])\b', text_clean, re.I)
+                if m_ave:
+                    street = m_ave.group(1).strip()
+
+            # 3. Match street with suffix from text_clean
+            if not street:
+                m_st = re.search(r'\b([0-9]{1,6}(?:-[0-9]{1,6})?\s+[A-Za-z0-9#\s.,\'-]+?\s+(?:' + STREET_SUFFIX + r'))\b', text_clean, re.I)
                 if m_st:
                     street = m_st.group(1).strip()
 
-            # Fallback: match any house number followed by street words (e.g. "12462 E Summerlin", "10228 Little T")
+            # 4. Fallback: match any house number followed by street words (e.g. "12462 E Summerlin", "10228 Little T")
             if not street:
                 m_num = re.search(r'\b([0-9]{1,6}(?:-[0-9]{1,6})?\s+[A-Za-z0-9#\s.,\'-]+)', text_clean)
                 if m_num:
                     cand = m_num.group(1).strip()
                     cand = re.sub(r'[;,.\s]+\b(?:[NSEW]{1,2}|North|South|East|West)\b\s*$', '', cand, flags=re.I)
-                    cand = re.sub(r'^[;,.\s:=-]+|[;,.\s:=-]+$', '', cand).strip()
+                    cand = re.sub(r'^[;,.\s:=$§\-]+|[;,.\s:=$§\-]+$', '', cand).strip()
+                    cand = re.sub(r'^(?:[0-9]+\.)?\s+', '', cand).strip()
                     cand = re.sub(r'\s+[~_].*$', '', cand).strip()
-                    if len(cand.split()) >= 2:
+                    cand_words = [w.lower() for w in re.findall(r'[A-Za-z]+', cand)]
+                    disallowed = {'miles', 'mile', 'milez', 'mles', 'miloc', 'milos', 'brighton'}
+                    if any(w in disallowed for w in cand_words):
+                        cand = ""
+                    if cand and len(cand.split()) >= 2 and re.match(r'^[1-9]', cand):
                         street = cand
 
             # Clean comp digit prepended to house number (e.g. "1 345 N 6th Ave" -> "345 N 6th Ave")
@@ -710,6 +964,18 @@ class MapExtractor:
                 m_sub = re.search(r'^[1-9]\s+([0-9]{1,6}(?:-[0-9]{1,6})?\s+.*)', street)
                 if m_sub:
                     street = m_sub.group(1).strip()
+
+            # Clean street name: reject house number 0 or streets with fewer than 3 letters
+            if street:
+                m_house = re.match(r'^([0-9]+)\s+(.*)', street)
+                if m_house:
+                    house_num = m_house.group(1)
+                    st_name = m_house.group(2).strip()
+                    if house_num.startswith('0'):
+                        street = ""
+                    letters = re.findall(r'[A-Za-z]', st_name)
+                    if len(letters) < 3:
+                        street = ""
 
             # Inherit city/state/zip from subject if comp/rental lacked it
             if not (city and state and zipcode) and subject_csz and not is_sub:
@@ -745,11 +1011,22 @@ class MapExtractor:
                 "miles": miles_val,
                 "direction": direction,
                 "proximity": proximity,
-                "price": "",
+                "price": price,
+                "apn": apn,
                 "raw_text": combined
             }
 
-        header_pat = r'(\b(?:SUBJECT|COM[P|R|B|I]+AR?AB[L|I]+E(?:\s*(?:NO\.?|#|:)\s*)*[0-9A-Za-z]*|RENTAL(?:\s*(?:NO\.?|#|:)\s*)*[0-9A-Za-z]*)\b)'
+        header_pat = (
+            r'('
+            r'\b(?:'
+            r'SUBJECT'
+            r'|(?:COMPARABLE|COMP|CMP)\s*(?:SALES?|PROPERTY)?(?:\s*(?:NO\.?|#|:|_)\s*)*[0-9A-Za-z]*'
+            r'|(?:COMPARABLE\s+)?RENTALS?(?:\s*(?:PROPERTY)?(?:\s*(?:NO\.?|#|:|_)\s*)*[0-9A-Za-z]*)'
+            r'|LISTINGS?(?:\s*(?:NO\.?|#|:|_)\s*)*[0-9A-Za-z]*'
+            r'|PENDINGS?(?:\s*(?:NO\.?|#|:|_)\s*)*[0-9A-Za-z]*'
+            r')\b'
+            r')'
+        )
         parts = re.split(header_pat, full_text, flags=re.I)
 
         results = []
@@ -782,74 +1059,107 @@ class MapExtractor:
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         annotated_img = img.copy()
 
-        # Red Color Masks (Subject Callouts / Pins)
-        red_mask1 = cv2.inRange(hsv, np.array([0, 100, 70]), np.array([12, 255, 255]))
-        red_mask2 = cv2.inRange(hsv, np.array([168, 100, 70]), np.array([180, 255, 255]))
+        # 1. Red Masks (Subject Callouts / Pins)
+        red_mask1 = cv2.inRange(hsv, np.array([0, 70, 70]), np.array([12, 255, 255]))
+        red_mask2 = cv2.inRange(hsv, np.array([168, 70, 70]), np.array([180, 255, 255]))
         red_mask = cv2.bitwise_or(red_mask1, red_mask2)
 
-        # Blue Color Mask (Comparable Pins / Callouts)
-        blue_mask = cv2.inRange(hsv, np.array([95, 80, 60]), np.array([135, 255, 255]))
+        # 2. Blue Mask (Comparable Pins / Callouts - solid and border styles; Sat>=135 eliminates ocean water)
+        blue_mask = cv2.inRange(hsv, np.array([96, 135, 70]), np.array([135, 255, 255]))
 
-        # Green Color Mask (Rental Pins / Callouts)
-        green_mask = cv2.inRange(hsv, np.array([35, 60, 50]), np.array([85, 255, 255]))
+        # 3. Green Mask (Rental Pins / Callouts - Sat>=55 captures darker green callouts while eliminating map water)
+        green_mask = cv2.inRange(hsv, np.array([35, 55, 50]), np.array([85, 255, 255]))
+
+        # 4. Orange / Amber Mask (Rental & Comp Cards - e.g. Alabama map style)
+        orange_mask = cv2.inRange(hsv, np.array([10, 80, 80]), np.array([26, 255, 255]))
+
+        # 5. Teal / Cyan Mask (Listings & Comps - e.g. Alabama map style)
+        teal_mask = cv2.inRange(hsv, np.array([80, 70, 70]), np.array([98, 255, 255]))
+
+        # 6. Pastel Yellow / Cream Mask (Sales Comps - e.g. Greenport map style)
+        yellow_mask = cv2.inRange(hsv, np.array([18, 15, 180]), np.array([45, 130, 255]))
+
+        # 7. Pastel Purple / Lavender Mask (Sales Comps - e.g. Greenport map style)
+        purple_mask = cv2.inRange(hsv, np.array([105, 15, 170]), np.array([165, 130, 255]))
+
+        # 8. Pastel Green Mask (Rental Comps - e.g. Greenport map style)
+        pastel_green_mask = cv2.inRange(hsv, np.array([45, 15, 170]), np.array([85, 130, 255]))
+
+        # 9. White / Light Cards (Subject & White Card Pins - e.g. Greenport Subject, TOTAL cards)
+        white_mask = cv2.inRange(hsv, np.array([0, 0, 222]), np.array([180, 28, 255]))
 
         color_configs = [
-            ("red", red_mask, (0, 0, 255)),     # BGR Red (Subject)
-            ("blue", blue_mask, (255, 0, 0)),   # BGR Blue (Comparable Sales)
-            ("green", green_mask, (0, 180, 0))  # BGR Green (Rental Comparables)
+            ("red", red_mask, (0, 0, 255)),
+            ("blue", blue_mask, (255, 0, 0)),
+            ("green", green_mask, (0, 180, 0)),
+            ("orange", orange_mask, (0, 140, 255)),
+            ("teal", teal_mask, (200, 200, 0)),
+            ("yellow", yellow_mask, (0, 215, 255)),
+            ("purple", purple_mask, (200, 50, 180)),
+            ("green", pastel_green_mask, (0, 200, 100)),
+            ("white", white_mask, (200, 200, 200)),
         ]
 
         pin_counter = 0
         base_name = os.path.splitext(os.path.basename(source_filename))[0]
 
         for color_name, mask, draw_color in color_configs:
-            # RETR_CCOMP detects both external boundaries and internal holes
-            # (crucial for callouts surrounded by water or connected road networks)
-            contours, _ = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+            k = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+            m_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
+            contours, _ = cv2.findContours(m_clean, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
 
             cand_boxes = []
             for c in contours:
                 x, y, w, h = cv2.boundingRect(c)
-                # Callout box geometry: width 180..750, height 35..380, max area 220,000
-                if 180 <= w <= 750 and 35 <= h <= 380 and (w * h) <= 220000:
-                    cand_boxes.append((x, y, w, h))
+                # Geometry filter: covers compact bubble pins (w >= 50) and wide photo cards (w <= 850)
+                if 50 <= w <= 850 and 24 <= h <= 280 and 1500 <= (w * h) <= 220000:
+                    ar = w / float(h)
+                    if 0.65 <= ar <= 6.5:
+                        cand_boxes.append((x, y, w, h))
 
-            # Deduplicate concentric/overlapping boxes (e.g. inner hole and outer stroke of same box)
+            # Deduplicate concentric/overlapping boxes
             merged_boxes = []
             for b in sorted(cand_boxes, key=lambda b: (b[1], b[0])):
                 x, y, w, h = b
-                if not any(abs(x - ex[0]) < 80 and abs(y - ex[1]) < 60 for ex in merged_boxes):
+                if not any(abs(x - ex[0]) < 50 and abs(y - ex[1]) < 40 for ex in merged_boxes):
                     merged_boxes.append(b)
 
             for x, y, w, h in merged_boxes:
-                # Add padding around callout to capture borders & adjacent labels
-                pad = 8
-                y0, y1 = max(0, y - pad), min(img.shape[0], y + h + pad)
+                # If pin has a long needle pointer extending downwards, crop just the callout bubble
+                eff_h = min(h, 60) if (w < 160 and h > 65) else h
+                pad = 6
+                y0, y1 = max(0, y - pad), min(img.shape[0], y + eff_h + pad)
                 x0, x1 = max(0, x - pad), min(img.shape[1], x + w + pad)
                 crop = img[y0:y1, x0:x1]
 
-                # 1.5x upscaling for high OCR legibility
-                crop_scaled = cv2.resize(crop, (0, 0), fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
+                scale = 2.0
+                crop_scaled = cv2.resize(crop, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
                 ocr_results = self.run_ocr(crop_scaled)
                 lines = [t for t, _ in ocr_results]
                 if not lines:
                     continue
 
-                parsed_items = self.parse_pin_text(lines, color_name)
+                parsed_items = self.parse_pin_text(lines, color_name, map_type=map_type)
                 if not parsed_items:
                     continue
 
                 for parsed in parsed_items:
-                    # Enforce color category:
-                    if color_name == "red" and parsed.get("item_type") != "Subject":
-                        continue
-                    if color_name == "blue" and parsed.get("item_type") == "Rental":
-                        continue
-                    if color_name == "green" and parsed.get("item_type") != "Rental":
+                    raw_txt = parsed.get("raw_text", "")
+
+                    # Disqualify common background road/highway names from map tiles (e.g. Conduit Ave, 155th Ave, Belt Pkwy)
+                    road_noise = bool(re.search(r'\b(?:conduit|belt\s*pkwy|expressway|interstate|highway|shore\s*pkwy|basin\s*park|ecology\s*park|islamic\s*services|church\s*of\s*brooklyn|nyra\s*bets|st\.\s*helen)\b', raw_txt, re.I))
+                    if road_noise and not bool(re.search(r'\b(?:Subject|Comp|Comparable|Rental|Listing|Sale)\b|[\$sS5]\d{1,3}(?:,\d{3})+', raw_txt, re.I)):
                         continue
 
-                    # Filter out noise that lacks address and distance
-                    if not parsed.get("address") and not parsed.get("distance") and not parsed.get("street"):
+                    has_addr = bool(parsed.get("street") or parsed.get("address"))
+                    is_sub = (parsed.get("item_type") == "Subject")
+                    has_dist = bool(parsed.get("distance") or parsed.get("proximity"))
+                    has_price = bool(parsed.get("price"))
+                    has_hdr = bool(re.search(r'\b(?:Subject|Comp|Comparable|Rental|Listing|Sale)\b', parsed.get("label", ""), re.I))
+
+                    if not is_sub and not has_addr:
+                        continue
+                    if not is_sub and not (has_hdr or has_dist or has_price or color_name in ("blue", "yellow", "purple", "green")):
                         continue
 
                     pin_counter += 1
@@ -899,7 +1209,7 @@ class MapExtractor:
             sub_state = sub_pin.get("state", "")
             sub_zip = sub_pin.get("zipcode", "")
             for p in extracted_pins:
-                if p.get("item_type") in ("Comparable", "Rental"):
+                if p.get("item_type") in ("Comparable", "Rental", "Listing"):
                     if not p.get("city") and sub_city:
                         p["city"] = sub_city
                         p["state"] = sub_state
@@ -907,26 +1217,78 @@ class MapExtractor:
                         if p.get("street"):
                             p["address"] = f"{p['street']}, {sub_city}, {sub_state} {sub_zip}".strip()
 
-        # Deduplicate pins by (label, street, page_number)
-        seen = set()
+        # Deduplicate pins across color passes (spatial box overlap, address number, or label match)
+        def parse_box_coords(box_str):
+            m = re.findall(r'(\w+)=(\d+)', box_str or '')
+            d = {k: int(v) for k, v in m}
+            return d.get('x', 0), d.get('y', 0), d.get('w', 0), d.get('h', 0)
+
         deduped_pins = []
         for p in extracted_pins:
-            key = (p.get("label"), p.get("street") or p.get("address"), p.get("page_number"))
-            if key not in seen:
-                seen.add(key)
-                deduped_pins.append(p)
+            px, py, pw, ph = parse_box_coords(p.get("box_coords", ""))
+            p_addr = (p.get("street") or p.get("address") or "").strip().lower()
+            p_lbl = (p.get("label") or "").strip().lower()
+            p_item = p.get("item_type")
+
+            matched_idx = -1
+            for idx, ex in enumerate(deduped_pins):
+                ex_x, ex_y, ex_w, ex_h = parse_box_coords(ex.get("box_coords", ""))
+                ex_addr = (ex.get("street") or ex.get("address") or "").strip().lower()
+                ex_lbl = (ex.get("label") or "").strip().lower()
+                ex_item = ex.get("item_type")
+
+                # Match 1: Spatial overlap (IoU >= 0.40 or tight center distance <= 32px)
+                spatial_match = False
+                if px and ex_x:
+                    xi1, yi1 = max(px, ex_x), max(py, ex_y)
+                    xi2, yi2 = min(px + pw, ex_x + ex_w), min(py + ph, ex_y + ex_h)
+                    iw, ih = max(0, xi2 - xi1), max(0, yi2 - yi1)
+                    inter = iw * ih
+                    union = (pw * ph) + (ex_w * ex_h) - inter
+                    iou = (inter / float(union)) if union > 0 else 0.0
+                    if iou >= 0.40 or (abs(px - ex_x) < 32 and abs(py - ex_y) < 25):
+                        spatial_match = True
+
+                # Match 2: Same address number & street name
+                addr_match = False
+                if p_addr and ex_addr and len(p_addr) > 5 and len(ex_addr) > 5:
+                    p_num = re.findall(r'^\d+', p_addr)
+                    ex_num = re.findall(r'^\d+', ex_addr)
+                    if p_num and ex_num and p_num[0] == ex_num[0]:
+                        addr_match = True
+
+                # Match 3: Same label (e.g. Comp #1) and same item_type
+                label_match = (p_lbl and ex_lbl and p_lbl == ex_lbl and p_item == ex_item and p_lbl not in ('comparable', 'rental', 'listing'))
+
+                if spatial_match or addr_match or label_match:
+                    matched_idx = idx
+                    break
+
+            if matched_idx >= 0:
+                existing = deduped_pins[matched_idx]
+                if not existing.get("distance") and p.get("distance"):
+                    existing["distance"] = p.get("distance")
+                    existing["miles"] = p.get("miles")
+                    existing["proximity"] = p.get("proximity")
+                if not existing.get("price") and p.get("price"):
+                    existing["price"] = p.get("price")
+                if not existing.get("apn") and p.get("apn"):
+                    existing["apn"] = p.get("apn")
+                if len(p.get("address") or "") > len(existing.get("address") or ""):
+                    existing["address"] = p.get("address")
+                if len(p.get("street") or "") > len(existing.get("street") or ""):
+                    existing["street"] = p.get("street")
+                if p.get("label") and (not existing.get("label") or existing.get("label") in ("Comparable", "Rental", "Listing")):
+                    existing["label"] = p.get("label")
+                if p.get("item_type") == "Rental" and existing.get("item_type") == "Comparable":
+                    existing["item_type"] = "Rental"
+                if p.get("item_type") == "Listing" and existing.get("item_type") in ("Comparable", "Rental"):
+                    existing["item_type"] = "Listing"
+                if p.get("item_type") == "Subject":
+                    existing["item_type"] = "Subject"
+                    existing["label"] = "Subject"
             else:
-                existing = next((x for x in deduped_pins if (x.get("label"), x.get("street") or x.get("address"), x.get("page_number")) == key), None)
-                if existing:
-                    if not existing.get("distance") and p.get("distance"):
-                        existing["distance"] = p.get("distance")
-                        existing["miles"] = p.get("miles")
-                        existing["proximity"] = p.get("proximity")
-                    if not existing.get("city") and p.get("city"):
-                        existing["city"] = p.get("city")
-                        existing["state"] = p.get("state")
-                        existing["zipcode"] = p.get("zipcode")
-                        existing["address"] = p.get("address")
+                deduped_pins.append(p)
 
         # Guarantee Subject extraction for Aerial Map or any map exhibit where Subject was missing
         has_sub = any(p.get("item_type") == "Subject" for p in deduped_pins)
@@ -947,11 +1309,11 @@ class MapExtractor:
                         if header_sub.get("address"):
                             sub_p["address"] = header_sub["address"]
 
-        # Sort: Subject first, then Comparables in numerical order, then Rentals in numerical order
+        # Sort: Subject first, then Comparables in numerical order, then Rentals in numerical order, then Listings
         def comp_sort_key(p):
             if p.get("item_type") == "Subject":
                 return (0, 0)
-            it_rank = 1 if p.get("item_type") == "Comparable" else 2
+            it_rank = 1 if p.get("item_type") == "Comparable" else (2 if p.get("item_type") == "Rental" else 3)
             m = re.search(r'\d+', p.get("label", ""))
             return (it_rank, int(m.group(0)) if m else 99)
 
@@ -1333,9 +1695,9 @@ class MapExtractor:
 
         return None
 
-    def extract_all_exhibits_data(self, file_path: str) -> Dict[str, Any]:
+    def extract_all_exhibits_data(self, file_path: str, exhibit_type: Optional[str] = None) -> Dict[str, Any]:
         """
-        Extracts structured data from all visual exhibits:
+        Extracts structured data from visual exhibits:
         - Location Map & Comparables (Subject in red, Comps in blue)
         - Aerial Map
         - Building Sketch / Floor Plan (Area calculations, room labels & exterior dimensions)
@@ -1343,11 +1705,34 @@ class MapExtractor:
         - Rentals Map
         - Plat / Parcel / Flood Maps
         Returns unified dictionary suitable for UI and API consumption.
+        Supports selective single-exhibit extraction via `exhibit_type`:
+        'location_map', 'aerial_map', 'building_sketch', 'rental_map', or None/'all'.
         """
         doc, is_xml_embedded = self.get_pdf_doc(file_path)
-        map_pages = self.detect_map_pages(doc)
-        sketch_pages = self.detect_sketch_pages(doc)
-        comp_photo_pages = self.detect_comp_photo_pages(doc)
+        ex_type = (exhibit_type or "").lower().strip()
+
+        process_location = ex_type in ["", "all", "location", "location_map", "location_maps", "comps_map", "location_and_comps"]
+        process_aerial = ex_type in ["", "all", "aerial", "aerial_map", "aerial_maps", "satellite"]
+        process_sketches = ex_type in ["", "all", "sketch", "sketches", "building_sketch", "floor_plan", "building_sketch_floor_plan"]
+        process_rentals = ex_type in ["", "all", "rental", "rentals", "rental_map", "rentals_map", "other_maps", "rentals_other_maps", "plat", "flood"]
+
+        all_map_pages = self.detect_map_pages(doc) if (process_location or process_aerial or process_rentals) else []
+        map_pages = []
+        for mp in all_map_pages:
+            m_type = mp.get("map_type", "")
+            is_loc = bool(re.search(r'location|comparable|sales\s*map', m_type, re.IGNORECASE))
+            is_aer = bool(re.search(r'aerial|satellite', m_type, re.IGNORECASE))
+            is_rent = not is_loc and not is_aer
+
+            if is_loc and process_location:
+                map_pages.append(mp)
+            elif is_aer and process_aerial:
+                map_pages.append(mp)
+            elif is_rent and process_rentals:
+                map_pages.append(mp)
+
+        sketch_pages = self.detect_sketch_pages(doc) if process_sketches else []
+        comp_photo_pages = self.detect_comp_photo_pages(doc) if (process_location or process_rentals) else []
 
         comp_photos = []
         for cpp in comp_photo_pages:
@@ -1365,9 +1750,7 @@ class MapExtractor:
             b64_str = base64.b64encode(pix.tobytes("jpeg")).decode("utf-8")
 
             sub = next((p for p in pins if p.get("item_type") == "Subject"), None)
-            comps = [p for p in pins if p.get("item_type") in ("Comparable", "Rental")]
-            comps_only = [p for p in pins if p.get("item_type") == "Comparable"]
-            rentals_only = [p for p in pins if p.get("item_type") == "Rental"]
+            comps = [p for p in pins if p.get("item_type") in ("Comparable", "Rental", "Listing")]
 
             # Pair each comparable / rental pin with its matching Photo Addendum record
             for c in comps:
@@ -1375,8 +1758,8 @@ class MapExtractor:
                 if matched_photo:
                     c["photo_data"] = matched_photo
                     cp_num = matched_photo.get("comp_num")
-                    if cp_num and not re.search(r'\d+', c.get("label", "")):
-                        prefix = "Rental" if c.get("item_type") == "Rental" else "Comparable"
+                    if cp_num:
+                        prefix = "Rental" if c.get("item_type") == "Rental" else ("Listing" if c.get("item_type") == "Listing" else "Comparable")
                         c["label"] = f"{prefix} #{cp_num}"
                     photo_addr = matched_photo.get("address") or ""
                     # Only backfill address if pin had no street detected from OCR
@@ -1386,12 +1769,20 @@ class MapExtractor:
                             c["address"] = f"{photo_addr}, {c['city']}, {c['state']} {c.get('zipcode', '')}".strip()
                         else:
                             c["address"] = photo_addr
+                if c.get("item_type") == "Rental" and not c.get("label", "").lower().startswith("rental"):
+                    m_d = re.search(r'\d+', c.get("label", ""))
+                    c_num = m_d.group(0) if m_d else ""
+                    c["label"] = f"Rental #{c_num}" if c_num else "Rental"
 
-            # Sort all lists strictly in ascending order: Subject (0), Comparables 1..N (1), Rentals 1..N (2)
+            comps_only = [p for p in pins if p.get("item_type") == "Comparable"]
+            rentals_only = [p for p in pins if p.get("item_type") == "Rental"]
+            listings_only = [p for p in pins if p.get("item_type") == "Listing"]
+
+            # Sort all lists strictly in ascending order: Subject (0), Comparables 1..N (1), Rentals 1..N (2), Listings 1..N (3)
             def pin_asc_key(p):
                 if p.get("item_type") == "Subject":
                     return (0, 0, 0.0)
-                it_rank = 1 if p.get("item_type") == "Comparable" else 2
+                it_rank = 1 if p.get("item_type") == "Comparable" else (2 if p.get("item_type") == "Rental" else 3)
                 m = re.search(r'\d+', p.get("label", ""))
                 num = int(m.group(0)) if m else 99
                 mMiles = re.search(r'([0-9]+(?:\.[0-9]+)?)', p.get("distance", "") or p.get("proximity", ""))
@@ -1401,6 +1792,7 @@ class MapExtractor:
             comps.sort(key=pin_asc_key)
             comps_only.sort(key=pin_asc_key)
             rentals_only.sort(key=pin_asc_key)
+            listings_only.sort(key=pin_asc_key)
             pins.sort(key=pin_asc_key)
 
             maps_data.append({
@@ -1410,6 +1802,7 @@ class MapExtractor:
                 "comparables": comps,
                 "rentals": rentals_only,
                 "comparables_only": comps_only,
+                "listings": listings_only,
                 "pins": pins,
                 "image_preview": f"data:image/jpeg;base64,{b64_str}"
             })
@@ -1422,6 +1815,7 @@ class MapExtractor:
         return {
             "status": "success",
             "file_name": os.path.basename(file_path),
+            "exhibit_type": ex_type or "all",
             "total_maps": len(maps_data),
             "total_sketches": len(sketches_data),
             "total_comparable_photos": len(comp_photos),

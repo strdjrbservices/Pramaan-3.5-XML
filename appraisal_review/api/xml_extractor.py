@@ -2830,43 +2830,186 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
     elif purpose:
         assignment_type = purpose
 
-    # Narrative Comments from Addendum & Embedded PDF
+    # Narrative Comments from Addendum, XML DOM attributes, and Embedded PDF
     addendum_text = ""
     for f in root.findall(".//FORM"):
         for k, v in f.attrib.items():
             if "text" in k.lower() or "comment" in k.lower():
                 addendum_text += " " + v
 
+    # Collect all narrative attributes and text across the entire MISMO XML DOM
+    dom_narratives = []
+    for elem in root.iter():
+        for attr_k, attr_v in elem.attrib.items():
+            if any(k in attr_k.lower() for k in ["description", "comment", "narrative", "statement", "marketconditions", "uspap"]):
+                dom_narratives.append(attr_v)
+        if elem.text and not elem.text.startswith("JVBERi"):
+            elem_t = elem.text.strip()
+            if len(elem_t) > 10 and not elem_t.startswith("<?xml"):
+                dom_narratives.append(elem_t)
+
     pdf_text = ""
+    pdf_doc = None
     if embedded_doc is not None and embedded_doc.text:
         if fitz is not None:
             try:
                 pdf_bytes = base64.b64decode(embedded_doc.text.strip())
-                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-                for p in doc:
+                pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                for p in pdf_doc:
                     pdf_text += " " + (p.get_text() or "")
             except Exception:
                 pass
 
-    full_narrative = (addendum_text + " " + pdf_text).strip()
+    full_narrative = (addendum_text + " " + " ".join(dom_narratives) + " " + pdf_text).strip()
 
-    # ANSI
-    ansi_comment = ""
-    m_ansi = re.search(r'([^.?!;\n]*\bANSI\b[^.?!;\n]*(?:[.?!]|$))', full_narrative, re.IGNORECASE)
-    if m_ansi:
-        ansi_comment = m_ansi.group(0).strip()
+    # ANSI (compulsory field)
+    ansi_comment = "Not Present"
+    ansi_candidates = []
+    for s in re.split(r'(?<=[.?!;])\s+|[\r\n]+', full_narrative):
+        s_clean = s.strip(" \t\r\n-•*")
+        if re.search(r'\b(?:ANSI(?:[-\s]+Z765(?:[-\s]*\d{4})?)?|American\s+National\s+Standards\s+Institute)\b', s_clean, re.IGNORECASE):
+            if len(s_clean) > 15 and not s_clean.endswith(':'):
+                score = 0
+                if re.search(r'Z765', s_clean, re.IGNORECASE): score += 5
+                if re.search(r'standard', s_clean, re.IGNORECASE): score += 3
+                if re.search(r'measure|calculat|accordance|complian|adher', s_clean, re.IGNORECASE): score += 4
+                if len(s_clean) > 30: score += 2
+                ansi_candidates.append((score, s_clean))
+    if ansi_candidates:
+        ansi_candidates.sort(key=lambda x: x[0], reverse=True)
+        ansi_comment = ansi_candidates[0][1]
+    elif ansi_comment == "Not Present":
+        m_ansi = re.search(r'([^.?!;\n]*\b(?:ANSI(?:[-\s]+Z765(?:[-\s]*\d{4})?)?|American\s+National\s+Standards\s+Institute)\b[^.?!;\n]*(?:[.?!]|$))', full_narrative, re.IGNORECASE)
+        if m_ansi:
+            ansi_comment = m_ansi.group(0).strip(" \t\r\n-•*")
     
-    # Exposure comment
-    exposure_comment = ""
-    m_exp = re.search(r'([^.?!;\n]*\b(?:reasonable\s*exposure\s*time|exposure\s*time)\b[^.?!;\n]*(?:[.?!]|$))', full_narrative, re.IGNORECASE)
-    if m_exp:
-        exposure_comment = m_exp.group(0).strip()
-    
-    # Prior service comment
-    prior_service_comment = ""
-    m_ps = re.search(r'(performed no services[^\.\n]+[\.\n]|within the (?:three|3) year period[^\.\n]+[\.\n])', full_narrative, re.IGNORECASE)
-    if m_ps:
-        prior_service_comment = m_ps.group(1).strip()
+    # Exposure comment (compulsory field - checks USPAP Addendum page in embedded PDF first)
+    exposure_comment = "Not Present"
+    if pdf_doc is not None:
+        try:
+            for page in pdf_doc:
+                pt = page.get_text() or ""
+                if ("USPAP" in pt.upper() or "EXPOSURE" in pt.upper()) and ("REASONABLE EXPOSURE TIME" in pt.upper() or "EXPOSURE TIME" in pt.upper()):
+                    blocks = page.get_text("blocks")
+                    words = page.get_text("words")
+                    for b in blocks:
+                        b_text = b[4].strip()
+                        if "my opinion of a reasonable exposure time" in b_text.lower():
+                            prompt_bbox = b[:4]
+                            cand_vals = [w[4] for w in words if w[0] >= prompt_bbox[2] - 15 and abs(w[1] - prompt_bbox[1]) < 25 and w[4].lower() not in ["is:", "is", "the", ":"]]
+                            if cand_vals:
+                                val = " ".join(cand_vals).strip()
+                                for b2 in blocks:
+                                    b2_t = " ".join(b2[4].split()).strip()
+                                    if "reasonable exposure time" in b2_t.lower() and ("estimated to be" in b2_t.lower() or "typical exposure" in b2_t.lower() or "opinion of value" in b2_t.lower()):
+                                        if len(b2_t) > 30 and "my opinion of a reasonable" not in b2_t.lower():
+                                            exposure_comment = f"{val} ({b2_t})"
+                                            break
+                                if exposure_comment == "Not Present" and val:
+                                    exposure_comment = val
+                                break
+                    if exposure_comment != "Not Present":
+                        break
+        except Exception:
+            pass
+
+    if exposure_comment == "Not Present":
+        # Comprehensive scan across XML narrative and embedded document text
+        exp_patterns = [
+            re.compile(r'([^.?!;\n]*\b(?:reasonable\s+exposure\s+time\s+for\s+the\s+subject|exposure\s*(?:and\s*|or\s*|\/\s*|marketing\s*)?time\s+(?:for\s+the\s+subject\s+property\s+)?is\s+determined|exposure\s+marketing\s+time|estimated\s+exposure\s+time\s+is|opinion\s+of\s+(?:a\s+)?reasonable\s+exposure|opinion\s+of\s+exposure\s+time)\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+            re.compile(r'([^.?!;\n]*\b(?:market\s+value\s+stated\s+(?:within|in)\s+this\s+report\s+reflects\s+an\s+exposure\s+time)\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+            re.compile(r'([^.?!;\n]*\b(?:reasonable\s+exposure\s+time\s+(?:is|was|developed))\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+            re.compile(r'([^.?!;\n]*\b(?:exposure\s+time\s+is\s+estimated\s+at|exposure\s+time\s+of\s+\d+|exposure\s+time\s+under\s+\d+)\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+            re.compile(r'([^.?!;\n]*\b(?:reasonable\s*exposure\s*time|exposure\s*(?:and\s*|or\s*|\/\s*|marketing\s*)?time|expo\s*days|exposure\s*period|marketing\s*and\s*exposure)\b[^.?!;\n]*(?:[.?!]|$))', re.IGNORECASE),
+        ]
+        for pat in exp_patterns:
+            m = pat.search(full_narrative)
+            if m:
+                cand_exp = m.group(0).strip(" \t\r\n-•*")
+                if len(cand_exp) > 5 and "allowed for exposure in the open market" not in cand_exp.lower():
+                    exposure_comment = cand_exp
+                    break
+
+    # Prior service comment (compulsory field - checks USPAP Addendum checkboxes first)
+    prior_service_comment = "Not Present"
+    if pdf_doc is not None:
+        try:
+            for page in pdf_doc:
+                pt = page.get_text() or ""
+                if ("USPAP" in pt.upper() or "CERTIFICATION" in pt.upper()) and ("THREE-YEAR PERIOD" in pt.upper() or "SERVICES" in pt.upper()):
+                    blocks = page.get_text("blocks")
+                    words = page.get_text("words")
+                    opt_no_bbox = None
+                    opt_have_bbox = None
+                    for b in blocks:
+                        b_text = " ".join(b[4].split()).strip()
+                        if "no services, as an appraiser" in b_text.lower() or "not performed services, as an appraiser" in b_text.lower() or "performed no services" in b_text.lower():
+                            opt_no_bbox = b[:4]
+                        elif "have performed services" in b_text.lower() and "no services" not in b_text.lower():
+                            opt_have_bbox = b[:4]
+
+                    if opt_no_bbox or opt_have_bbox:
+                        for w in words:
+                            w_text = w[4].strip().upper()
+                            if w_text in ["X", "[X]", "8", "[8]", "☒", "☑", "✓"] and w[0] < 50:
+                                if opt_no_bbox and abs(w[1] - opt_no_bbox[1]) < 30:
+                                    prior_service_comment = "I have NOT performed services, as an appraiser or in any other capacity, regarding the property that is the subject of this report within the three-year period immediately preceding acceptance of this assignment."
+                                    break
+                                elif opt_have_bbox and abs(w[1] - opt_have_bbox[1]) < 30:
+                                    prior_service_comment = "I HAVE performed services, as an appraiser or in another capacity, regarding the property that is the subject of this report within the three-year period immediately preceding acceptance of this assignment."
+                                    break
+                    if prior_service_comment != "Not Present":
+                        break
+        except Exception:
+            pass
+
+    if prior_service_comment == "Not Present":
+        prior_patterns = [
+            re.compile(r'([^.?!;\n]*\b(?:performed\s+no\s+services|have\s+not\s+performed\s+(?:any\s+)?services|no\s+prior\s+services\s+performed|performed\s+any\s+prior\s+services)\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+            re.compile(r'([^.?!;\n]*\b(?:prior\s+services?)\s*[:\-]\s*[^.?!;\n]+[.?!]?)', re.IGNORECASE),
+            re.compile(r'([^.?!;\n]*\bwithin\s+the\s+(?:three|3)\s*(?:-| )year\s*period\s*immediately\s*preceding[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+            re.compile(r'([^.?!;\n]*\b(?:have|has)\s+(?:not\s+)?appraised\s+(?:or\s+provided\s+services\s+for\s+)?the\s+subject\s+property\s+within\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+            re.compile(r'([^.?!;\n]*\b(?:not\s+appraised\s+the\s+subject\s+property\s+or\s+performed\s+any\s+prior\s+services)\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+        ]
+        for pat in prior_patterns:
+            m = pat.search(full_narrative)
+            if m:
+                cand_ps = m.group(0).strip(" \t\r\n-•*")
+                if len(cand_ps) > 10:
+                    prior_service_comment = cand_ps
+                    break
+
+    # USPAP Reporting Option (Appraisal Report vs Restricted Appraisal Report)
+    uspap_reporting_option = "Appraisal Report"
+    if pdf_doc is not None:
+        try:
+            for page in pdf_doc:
+                pt = page.get_text() or ""
+                if "USPAP REPORTING OPTION" in pt.upper() or "STANDARDS RULE 2-2" in pt.upper():
+                    blocks = page.get_text("blocks")
+                    words = page.get_text("words")
+                    rep_appr_bbox = None
+                    rep_restr_bbox = None
+                    for b in blocks:
+                        bt = " ".join(b[4].split()).strip().lower()
+                        if "standards rule 2-2(a)" in bt or "appraisal report this report was prepared" in bt:
+                            rep_appr_bbox = b[:4]
+                        elif "standards rule 2-2(b)" in bt or "restricted appraisal report" in bt:
+                            rep_restr_bbox = b[:4]
+                    if rep_appr_bbox or rep_restr_bbox:
+                        for w in words:
+                            wt = w[4].strip().upper()
+                            if wt in ["X", "[X]", "8", "[8]", "☒", "☑", "✓"] and w[0] < 50:
+                                if rep_appr_bbox and abs(w[1] - rep_appr_bbox[1]) < 30:
+                                    uspap_reporting_option = "Appraisal Report (USPAP Standards Rule 2-2(a))"
+                                    break
+                                elif rep_restr_bbox and abs(w[1] - rep_restr_bbox[1]) < 30:
+                                    uspap_reporting_option = "Restricted Appraisal Report (USPAP Standards Rule 2-2(b))"
+                                    break
+                    if uspap_reporting_option != "Appraisal Report":
+                        break
+        except Exception:
+            pass
     
     # Smoke & CO detectors
     smoke_comment = ""
@@ -2969,8 +3112,12 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "ANSI Comment": ansi_comment,
         "Exposure comment": exposure_comment,
         "Exposure Comment": exposure_comment,
+        "Reasonable Exposure Time": exposure_comment,
+        "Reasonable Exposure Time Comment": exposure_comment,
         "Prior service comment": prior_service_comment,
         "Prior Service Comment": prior_service_comment,
+        "USPAP Reporting Option": uspap_reporting_option,
+        "USPAP Reporting Options": uspap_reporting_option,
         "ADU File Check": adu_check,
         "Smoke detector comment": smoke_comment,
         "CO detector comment": co_comment,
@@ -4341,6 +4488,15 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "1004MC Addendum": mc_present_str,
         "1004MC Present": "Yes" if has_1004mc else "No",
         "has_1004mc": has_1004mc,
+        "ANSI": ansi_comment,
+        "ANSI Standards": ansi_comment,
+        "ANSI Comment": ansi_comment,
+        "Exposure comment": exposure_comment,
+        "Exposure Comment": exposure_comment,
+        "Reasonable Exposure Time": exposure_comment,
+        "Prior service comment": prior_service_comment,
+        "Prior Service Comment": prior_service_comment,
+        "USPAP Reporting Option": uspap_reporting_option,
         "Subject": clean_subject,
         "SUBJECT": clean_subject,
         "CONTRACT": contract_section,

@@ -249,7 +249,7 @@ export const PdfXmlDiffDialog = ({ open, onClose, onCompare, loading, result, er
 
     return (
         <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
-            <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <DialogTitle component="div" sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     <Typography variant="h6" component="div" sx={{ fontWeight: 700 }}>
                         PDF vs XML Extraction Comparison

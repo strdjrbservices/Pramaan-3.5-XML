@@ -23,6 +23,12 @@ export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, 
       candidateKeys.push("Appraiser's Fee", "Appraiser Fee", "Appraisal Fee", "Total Fee", "Fee");
     } else if (field === '1004MC Addendum' || field === '1004MC Present' || field === '1004MC') {
       candidateKeys.push('1004MC Addendum', '1004MC Present', '1004MC');
+    } else if (field === 'ANSI' || field === 'ANSI Comment' || field === 'ANSI Standards') {
+      candidateKeys.push('ANSI', 'ANSI Comment', 'ANSI Standards');
+    } else if (field === 'Exposure Comment' || field === 'Exposure comment') {
+      candidateKeys.push('Exposure Comment', 'Exposure comment', 'Reasonable Exposure Time', 'exposure_comment');
+    } else if (field === 'Prior Service Comment' || field === 'Prior service comment' || field === 'Prior Service') {
+      candidateKeys.push('Prior Service Comment', 'Prior service comment', 'Prior Service', 'prior_service_comment');
     }
 
     for (const k of candidateKeys) {

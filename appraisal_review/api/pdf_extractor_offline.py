@@ -1186,17 +1186,18 @@ def extract_choice_from_row(words, y_target, options, x_min=0, x_max=600, defaul
 
 def extract_ansi_sentence_from_doc(doc=None, full_doc_text=""):
     """
-    Scans the entire PDF document for the whole word 'ANSI' (case-insensitive)
-    and extracts the complete sentence(s) in which it appears.
+    Scans the entire PDF document for ANSI measurement standards (case-insensitive)
+    and extracts the complete sentence(s) in which it appears. Returns 'Not Present' if not found.
     """
     candidate_texts = []
+    ansi_pat = re.compile(r'\b(?:ANSI(?:[-\s]+Z765(?:[-\s]*\d{4})?)?|American\s+National\s+Standards\s+Institute)\b', re.IGNORECASE)
     if doc is not None:
         for page in doc:
             t = page.get_text("text") or ""
-            if re.search(r'\bANSI\b', t, re.IGNORECASE):
+            if ansi_pat.search(t):
                 candidate_texts.append(t)
     if not candidate_texts and full_doc_text:
-        if re.search(r'\bANSI\b', full_doc_text, re.IGNORECASE):
+        if ansi_pat.search(full_doc_text):
             candidate_texts.append(full_doc_text)
 
     found_sentences = []
@@ -1205,7 +1206,7 @@ def extract_ansi_sentence_from_doc(doc=None, full_doc_text=""):
         sentences = re.split(r'(?<=[.?!])\s+', norm_txt)
         for s in sentences:
             s_clean = s.strip()
-            if re.search(r'\bANSI\b', s_clean, re.IGNORECASE):
+            if ansi_pat.search(s_clean):
                 s_clean = re.sub(r'^(?:ADDITIONAL\s+COMMENTS|COMMENTS|NOTE|APPRAISAL\s+COMMENTS|SCOPE\s+OF\s+WORK)\s*[:\-]\s*', '', s_clean, flags=re.IGNORECASE).strip()
                 if s_clean and s_clean not in found_sentences:
                     found_sentences.append(s_clean)
@@ -1213,61 +1214,144 @@ def extract_ansi_sentence_from_doc(doc=None, full_doc_text=""):
     if found_sentences:
         return " ".join(found_sentences)
 
-    if full_doc_text and re.search(r'\bANSI\b', full_doc_text, re.IGNORECASE):
+    if full_doc_text and ansi_pat.search(full_doc_text):
         norm_full = re.sub(r'[\r\n]+', ' ', full_doc_text)
         m = re.search(r'([^.?!;\n]*\bANSI\b[^.?!;\n]*[.?!]?)', norm_full, re.IGNORECASE)
         if m:
             return m.group(1).strip()
 
-    return ""
+    return "Not Present"
 
 
 def extract_exposure_comment_from_doc(doc=None, full_doc_text=""):
     """
-    Extracts the Exposure Comment across the entire document
-    using search terms/keywords: 'Exposure', 'expo days', 'exposure time', 'expo', 'time', 'marketing time'.
+    Extracts the Exposure Comment across the entire document, prioritizing the
+    USPAP ADDENDUM ('Reasonable Exposure Time' field and comments), Form 1004 Page 3,
+    and Market Conditions. Returns 'Not Present' if not found.
     """
-    candidate_texts = []
     if doc is not None:
         for page in doc:
-            t = page.get_text("text") or ""
-            candidate_texts.append(t)
-    if not candidate_texts and full_doc_text:
-        candidate_texts.append(full_doc_text)
+            t = page.get_text() or ""
+            if ("USPAP" in t.upper() or "EXPOSURE" in t.upper()) and ("REASONABLE EXPOSURE TIME" in t.upper() or "EXPOSURE TIME" in t.upper()):
+                blocks = page.get_text("blocks")
+                words = page.get_text("words")
+
+                # Check for explicit prompt 'My opinion of a reasonable exposure time... is:'
+                for b in blocks:
+                    b_text = b[4].strip()
+                    if "my opinion of a reasonable exposure time" in b_text.lower():
+                        prompt_bbox = b[:4]
+                        cand_vals = [w[4] for w in words if w[0] >= prompt_bbox[2] - 15 and abs(w[1] - prompt_bbox[1]) < 25 and w[4].lower() not in ["is:", "is", "the", ":"]]
+                        if cand_vals:
+                            val = " ".join(cand_vals).strip()
+                            # Check for explanatory commentary on this USPAP page
+                            for b2 in blocks:
+                                b2_t = " ".join(b2[4].split()).strip()
+                                if "reasonable exposure time" in b2_t.lower() and ("estimated to be" in b2_t.lower() or "typical exposure" in b2_t.lower() or "opinion of value" in b2_t.lower()):
+                                    if len(b2_t) > 30 and "my opinion of a reasonable" not in b2_t.lower():
+                                        return f"{val} ({b2_t})"
+                            if val:
+                                return val
+
+                # Check for FIRREA / USPAP table/block with 'Exposure Time'
+                for b in blocks:
+                    b_text = " ".join(b[4].split()).strip()
+                    if re.search(r'\b(?:reflects\s+an\s+exposure\s+time\s+of|reasonable\s+exposure\s+time\s+is|exposure\s+time\s+for\s+the\s+subject\s+property\s+is)\b', b_text, re.IGNORECASE):
+                        m = re.search(r'([^.?!;\n]*\b(?:reflects\s+an\s+exposure\s+time\s+of|reasonable\s+exposure\s+time\s+is|exposure\s+time\s+for\s+the\s+subject\s+property\s+is)[^.?!;\n]*[.?!]?)', b_text, re.IGNORECASE)
+                        if m:
+                            return m.group(1).strip()
+
+    # Fallback to narrative scan across whole document
+    texts_to_check = []
+    if doc is not None:
+        for page in doc:
+            texts_to_check.append(page.get_text() or "")
+    if not texts_to_check and full_doc_text:
+        texts_to_check.append(full_doc_text)
 
     exp_patterns = [
-        re.compile(r'\b(?:exposure\s*time|reasonable\s*exposure\s*time|estimated\s*exposure\s*time)\b[^\.\n]*[\.\n]?', re.IGNORECASE),
-        re.compile(r'\b(?:expo\s*days|exposure\s*days|exposure\s*period|marketing\s*and\s*exposure\s*time)\b[^\.\n]*[\.\n]?', re.IGNORECASE),
-        re.compile(r'\b(?:exposure)\b.*?\b(?:days|months|weeks|time|range|market|estimated|typical|opinion)\b[^\.\n]*[\.\n]?', re.IGNORECASE),
-        re.compile(r'\b(?:marketing\s*time)\b.*?\b(?:days|months|weeks|estimated|typical)\b[^\.\n]*[\.\n]?', re.IGNORECASE),
+        re.compile(r'([^.?!;\n]*\b(?:reasonable\s+exposure\s+time\s+for\s+the\s+subject|exposure\s+marketing\s+time\s+for\s+the\s+subject|exposure\s+time\s+for\s+the\s+subject\s+property|estimated\s+exposure\s+time\s+is|opinion\s+of\s+exposure\s+time)\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+        re.compile(r'([^.?!;\n]*\b(?:market\s+value\s+stated\s+within\s+this\s+report\s+reflects\s+an\s+exposure\s+time)\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+        re.compile(r'([^.?!;\n]*\b(?:reasonable\s+exposure\s+time\s+(?:is|was|developed))\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+        re.compile(r'([^.?!;\n]*\b(?:exposure\s+time\s+is\s+estimated\s+at|exposure\s+time\s+of\s+\d+)\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
     ]
 
-    found_sentences = []
-    for txt in candidate_texts:
-        norm_txt = re.sub(r'[\r\n]+', ' ', txt)
-        sentences = re.split(r'(?<=[.?!;])\s+', norm_txt)
-        for s in sentences:
+    for txt in texts_to_check:
+        norm = re.sub(r'[\r\n]+', ' ', txt)
+        for s in re.split(r'(?<=[.?!;])\s+', norm):
             s_clean = s.strip()
-            if not s_clean or len(s_clean) < 10:
+            if "allowed for exposure in the open market" in s_clean.lower() or "appraisal and report identification" in s_clean.lower():
                 continue
-
-            s_clean_narr = re.sub(r'^(?:ADDITIONAL\s+COMMENTS|COMMENTS|NOTE|APPRAISAL\s+COMMENTS|EXPOSURE\s+TIME|MARKET\s+CONDITIONS)\s*[:\-]\s*', '', s_clean, flags=re.IGNORECASE).strip()
-
             for pat in exp_patterns:
-                if pat.search(s_clean_narr):
-                    if s_clean_narr not in found_sentences:
-                        found_sentences.append(s_clean_narr)
-                    break
+                m = pat.search(s_clean)
+                if m:
+                    res = m.group(1).strip()
+                    if len(res) > 10:
+                        return res
 
-    if found_sentences:
-        return " ".join(found_sentences)
+    return "Not Present"
 
-    if full_doc_text:
-        m = re.search(r'([^.?!;\n]*\b(?:exposure\s*time|expo\s*days|reasonable\s*exposure|exposure\s*period|marketing\s*time)\b[^.?!;\n]*[.?!]?)', full_doc_text, re.IGNORECASE)
-        if m:
-            return m.group(1).strip()
 
-    return ""
+def extract_prior_service_comment_from_doc(doc=None, full_doc_text=""):
+    """
+    Scans the entire PDF document for USPAP prior service disclosure statements,
+    specifically detecting the USPAP ADDENDUM 'Additional Certifications' checkboxes:
+    - 'I have NOT performed services, as an appraiser or in any other capacity...' vs
+    - 'I HAVE performed services, as an appraiser or in another capacity...'
+    Falls back to document-level USPAP certifications. Returns 'Not Present' if not found.
+    """
+    if doc is not None:
+        for page in doc:
+            t = page.get_text() or ""
+            if ("USPAP" in t.upper() or "CERTIFICATION" in t.upper()) and ("THREE-YEAR PERIOD" in t.upper() or "SERVICES" in t.upper()):
+                blocks = page.get_text("blocks")
+                words = page.get_text("words")
+                opt_no_bbox = None
+                opt_have_bbox = None
+                for b in blocks:
+                    b_text = " ".join(b[4].split()).strip()
+                    if "no services, as an appraiser" in b_text.lower() or "not performed services, as an appraiser" in b_text.lower() or "performed no services" in b_text.lower():
+                        opt_no_bbox = b[:4]
+                    elif "have performed services" in b_text.lower() and "no services" not in b_text.lower():
+                        opt_have_bbox = b[:4]
+
+                if opt_no_bbox or opt_have_bbox:
+                    for w in words:
+                        w_text = w[4].strip().upper()
+                        if w_text in ["X", "[X]", "8", "[8]", "☒", "☑", "✓"] and w[0] < 50:
+                            if opt_no_bbox and abs(w[1] - opt_no_bbox[1]) < 30:
+                                return "I have NOT performed services, as an appraiser or in any other capacity, regarding the property that is the subject of this report within the three-year period immediately preceding acceptance of this assignment."
+                            elif opt_have_bbox and abs(w[1] - opt_have_bbox[1]) < 30:
+                                return "I HAVE performed services, as an appraiser or in another capacity, regarding the property that is the subject of this report within the three-year period immediately preceding acceptance of this assignment."
+
+    # Fallback narrative scan across document
+    prior_patterns = [
+        re.compile(r'([^.?!;\n]*\b(?:performed\s+no\s+services|have\s+not\s+performed\s+(?:any\s+)?services|no\s+prior\s+services\s+performed)\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+        re.compile(r'([^.?!;\n]*\b(?:prior\s+services?)\s*[:\-]\s*[^.?!;\n]+[.?!]?)', re.IGNORECASE),
+        re.compile(r'([^.?!;\n]*\bwithin\s+the\s+(?:three|3)\s*(?:-| )year\s*period\s*immediately\s*preceding[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+        re.compile(r'([^.?!;\n]*\b(?:have|has)\s+(?:not\s+)?appraised\s+(?:or\s+provided\s+services\s+for\s+)?the\s+subject\s+property\s+within\b[^.?!;\n]*[.?!]?)', re.IGNORECASE),
+    ]
+    texts_to_check = []
+    if doc is not None:
+        for page in doc:
+            texts_to_check.append(page.get_text() or "")
+    if not texts_to_check and full_doc_text:
+        texts_to_check.append(full_doc_text)
+
+    for txt in texts_to_check:
+        norm = re.sub(r'[\r\n]+', ' ', txt)
+        for s in re.split(r'(?<=[.?!;])\s+', norm):
+            s_clean = s.strip()
+            s_clean = re.sub(r'^[-\*\s\u2022]+\s*', '', s_clean)
+            for pat in prior_patterns:
+                m = pat.search(s_clean)
+                if m:
+                    res = m.group(1).strip()
+                    res = re.sub(r'^(?:Unless otherwise indicated,?\s*)', '', res, flags=re.IGNORECASE)
+                    if len(res) > 20:
+                        return res
+
+    return "Not Present"
 
 
 def extract_appraiser_fee_from_doc(doc=None, full_doc_text=""):
@@ -1670,13 +1754,16 @@ def extract_page_1_fields(page, full_doc_text="", fitz_page=None):
     raw_ds_off = get_val(28, y_offered + 6, 585, y_offered + 38, strip_labels=False)
     subject["Report data source(s) used, offering price(s), and date(s)"] = re.sub(r'^(?:Report\s*data\s*source\(s\)\s*used,?\s*offering\s*price\(s\),?\s*and\s*date\(s\)[\.\:]*\s*)', '', raw_ds_off, flags=re.IGNORECASE).strip()
 
-    exp_val = extract_exposure_comment_from_doc(doc=None, full_doc_text=full_doc_text)
+    doc_obj = fitz_page.parent if fitz_page is not None else None
+    exp_val = extract_exposure_comment_from_doc(doc=doc_obj, full_doc_text=full_doc_text) or "Not Present"
     subject["Exposure comment"] = exp_val
+    subject["Exposure Comment"] = exp_val
 
-    prior_m = re.search(r'(performed no services[^\.\n]+[\.\n]|within the (?:three|3) year period[^\.\n]+[\.\n])', full_doc_text, re.IGNORECASE)
-    subject["Prior service comment"] = prior_m.group(1).strip() if prior_m else ""
+    prior_val = extract_prior_service_comment_from_doc(doc=doc_obj, full_doc_text=full_doc_text) or "Not Present"
+    subject["Prior service comment"] = prior_val
+    subject["Prior Service Comment"] = prior_val
 
-    ansi_val = extract_ansi_sentence_from_doc(doc=None, full_doc_text=full_doc_text)
+    ansi_val = extract_ansi_sentence_from_doc(doc=doc_obj, full_doc_text=full_doc_text) or "Not Present"
     subject["ANSI"] = ansi_val
     subject["ANSI Standards"] = ansi_val
     subject["ANSI Comment"] = ansi_val
@@ -5606,20 +5693,19 @@ def clean_appraisal_extracted_data(data):
             if "legal" in zc.lower() and "nonconforming" not in zc.lower() and "illegal" not in zc.lower():
                 site["Zoning Compliance"] = "Legal"
 
-    # 9. Clean & Sync ANSI across data and SUBJECT
-    ansi_val = data.get("ANSI") or (data.get("SUBJECT", {}).get("ANSI") if isinstance(data.get("SUBJECT"), dict) else "") or (data.get("Subject", {}).get("ANSI") if isinstance(data.get("Subject"), dict) else "") or ""
-    if ansi_val:
-        data["ANSI"] = ansi_val
-        data["ANSI Standards"] = ansi_val
-        data["ANSI Comment"] = ansi_val
-        if isinstance(data.get("SUBJECT"), dict):
-            data["SUBJECT"]["ANSI"] = ansi_val
-            data["SUBJECT"]["ANSI Standards"] = ansi_val
-            data["SUBJECT"]["ANSI Comment"] = ansi_val
-        if isinstance(data.get("Subject"), dict):
-            data["Subject"]["ANSI"] = ansi_val
-            data["Subject"]["ANSI Standards"] = ansi_val
-            data["Subject"]["ANSI Comment"] = ansi_val
+    # 9. Clean & Sync ANSI across data and SUBJECT (compulsory field)
+    ansi_val = data.get("ANSI") or (data.get("SUBJECT", {}).get("ANSI") if isinstance(data.get("SUBJECT"), dict) else "") or (data.get("Subject", {}).get("ANSI") if isinstance(data.get("Subject"), dict) else "") or "Not Present"
+    data["ANSI"] = ansi_val
+    data["ANSI Standards"] = ansi_val
+    data["ANSI Comment"] = ansi_val
+    if isinstance(data.get("SUBJECT"), dict):
+        data["SUBJECT"]["ANSI"] = ansi_val
+        data["SUBJECT"]["ANSI Standards"] = ansi_val
+        data["SUBJECT"]["ANSI Comment"] = ansi_val
+    if isinstance(data.get("Subject"), dict):
+        data["Subject"]["ANSI"] = ansi_val
+        data["Subject"]["ANSI Standards"] = ansi_val
+        data["Subject"]["ANSI Comment"] = ansi_val
 
     # 10. Clean & Sync Smoke and CO Detector & Water Heater Comments
     smoke_val = data.get("Smoke detector comment") or (data.get("SUBJECT", {}).get("Smoke detector comment") if isinstance(data.get("SUBJECT"), dict) else "") or (data.get("Subject", {}).get("Smoke detector comment") if isinstance(data.get("Subject"), dict) else "") or ""
@@ -5646,17 +5732,30 @@ def clean_appraisal_extracted_data(data):
         if isinstance(data.get("Subject"), dict):
             data["Subject"]["Water heater double-strapped comment"] = wh_val
 
-    # 11. Clean & Sync Exposure comment
-    exp_val = data.get("Exposure comment") or data.get("Exposure Comment") or (data.get("SUBJECT", {}).get("Exposure comment") if isinstance(data.get("SUBJECT"), dict) else "") or (data.get("SUBJECT", {}).get("Exposure Comment") if isinstance(data.get("SUBJECT"), dict) else "") or (data.get("Subject", {}).get("Exposure comment") if isinstance(data.get("Subject"), dict) else "") or ""
-    if exp_val:
-        data["Exposure comment"] = exp_val
-        data["Exposure Comment"] = exp_val
-        if isinstance(data.get("SUBJECT"), dict):
-            data["SUBJECT"]["Exposure comment"] = exp_val
-            data["SUBJECT"]["Exposure Comment"] = exp_val
-        if isinstance(data.get("Subject"), dict):
-            data["Subject"]["Exposure comment"] = exp_val
-            data["Subject"]["Exposure Comment"] = exp_val
+    # 11. Clean & Sync Exposure comment (compulsory field)
+    exp_val = data.get("Exposure comment") or data.get("Exposure Comment") or (data.get("SUBJECT", {}).get("Exposure comment") if isinstance(data.get("SUBJECT"), dict) else "") or (data.get("SUBJECT", {}).get("Exposure Comment") if isinstance(data.get("SUBJECT"), dict) else "") or (data.get("Subject", {}).get("Exposure comment") if isinstance(data.get("Subject"), dict) else "") or (data.get("Subject", {}).get("Exposure Comment") if isinstance(data.get("Subject"), dict) else "") or "Not Present"
+    data["Exposure comment"] = exp_val
+    data["Exposure Comment"] = exp_val
+    if isinstance(data.get("SUBJECT"), dict):
+        data["SUBJECT"]["Exposure comment"] = exp_val
+        data["SUBJECT"]["Exposure Comment"] = exp_val
+    if isinstance(data.get("Subject"), dict):
+        data["Subject"]["Exposure comment"] = exp_val
+        data["Subject"]["Exposure Comment"] = exp_val
+
+    # 11b. Clean & Sync Prior service comment (compulsory field)
+    prior_val = data.get("Prior service comment") or data.get("Prior Service Comment") or data.get("Prior Service") or (data.get("SUBJECT", {}).get("Prior service comment") if isinstance(data.get("SUBJECT"), dict) else "") or (data.get("SUBJECT", {}).get("Prior Service Comment") if isinstance(data.get("SUBJECT"), dict) else "") or (data.get("Subject", {}).get("Prior service comment") if isinstance(data.get("Subject"), dict) else "") or (data.get("Subject", {}).get("Prior Service Comment") if isinstance(data.get("Subject"), dict) else "") or "Not Present"
+    data["Prior service comment"] = prior_val
+    data["Prior Service Comment"] = prior_val
+    data["Prior Service"] = prior_val
+    if isinstance(data.get("SUBJECT"), dict):
+        data["SUBJECT"]["Prior service comment"] = prior_val
+        data["SUBJECT"]["Prior Service Comment"] = prior_val
+        data["SUBJECT"]["Prior Service"] = prior_val
+    if isinstance(data.get("Subject"), dict):
+        data["Subject"]["Prior service comment"] = prior_val
+        data["Subject"]["Prior Service Comment"] = prior_val
+        data["Subject"]["Prior Service"] = prior_val
 
     # 12. Clean & Sync Appraiser's Fee
     fee_val = data.get("Appraiser's Fee") or data.get("Appraiser Fee") or data.get("Appraisal Fee") or (data.get("SUBJECT", {}).get("Appraiser's Fee") if isinstance(data.get("SUBJECT"), dict) else "") or (data.get("CERTIFICATION", {}).get("Appraiser's Fee") if isinstance(data.get("CERTIFICATION"), dict) else "") or (data.get("Subject", {}).get("Appraiser's Fee") if isinstance(data.get("Subject"), dict) else "") or ""
@@ -5957,15 +6056,18 @@ def extract_fields_from_pdf_offline(pdf_path):
                                 data["SALES_GRID"][comp_grid_key] = merged_comp
 
             # Extract ANSI sentence from across the entire document
-            ansi_doc_sentence = extract_ansi_sentence_from_doc(doc=doc, full_doc_text=full_doc_text)
-            if ansi_doc_sentence:
-                data["ANSI"] = ansi_doc_sentence
-                data["ANSI Standards"] = ansi_doc_sentence
-                data["ANSI Comment"] = ansi_doc_sentence
-                if "SUBJECT" in data and isinstance(data["SUBJECT"], dict):
-                    data["SUBJECT"]["ANSI"] = ansi_doc_sentence
-                    data["SUBJECT"]["ANSI Standards"] = ansi_doc_sentence
-                    data["SUBJECT"]["ANSI Comment"] = ansi_doc_sentence
+            ansi_doc_sentence = extract_ansi_sentence_from_doc(doc=doc, full_doc_text=full_doc_text) or "Not Present"
+            data["ANSI"] = ansi_doc_sentence
+            data["ANSI Standards"] = ansi_doc_sentence
+            data["ANSI Comment"] = ansi_doc_sentence
+            if "SUBJECT" in data and isinstance(data["SUBJECT"], dict):
+                data["SUBJECT"]["ANSI"] = ansi_doc_sentence
+                data["SUBJECT"]["ANSI Standards"] = ansi_doc_sentence
+                data["SUBJECT"]["ANSI Comment"] = ansi_doc_sentence
+            if "Subject" in data and isinstance(data["Subject"], dict):
+                data["Subject"]["ANSI"] = ansi_doc_sentence
+                data["Subject"]["ANSI Standards"] = ansi_doc_sentence
+                data["Subject"]["ANSI Comment"] = ansi_doc_sentence
 
             # Extract Smoke, Carbon/CO, and Water Heater comments across entire document and photos
             detector_comments = extract_smoke_and_carbon_comments_from_doc(doc=doc, full_doc_text=full_doc_text, extracted_photos=extracted_photos)
@@ -5985,11 +6087,29 @@ def extract_fields_from_pdf_offline(pdf_path):
                     data["SUBJECT"]["Water heater double-strapped comment"] = detector_comments["water_heater_comment"]
 
             # Extract Exposure comment across entire document
-            exposure_doc_comment = extract_exposure_comment_from_doc(doc=doc, full_doc_text=full_doc_text)
-            if exposure_doc_comment:
-                data["Exposure comment"] = exposure_doc_comment
-                if "SUBJECT" in data and isinstance(data["SUBJECT"], dict):
-                    data["SUBJECT"]["Exposure comment"] = exposure_doc_comment
+            exposure_doc_comment = extract_exposure_comment_from_doc(doc=doc, full_doc_text=full_doc_text) or "Not Present"
+            data["Exposure comment"] = exposure_doc_comment
+            data["Exposure Comment"] = exposure_doc_comment
+            if "SUBJECT" in data and isinstance(data["SUBJECT"], dict):
+                data["SUBJECT"]["Exposure comment"] = exposure_doc_comment
+                data["SUBJECT"]["Exposure Comment"] = exposure_doc_comment
+            if "Subject" in data and isinstance(data["Subject"], dict):
+                data["Subject"]["Exposure comment"] = exposure_doc_comment
+                data["Subject"]["Exposure Comment"] = exposure_doc_comment
+
+            # Extract Prior service comment across entire document
+            prior_doc_comment = extract_prior_service_comment_from_doc(doc=doc, full_doc_text=full_doc_text) or "Not Present"
+            data["Prior service comment"] = prior_doc_comment
+            data["Prior Service Comment"] = prior_doc_comment
+            data["Prior Service"] = prior_doc_comment
+            if "SUBJECT" in data and isinstance(data["SUBJECT"], dict):
+                data["SUBJECT"]["Prior service comment"] = prior_doc_comment
+                data["SUBJECT"]["Prior Service Comment"] = prior_doc_comment
+                data["SUBJECT"]["Prior Service"] = prior_doc_comment
+            if "Subject" in data and isinstance(data["Subject"], dict):
+                data["Subject"]["Prior service comment"] = prior_doc_comment
+                data["Subject"]["Prior Service Comment"] = prior_doc_comment
+                data["Subject"]["Prior Service"] = prior_doc_comment
 
             # Extract Appraiser's Fee across entire document
             appraiser_fee_doc = extract_appraiser_fee_from_doc(doc=doc, full_doc_text=full_doc_text)

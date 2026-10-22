@@ -1387,6 +1387,9 @@ def extract_maps_view(request):
     uploaded_file = request.FILES.get("file") or request.FILES.get("pdf_file") or request.FILES.get("xml_file")
     file_path = request.data.get("file_path") or request.data.get("filePath") or request.data.get("path")
     save_images = str(request.data.get("save_images", "true")).lower() in ["true", "1", "yes"]
+    exhibit_type = request.data.get("exhibit_type") or request.data.get("exhibitType") or request.data.get("category")
+    keep_file = str(request.data.get("keep_file", "false")).lower() in ["true", "1", "yes"]
+    cleanup = str(request.data.get("cleanup", "false")).lower() in ["true", "1", "yes"]
 
     if not uploaded_file and not file_path:
         return Response(
@@ -1394,6 +1397,7 @@ def extract_maps_view(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    is_temp_file = False
     tmp_path = None
     if uploaded_file:
         suffix = os.path.splitext(uploaded_file.name)[1].lower() or ".xml"
@@ -1401,12 +1405,20 @@ def extract_maps_view(request):
             for chunk in uploaded_file.chunks():
                 tmp.write(chunk)
             tmp_path = tmp.name
+            is_temp_file = True
     else:
         curr_dir = os.path.dirname(os.path.abspath(__file__))
         workspace_root = os.path.dirname(os.path.dirname(curr_dir))
         if not os.path.isabs(file_path):
             file_path = os.path.join(workspace_root, file_path)
         tmp_path = file_path
+        # Check if file_path is inside temp dir to treat as temp
+        try:
+            temp_dir = tempfile.gettempdir()
+            if os.path.commonpath([tmp_path, temp_dir]) == temp_dir:
+                is_temp_file = True
+        except Exception:
+            pass
 
     try:
         # Add workspace root to sys.path to import map_extractor_cli
@@ -1418,7 +1430,9 @@ def extract_maps_view(request):
         from map_extractor_cli import MapExtractor
         out_dir = os.path.join(workspace_root, "map_output")
         extractor = MapExtractor(output_dir=out_dir, save_images=save_images)
-        exhibits_result = extractor.extract_all_exhibits_data(tmp_path)
+        exhibits_result = extractor.extract_all_exhibits_data(tmp_path, exhibit_type=exhibit_type)
+        if is_temp_file and tmp_path:
+            exhibits_result["file_path"] = tmp_path
         return Response(exhibits_result)
     except Exception as exc:
         traceback.print_exc()
@@ -1427,10 +1441,11 @@ def extract_maps_view(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     finally:
-        if uploaded_file and tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
+        if is_temp_file and tmp_path and os.path.exists(tmp_path):
+            if cleanup or not keep_file:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
 

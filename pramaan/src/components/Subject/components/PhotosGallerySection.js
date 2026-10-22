@@ -194,7 +194,7 @@ export const PhotosGallerySection = ({
         </Typography>
         <Grid container spacing={1}>
           {verificationStatus.map((item, idx) => (
-            <Grid item xs={12} sm={6} md={4} key={idx}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={idx}>
               <Box
                 sx={{
                   display: 'flex',
@@ -282,7 +282,7 @@ export const PhotosGallerySection = ({
             const imgSrc = photo.base64_preview || '';
 
             return (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={index}>
+              <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={index}>
                 <Card
                   variant="outlined"
                   sx={{
@@ -442,10 +442,10 @@ export const PhotosGallerySection = ({
           }
         }}
       >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+        <DialogTitle component="div" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Chip label={previewPhoto?.category || 'Exhibit'} color="primary" size="small" sx={{ fontWeight: 700 }} />
-            <Typography variant="h6" sx={{ fontWeight: 600, color: '#fff' }}>
+            <Typography component="span" variant="h6" sx={{ fontWeight: 600, color: '#fff' }}>
               {previewPhoto?.caption || 'Photo Preview'}
             </Typography>
           </Box>
@@ -490,42 +490,42 @@ export const PhotosGallerySection = ({
               </Typography>
               <Grid container spacing={1.5}>
                 {previewPhoto?.address && (
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <span style={{ color: '#94a3b8' }}>Address:</span> <strong style={{ color: '#fff' }}>{previewPhoto.address}</strong>
                   </Grid>
                 )}
                 {previewPhoto?.proximity && (
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <span style={{ color: '#94a3b8' }}>Prox. to Subject:</span> <strong style={{ color: '#fff' }}>{previewPhoto.proximity}</strong>
                   </Grid>
                 )}
                 {previewPhoto?.sale_price && (
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <span style={{ color: '#94a3b8' }}>Sale Price:</span> <strong style={{ color: '#4ade80' }}>${previewPhoto.sale_price}</strong>
                   </Grid>
                 )}
                 {previewPhoto?.gla && (
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <span style={{ color: '#94a3b8' }}>Gross Living Area:</span> <strong style={{ color: '#fff' }}>{previewPhoto.gla} sq ft</strong>
                   </Grid>
                 )}
                 {previewPhoto?.bedrooms && (
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <span style={{ color: '#94a3b8' }}>Rooms / Beds / Baths:</span> <strong style={{ color: '#fff' }}>{previewPhoto.total_rooms || '—'} / {previewPhoto.bedrooms} / {previewPhoto.bathrooms || '—'}</strong>
                   </Grid>
                 )}
                 {previewPhoto?.site && (
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <span style={{ color: '#94a3b8' }}>Site:</span> <strong style={{ color: '#fff' }}>{previewPhoto.site}</strong>
                   </Grid>
                 )}
                 {previewPhoto?.quality && (
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <span style={{ color: '#94a3b8' }}>Quality:</span> <strong style={{ color: '#fff' }}>{previewPhoto.quality}</strong>
                   </Grid>
                 )}
                 {previewPhoto?.age && (
-                  <Grid item xs={12} sm={6}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <span style={{ color: '#94a3b8' }}>Age:</span> <strong style={{ color: '#fff' }}>{previewPhoto.age} yrs</strong>
                   </Grid>
                 )}

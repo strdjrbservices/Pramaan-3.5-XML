@@ -167,17 +167,26 @@ def extract_report_data_offline(file_path: str) -> Dict[str, Any]:
     pages_text = _extract_full_text_with_pages(file_path)
     page_count = len(pages_text) if pages_text else 0
 
+    fields: Dict[str, Any] = {}
+    form_type = "1004"
+
     if is_xml:
         xml_res = extract_fields_from_xml(file_path, extract_images=False)
-        fields = xml_res.get("fields", {}) if isinstance(xml_res, dict) else {}
-        form_type = xml_res.get("form_type", "1004") if isinstance(xml_res, dict) else "1004"
+        if isinstance(xml_res, dict):
+            raw_fields = xml_res.get("fields")
+            if isinstance(raw_fields, dict):
+                fields = raw_fields
+            form_type = str(xml_res.get("form_type", "1004"))
         if not page_count:
             # Estimate pages if not embedded PDF
             page_count = 1
     else:
         pdf_res = extract_fields_from_pdf_offline(file_path)
-        fields = pdf_res.get("fields", {}) if isinstance(pdf_res, dict) else {}
-        form_type = pdf_res.get("form_type", "1004") if isinstance(pdf_res, dict) else "1004"
+        if isinstance(pdf_res, dict):
+            raw_fields = pdf_res.get("fields")
+            if isinstance(raw_fields, dict):
+                fields = raw_fields
+            form_type = str(pdf_res.get("form_type", "1004"))
         if not page_count:
             try:
                 doc = pymupdf.open(file_path)
@@ -534,13 +543,13 @@ def compare_report_to_html_offline(
                     h_pud = any(w in norm_h for w in pud_words)
                     r_pud = any(w in norm_r for w in pud_words)
 
-                    is_match = bool((h_sfr and r_sfr) or (h_condo and r_condo) or (h_multi and r_multi) or (h_pud and r_pud))
+                    is_match = (h_sfr and r_sfr) or (h_condo and r_condo) or (h_multi and r_multi) or (h_pud and r_pud)
             elif "amc" in fn:
                 clean_h = re.sub(r"[^\w]", "", html_val.lower())
                 clean_r = re.sub(r"[^\w]", "", rep_val.lower())
                 clean_h_no_amc = re.sub(r"^amc", "", clean_h)
                 clean_r_no_amc = re.sub(r"^(?:nj|ny)?amc", "", clean_r)
-                is_match = bool(
+                is_match = (
                     (clean_h == clean_r)
                     or (clean_h_no_amc and clean_h_no_amc == clean_r_no_amc)
                     or (clean_h_no_amc and clean_h_no_amc in clean_r_no_amc)
@@ -551,7 +560,7 @@ def compare_report_to_html_offline(
             elif "uad" in fn:
                 norm_h = html_val.lower()
                 norm_r = rep_val.lower()
-                is_match = bool(
+                is_match = (
                     ("yes" in norm_r and ("xml" in norm_h or "yes" in norm_h))
                     or ("no" in norm_r and "no" in norm_h)
                     or (norm_h == norm_r)
@@ -559,7 +568,9 @@ def compare_report_to_html_offline(
             elif "appraisal type" in fn or "type" in fn:
                 norm_h = _normalize_string(html_val)
                 norm_r = _normalize_string(rep_val)
-                is_match = (norm_r in norm_h) or (norm_h in norm_r) or (re.search(r"\b(1004|1073|1025|1004d)\b", norm_h) and re.search(r"\b(1004|1073|1025|1004d)\b", norm_r) and re.search(r"\b(1004|1073|1025|1004d)\b", norm_h).group(1) == re.search(r"\b(1004|1073|1025|1004d)\b", norm_r).group(1))
+                m_h = re.search(r"\b(1004|1073|1025|1004d)\b", norm_h)
+                m_r = re.search(r"\b(1004|1073|1025|1004d)\b", norm_r)
+                is_match = (norm_r in norm_h) or (norm_h in norm_r) or bool(m_h and m_r and m_h.group(1) == m_r.group(1))
             else:
                 norm_h = re.sub(r"[^\w]", "", html_val.lower())
                 norm_r = re.sub(r"[^\w]", "", rep_val.lower())
@@ -810,12 +821,61 @@ def evaluate_confirmation_checklist_offline(old_path: str, new_path: str) -> Dic
             if imp_baths == grid_baths: matches.append("Baths")
             else: mismatches.append(f"Baths ({imp_baths:.1f} vs {grid_baths:.1f})")
 
+        # Check Building Sketch room summary if present
+        sketches = fields.get("sketches") or fields.get("MAP_EXHIBITS_ANALYSIS", {}).get("sketches") or []
+        if sketches:
+            first_sketch = sketches[0]
+            sketch_sum = first_sketch.get("room_summary") or {}
+            sketch_beds = _clean_numeric(sketch_sum.get("bedroom_count"))
+            sketch_baths = _clean_numeric(sketch_sum.get("bathroom_count"))
+            sketch_rooms = _clean_numeric(sketch_sum.get("total_rooms"))
+            sketch_gla = _clean_numeric(first_sketch.get("gla"))
+            if not sketch_gla:
+                areas = first_sketch.get("areas") or []
+                for ar in areas:
+                    if re.search(r'total\s*(?:sketch|living|area)|gross\s*living|gla', ar.get('name', ''), re.I):
+                        sketch_gla = _clean_numeric(ar.get('area'))
+                        if sketch_gla:
+                            break
+
+            if sketch_gla is not None and (imp_gla is not None or grid_gla is not None):
+                target_gla = imp_gla if imp_gla is not None else grid_gla
+                if target_gla is not None:
+                    if abs(sketch_gla - target_gla) <= 1.0:
+                        matches.append(f"Sketch GLA ({sketch_gla:,.0f} Sq Ft)")
+                    else:
+                        mismatches.append(f"Sketch GLA ({sketch_gla:,.0f} vs {target_gla:,.0f})")
+
+            if sketch_beds is not None and (imp_beds is not None or grid_beds is not None):
+                target_bed = imp_beds if imp_beds is not None else grid_beds
+                if target_bed is not None:
+                    if sketch_beds == target_bed:
+                        matches.append(f"Sketch Beds ({sketch_beds:.0f})")
+                    else:
+                        mismatches.append(f"Sketch Beds ({sketch_beds:.0f} vs {target_bed:.0f})")
+
+            if sketch_baths is not None and (imp_baths is not None or grid_baths is not None):
+                target_bath = imp_baths if imp_baths is not None else grid_baths
+                if target_bath is not None:
+                    if sketch_baths == target_bath:
+                        matches.append(f"Sketch Baths ({sketch_baths:.1f})")
+                    else:
+                        mismatches.append(f"Sketch Baths ({sketch_baths:.1f} vs {target_bath:.1f})")
+
+            if sketch_rooms is not None and (imp_rooms is not None or grid_rooms is not None):
+                target_room = imp_rooms if imp_rooms is not None else grid_rooms
+                if target_room is not None:
+                    if sketch_rooms == target_room:
+                        matches.append(f"Sketch Rooms ({sketch_rooms:.0f})")
+                    else:
+                        mismatches.append(f"Sketch Rooms ({sketch_rooms:.0f} vs {target_room:.0f})")
+
         if not mismatches and matches:
             return "Yes", f"Matched: {', '.join(matches)}"
         elif mismatches:
             return "No", f"Mismatches: {', '.join(mismatches)}"
         else:
-            return "Yes", "Verified consistent across Improvements & Sales Grid"
+            return "Yes", "Verified consistent across Improvements, Sales Grid & Sketch"
 
     # 5. GLA, total room count, bath count, and bed count Improvements match Sales Grid
     _, item_5_old_pdf = _evaluate_improvements(old_fields)
@@ -907,7 +967,7 @@ def verify_revision_request_offline(
             pass
 
     # Pre-clean HTML tags and normalize line breaks
-    clean_req = re.sub(r"<br\s*/?>", "\n", str(revision_request or ""), flags=re.IGNORECASE)
+    clean_req = re.sub(r"<br\s*/?>", "\n", revision_request or "", flags=re.IGNORECASE)
     clean_req = re.sub(r"</?[a-zA-Z0-9]+[^>]*>", " ", clean_req)
 
     # Split revision request into individual items (by newline, numbered list, or bullets)

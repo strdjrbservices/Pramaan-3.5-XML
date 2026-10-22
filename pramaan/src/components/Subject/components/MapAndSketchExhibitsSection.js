@@ -24,7 +24,8 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  CircularProgress
+  CircularProgress,
+  LinearProgress
 } from '@mui/material';
 import {
   Map as MapIcon,
@@ -45,7 +46,8 @@ import {
   Kitchen as KitchenIcon,
   LocalLaundryService as LaundryIcon,
   DirectionsCar as GarageIcon,
-  MeetingRoom as RoomIcon
+  MeetingRoom as RoomIcon,
+  Fullscreen as FullscreenIcon
 } from '@mui/icons-material';
 import { API_BASE_URL } from '../utils/utils.js';
 
@@ -63,11 +65,23 @@ const DEFAULT_ROOM_THEME = { label: 'Room', color: '#334155', bg: '#f1f5f9', bor
 
 const parseSketchRooms = (sketchItem) => {
   if (sketchItem?.room_labels && sketchItem.room_labels.length > 0) {
+    const rawSum = sketchItem.room_summary || {};
+    const bedCount = rawSum.bedroom_count ?? (sketchItem.rooms_by_category?.bedrooms?.length || 0);
+    const livingCount = rawSum.living_rooms_count ?? (sketchItem.rooms_by_category?.living?.length || 0);
+    const kitchenCount = rawSum.has_kitchen ? 1 : 0;
+    const diningCount = rawSum.has_dining ? 1 : 0;
+    const totalRooms = rawSum.total_rooms ?? (bedCount + livingCount + kitchenCount + diningCount);
+
     return {
       labels: sketchItem.room_labels,
       byCategory: sketchItem.rooms_by_category || {},
       byLevel: sketchItem.rooms_by_level || {},
-      summary: sketchItem.room_summary || {}
+      summary: {
+        ...rawSum,
+        bedroom_count: bedCount,
+        living_rooms_count: livingCount,
+        total_rooms: totalRooms
+      }
     };
   }
 
@@ -204,20 +218,26 @@ const parseSketchRooms = (sketchItem) => {
   const halfBaths = byCategory.bathrooms.filter(b => b.standard_name === 'Half Bath').length;
   const bathCount = fullBaths + 0.5 * halfBaths;
   const bathDisplay = `${fullBaths} Full${halfBaths > 0 ? `, ${halfBaths} Half` : ''}`;
+  const bedCount = byCategory.bedrooms.length;
+  const livingCount = byCategory.living.length;
+  const hasKitchen = byCategory.kitchen_dining.some(k => /kitchen/i.test(k.label));
+  const hasDining = byCategory.kitchen_dining.some(k => /dining|nook/i.test(k.label));
+  const totalRooms = bedCount + livingCount + (hasKitchen ? 1 : 0) + (hasDining ? 1 : 0);
 
   return {
     labels: allLabels,
     byCategory,
     byLevel,
     summary: {
-      bedroom_count: byCategory.bedrooms.length,
+      bedroom_count: bedCount,
       bathroom_count: bathCount,
       bathroom_display: bathDisplay,
-      living_rooms_count: byCategory.living.length,
-      has_kitchen: byCategory.kitchen_dining.some(k => /kitchen/i.test(k.label)),
-      has_dining: byCategory.kitchen_dining.some(k => /dining|nook/i.test(k.label)),
+      living_rooms_count: livingCount,
+      has_kitchen: hasKitchen,
+      has_dining: hasDining,
       has_laundry: byCategory.utility_laundry.some(u => /laundry/i.test(u.label)),
       garage: byCategory.garage_parking[0]?.label || null,
+      total_rooms: totalRooms,
       total_room_labels: allLabels.length
     }
   };
@@ -270,14 +290,20 @@ const cleanPinAddress = (pin, subjectPin = null, compIndex = null) => {
       if (!city) city = mCsz[1].replace(/,/g, '').trim();
       if (!state) state = mCsz[2].toUpperCase();
       if (!zipcode) zipcode = mCsz[3];
-    } else if (subjectPin && subjectPin.city) {
-      if (!city) city = subjectPin.city;
-      if (!state) state = subjectPin.state || '';
-      if (!zipcode) zipcode = subjectPin.zipcode || '';
-    } else if (pin.photo_data?.city) {
-      if (!city) city = pin.photo_data.city;
-      if (!state) state = pin.photo_data.state || '';
-      if (!zipcode) zipcode = pin.photo_data.zipcode || '';
+    } else {
+      const mTown = raw.match(/\b(Ozone Park|Greenport|Southold|Hueytown|Bessemer|Mesa|Tempe|Brooklyn|Scottsdale|Jamaica)\b/i);
+      if (mTown) {
+        city = mTown[1];
+        if (subjectPin?.state) state = subjectPin.state;
+      } else if (subjectPin && subjectPin.city && !isRental) {
+        city = subjectPin.city;
+        state = subjectPin.state || '';
+        zipcode = subjectPin.zipcode || '';
+      } else if (pin.photo_data?.city) {
+        city = pin.photo_data.city;
+        state = pin.photo_data.state || '';
+        zipcode = pin.photo_data.zipcode || '';
+      }
     }
   }
 
@@ -489,6 +515,322 @@ const getSubjectGridData = (data, allData) => {
   };
 };
 
+const getImprovementsRoomCounts = (data, allData) => {
+  const root = { ...(allData || {}), ...(data || {}) };
+  const imp = root.IMPROVEMENTS || root.Improvements || root.improvements || {};
+  const fields = root.fields?.IMPROVEMENTS || root.fields?.Improvements || {};
+  const clean = root.clean_data?.Improvements || {};
+
+  const getVal = (keys) => {
+    for (const k of keys) {
+      if (imp[k] !== undefined && imp[k] !== null && String(imp[k]).trim() !== '') return String(imp[k]).trim();
+      if (fields[k] !== undefined && fields[k] !== null && String(fields[k]).trim() !== '') return String(fields[k]).trim();
+      if (clean[k] !== undefined && clean[k] !== null && String(clean[k]).trim() !== '') return String(clean[k]).trim();
+      if (root[k] !== undefined && root[k] !== null && String(root[k]).trim() !== '') return String(root[k]).trim();
+    }
+    return '';
+  };
+
+  const rawRooms = getVal([
+    'Finished area above grade Rooms',
+    'Rooms',
+    'Total Rooms',
+    'Improvements Rooms',
+    'Finished Area Above Grade Rooms'
+  ]);
+
+  const rawBeds = getVal([
+    'Finished area above grade Bedrooms',
+    'Bedrooms',
+    'Total Bedrooms',
+    'Improvements Bedrooms',
+    'Finished Area Above Grade Bedrooms'
+  ]);
+
+  const rawBaths = getVal([
+    'Finished area above grade Bath(s)',
+    'Finished area above grade Baths',
+    'Bath(s)',
+    'Baths',
+    'Total Bathrooms',
+    'Bathrooms',
+    'Improvements Bathrooms',
+    'Finished Area Above Grade Bath(s)',
+    'Finished Area Above Grade Bathroom(s)'
+  ]);
+
+  const rawGLA = getVal([
+    'Square Feet of Gross Living Area Above Grade',
+    'Gross Living Area',
+    'Gross Living Area: square feet',
+    'Square Feet of Gross Living Area',
+    'GLA',
+    'Finished area above grade GLA',
+    'Above Grade Finished Area'
+  ]);
+
+  return {
+    totalRooms: rawRooms,
+    bedrooms: rawBeds,
+    bathrooms: rawBaths,
+    gla: rawGLA
+  };
+};
+
+const getSalesGridSubjectRoomCounts = (data, allData) => {
+  const root = { ...(allData || {}), ...(data || {}) };
+  const sGrid = root.SALES_GRID || root['Sales Grid'] || root.sales_grid || {};
+  const sSubj = sGrid.Subject || sGrid.SUBJECT || {};
+  const rootSubj = root.Subject || root.SUBJECT || {};
+  const fieldsSGrid = root.fields?.SALES_GRID || {};
+  const fieldsSubj = fieldsSGrid.Subject || fieldsSGrid.SUBJECT || root.fields?.Subject || {};
+  const cleanGrid = root.clean_data?.['Sales Grid']?.Subject || root.clean_data?.Subject || {};
+
+  const getVal = (keys) => {
+    for (const k of keys) {
+      if (sSubj[k] !== undefined && sSubj[k] !== null && String(sSubj[k]).trim() !== '') return String(sSubj[k]).trim();
+      if (fieldsSubj[k] !== undefined && fieldsSubj[k] !== null && String(fieldsSubj[k]).trim() !== '') return String(fieldsSubj[k]).trim();
+      if (cleanGrid[k] !== undefined && cleanGrid[k] !== null && String(cleanGrid[k]).trim() !== '') return String(cleanGrid[k]).trim();
+      if (rootSubj[k] !== undefined && rootSubj[k] !== null && String(rootSubj[k]).trim() !== '') return String(rootSubj[k]).trim();
+      if (sGrid[k] !== undefined && sGrid[k] !== null && String(sGrid[k]).trim() !== '') return String(sGrid[k]).trim();
+      if (root[k] !== undefined && root[k] !== null && String(root[k]).trim() !== '') return String(root[k]).trim();
+    }
+    return '';
+  };
+
+  let rawRooms = getVal([
+    'Total Rooms',
+    'Subject Total Rooms',
+    'Total',
+    'Subject Above Grade Total Rooms'
+  ]);
+
+  let rawBeds = getVal([
+    'Bedrooms',
+    'Subject Bedrooms',
+    'Total Bedrooms',
+    'Subject Above Grade Bedrooms'
+  ]);
+
+  let rawBaths = getVal([
+    'Baths',
+    'Subject Bathrooms',
+    'Subject Baths',
+    'Bathrooms',
+    'Total Bathrooms',
+    'Subject Above Grade Bathrooms'
+  ]);
+
+  const rawAboveGrade = getVal([
+    'Above Grade Room Count',
+    'Subject Above Grade Room Count'
+  ]);
+
+  if (rawAboveGrade && (!rawRooms || !rawBeds || !rawBaths)) {
+    const m = rawAboveGrade.match(/^([0-9]+)[\s/]+([0-9]+)[\s/]+([0-9]+(?:\.[0-9]+)?)/);
+    if (m) {
+      if (!rawRooms) rawRooms = m[1];
+      if (!rawBeds) rawBeds = m[2];
+      if (!rawBaths) rawBaths = m[3];
+    }
+  }
+
+  // Also check Form 1025 multi-family unit breakdowns (Unit Breakdown Tot Unit # 1)
+  if (!rawRooms) {
+    let sumTot = 0;
+    let sumBr = 0;
+    let sumBa = 0;
+    let hasUnits = false;
+    for (let u = 1; u <= 4; u++) {
+      const uTot = getVal([`Unit Breakdown Tot Unit # ${u}`, `Unit ${u} Total Rooms`]);
+      const uBr = getVal([`Unit Breakdown Br Unit # ${u}`, `Unit ${u} Bedrooms`]);
+      const uBa = getVal([`Unit Breakdown Ba Unit # ${u}`, `Unit ${u} Baths`]);
+      if (uTot || uBr || uBa) {
+        hasUnits = true;
+        if (uTot && !isNaN(parseFloat(uTot))) sumTot += parseFloat(uTot);
+        if (uBr && !isNaN(parseFloat(uBr))) sumBr += parseFloat(uBr);
+        if (uBa && !isNaN(parseFloat(uBa))) sumBa += parseFloat(uBa);
+      }
+    }
+    if (hasUnits) {
+      if (sumTot > 0 && !rawRooms) rawRooms = String(sumTot);
+      if (sumBr > 0 && !rawBeds) rawBeds = String(sumBr);
+      if (sumBa > 0 && !rawBaths) rawBaths = String(sumBa);
+    }
+  }
+
+  let rawGLA = getVal([
+    'Gross Living Area',
+    'Subject Gross Living Area',
+    'GLA',
+    'Subject GLA',
+    'Finished Area Above Grade'
+  ]);
+
+  return {
+    totalRooms: rawRooms,
+    bedrooms: rawBeds,
+    bathrooms: rawBaths,
+    aboveGradeRoomCount: rawAboveGrade,
+    gla: rawGLA
+  };
+};
+
+const getSketchGLA = (sketchItem) => {
+  if (sketchItem?.gla) return String(sketchItem.gla).replace(/,/g, '').trim();
+
+  // Check sketchItem.areas
+  const areas = sketchItem?.areas || [];
+  if (areas.length > 0) {
+    for (const ar of areas) {
+      const nm = (ar?.name || '').toLowerCase();
+      if (/total\s*(?:sketch|living|area)|gross\s*living\s*area|\bgla\b/i.test(nm)) {
+        const m = String(ar?.area || '').replace(/,/g, '').match(/([0-9]+(?:\.[0-9]+)?)/);
+        if (m) return m[1];
+      }
+    }
+
+    let livingSum = 0;
+    let foundLiving = false;
+    for (const ar of areas) {
+      const nm = (ar?.name || '').toLowerCase();
+      if (
+        /first|second|third|1st|2nd|3rd|floor|level|main|upper|living/i.test(nm) &&
+        !/garage|carport|porch|deck|patio|basement|non-living/i.test(nm)
+      ) {
+        const m = String(ar?.area || '').replace(/,/g, '').match(/([0-9]+(?:\.[0-9]+)?)/);
+        if (m) {
+          livingSum += parseFloat(m[1]);
+          foundLiving = true;
+        }
+      }
+    }
+    if (foundLiving && livingSum > 0) {
+      return String(Math.round(livingSum));
+    }
+
+    const firstM = String(areas[0]?.area || '').replace(/,/g, '').match(/([0-9]+(?:\.[0-9]+)?)/);
+    if (firstM) return firstM[1];
+  }
+
+  if (sketchItem?.raw_text_sample) {
+    const m = sketchItem.raw_text_sample.replace(/,/g, '').match(/(?:total\s*(?:living\s*area|sketch|area)|gross\s*living\s*area|\bgla\b)\s*[:=-]?\s*([0-9]+(?:\.[0-9]+)?)/i);
+    if (m) return m[1];
+  }
+
+  return '';
+};
+
+const evaluateRoomMatch = (sketchVal, impVal, gridVal, isBath = false, isGLA = false) => {
+  const parseNum = (v) => {
+    if (v === null || v === undefined) return null;
+    const m = String(v).replace(/,/g, '').match(/([0-9]+(?:\.[0-9]+)?)/);
+    return m ? parseFloat(m[1]) : null;
+  };
+
+  const s = parseNum(sketchVal);
+  const i = parseNum(impVal);
+  const g = parseNum(gridVal);
+
+  if (s === null && i === null && g === null) {
+    return { status: 'unknown', label: 'No Data', color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0', isMatch: false };
+  }
+
+  const fmt = (num) => {
+    if (num === null) return '—';
+    if (isBath) {
+      return Number.isInteger(num) ? `${num}.0` : `${num}`;
+    }
+    if (isGLA) {
+      return `${Math.round(num).toLocaleString()} Sq Ft`;
+    }
+    return `${num}`;
+  };
+
+  // 3-Way Match
+  if (s !== null && i !== null && g !== null && s === i && s === g) {
+    return {
+      status: 'match_3way',
+      label: '3-Way Match',
+      detail: `All 3 sources match (${fmt(s)})`,
+      color: '#15803d',
+      bg: '#dcfce7',
+      border: '#bbf7d0',
+      isMatch: true
+    };
+  }
+
+  // 2 Sources present and match
+  if (s !== null && i !== null && s === i && g === null) {
+    return {
+      status: 'match_sketch_imp',
+      label: 'Sketch ↔ Imp Match',
+      detail: `Matches Improvements (${fmt(s)})`,
+      color: '#0369a1',
+      bg: '#e0f2fe',
+      border: '#bae6fd',
+      isMatch: true
+    };
+  }
+  if (s !== null && g !== null && s === g && i === null) {
+    return {
+      status: 'match_sketch_grid',
+      label: 'Sketch ↔ Grid Match',
+      detail: `Matches Sales Grid (${fmt(s)})`,
+      color: '#0369a1',
+      bg: '#e0f2fe',
+      border: '#bae6fd',
+      isMatch: true
+    };
+  }
+
+  // Partial matches with 3 sources present
+  if (s !== null && i !== null && s === i) {
+    return {
+      status: 'match_sketch_imp',
+      label: 'Sketch ↔ Imp Match',
+      detail: `Sketch matches Imp (${fmt(s)}) vs Grid (${fmt(g)})`,
+      color: '#0369a1',
+      bg: '#e0f2fe',
+      border: '#bae6fd',
+      isMatch: true
+    };
+  }
+  if (s !== null && g !== null && s === g) {
+    return {
+      status: 'match_sketch_grid',
+      label: 'Sketch ↔ Grid Match',
+      detail: `Sketch matches Grid (${fmt(s)}) vs Imp (${fmt(i)})`,
+      color: '#0369a1',
+      bg: '#e0f2fe',
+      border: '#bae6fd',
+      isMatch: true
+    };
+  }
+  if (i !== null && g !== null && i === g) {
+    return {
+      status: 'match_imp_grid',
+      label: 'Imp ↔ Grid Match',
+      detail: `Imp matches Grid (${fmt(i)})${s !== null ? ` vs Sketch (${fmt(s)})` : ''}`,
+      color: '#166534',
+      bg: '#f0fdf4',
+      border: '#bbf7d0',
+      isMatch: true
+    };
+  }
+
+  // Discrepancy
+  return {
+    status: 'variance',
+    label: 'Variance Detected',
+    detail: `Sketch: ${fmt(s)}, Imp: ${fmt(i)}, Grid: ${fmt(g)}`,
+    color: '#b45309',
+    bg: '#fef3c7',
+    border: '#fde68a',
+    isMatch: false
+  };
+};
+
 const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) => {
   const root = { ...(allData || {}), ...(data || {}) };
   const sGrid = root.SALES_GRID || root['Sales Grid'] || {};
@@ -582,37 +924,7 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) 
     }
   }
 
-  // 2. Check all Sales Grid comps (1..9) for matching address / house number
-  if (mapNum && !isRental) {
-    for (let i = 1; i <= 9; i++) {
-      const candidateKeys = [
-        `COMPARABLE SALE #${i}`,
-        `Comparable #${i}`,
-        `Comparable Sale ${i}`,
-        `COMP_${i}`
-      ];
-      for (const k of candidateKeys) {
-        const item = root[k] || sGrid[k];
-        if (item) {
-          const compData = extractFromCompObj(item);
-          if (compData.address) {
-            const cmpRes = compareAddresses(compStreet, compData.address);
-            if (cmpRes.status === 'match' || cmpRes.status === 'partial') {
-              return {
-                gridCompNum: i,
-                gridCompLabel: `Comp #${i}`,
-                ...compData,
-                matchStatus: cmpRes.status,
-                matchLabel: cmpRes.label
-              };
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // 3. Lookup by explicit comp number if present
+  // 2. Lookup by explicit comp number first if present (e.g. Comp #1 -> Grid Comp #1, Comp #3 -> Grid Comp #3)
   if (explicitNum && !isRental) {
     const candidateKeys = [
       `COMPARABLE SALE #${explicitNum}`,
@@ -639,6 +951,39 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) 
     }
   }
 
+  // 3. Otherwise search all Sales Grid comps (1..9) requiring house number match
+  if (mapNum && !isRental) {
+    for (let i = 1; i <= 9; i++) {
+      const candidateKeys = [
+        `COMPARABLE SALE #${i}`,
+        `Comparable #${i}`,
+        `Comparable Sale ${i}`,
+        `COMP_${i}`
+      ];
+      for (const k of candidateKeys) {
+        const item = root[k] || sGrid[k];
+        if (item) {
+          const compData = extractFromCompObj(item);
+          if (compData.address) {
+            const gridNorm = normalizeAddressForCompare(compData.address);
+            const mGridNum = gridNorm.match(/^(\d+)/);
+            const gridNum = mGridNum ? mGridNum[1] : '';
+            if (gridNum && gridNum === mapNum) {
+              const cmpRes = compareAddresses(compStreet, compData.address);
+              return {
+                gridCompNum: i,
+                gridCompLabel: `Comp #${i}`,
+                ...compData,
+                matchStatus: cmpRes.status,
+                matchLabel: cmpRes.label
+              };
+            }
+          }
+        }
+      }
+    }
+  }
+
   return {
     gridCompNum: null,
     gridCompLabel: '—',
@@ -654,6 +999,13 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) 
   };
 };
 
+const EXHIBIT_STAGES = [
+  { key: 'location_map', label: 'Location Map & Comps', shortLabel: 'Location Map', tabIndex: 0 },
+  { key: 'aerial_map', label: 'Aerial Map', shortLabel: 'Aerial Map', tabIndex: 1 },
+  { key: 'building_sketch', label: 'Building Sketch & Floor Plan', shortLabel: 'Building Sketch', tabIndex: 2 },
+  { key: 'rental_map', label: 'Rentals & Other Maps', shortLabel: 'Rentals / Other', tabIndex: 3 }
+];
+
 export const MapAndSketchExhibitsSection = ({
   id = 'map-sketch-exhibits-section',
   data = {},
@@ -662,6 +1014,9 @@ export const MapAndSketchExhibitsSection = ({
 }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [extractingStage, setExtractingStage] = useState(null); // 'location_map' | 'aerial_map' | 'building_sketch' | 'rental_map'
+  const [extractProgressText, setExtractProgressText] = useState('');
+  const [completedStages, setCompletedStages] = useState(new Set());
   const [scanResult, setScanResult] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [rotation, setRotation] = useState(0);
@@ -692,7 +1047,7 @@ export const MapAndSketchExhibitsSection = ({
       || allData?.FILE_NAME
       || '';
 
-  // Trigger automated scan of map and sketch exhibits
+  // Trigger automated one-by-one sequential scan of map and sketch exhibits
   const handleScanExhibits = useCallback(async () => {
     const fileObj = selectedFile || allData?.selectedFile || allData?.xmlFile || allData?.reportFile || null;
     const filePath = (fileObj && typeof fileObj === 'object' && fileObj.name)
@@ -713,43 +1068,147 @@ export const MapAndSketchExhibitsSection = ({
 
     setLoading(true);
     setErrorMessage('');
+    setCompletedStages(new Set());
+
+    // Reset scan result so exhibits load progressively in real-time
+    setScanResult({
+      status: 'success',
+      maps: [],
+      sketches: [],
+      comparable_photos: [],
+      all_pins: []
+    });
+
+    let cachedServerPath = null;
+
     try {
-      let bodyData;
-      let headers = {};
+      for (let i = 0; i < EXHIBIT_STAGES.length; i++) {
+        const stage = EXHIBIT_STAGES[i];
+        const isLast = (i === EXHIBIT_STAGES.length - 1);
 
-      if (fileObj instanceof File) {
-        const formData = new FormData();
-        formData.append('file', fileObj);
-        formData.append('save_images', 'true');
-        bodyData = formData;
-      } else {
-        headers['Content-Type'] = 'application/json';
-        bodyData = JSON.stringify({
-          file_path: filePath,
-          save_images: true
-        });
+        setExtractingStage(stage.key);
+        setExtractProgressText(`Extracting ${stage.label} (${i + 1}/4)...`);
+
+        let bodyData;
+        let headers = {};
+
+        // If server provided a temporary file path from stage 1, reuse it directly (zero overhead, no re-upload)
+        if (cachedServerPath) {
+          headers['Content-Type'] = 'application/json';
+          bodyData = JSON.stringify({
+            file_path: cachedServerPath,
+            exhibit_type: stage.key,
+            keep_file: !isLast,
+            cleanup: isLast,
+            save_images: true
+          });
+        } else if (fileObj instanceof File) {
+          const formData = new FormData();
+          formData.append('file', fileObj);
+          formData.append('exhibit_type', stage.key);
+          formData.append('keep_file', isLast ? 'false' : 'true');
+          formData.append('cleanup', isLast ? 'true' : 'false');
+          formData.append('save_images', 'true');
+          bodyData = formData;
+        } else {
+          headers['Content-Type'] = 'application/json';
+          bodyData = JSON.stringify({
+            file_path: filePath,
+            exhibit_type: stage.key,
+            keep_file: !isLast,
+            cleanup: isLast,
+            save_images: true
+          });
+        }
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/extract-maps/`, {
+            method: 'POST',
+            headers: headers,
+            body: bodyData
+          });
+
+          if (!response.ok) {
+            const errJson = await response.json().catch(() => ({}));
+            console.warn(`Extraction notice for ${stage.key}:`, errJson);
+            continue;
+          }
+
+          const result = await response.json();
+          if (result.file_path && !cachedServerPath) {
+            cachedServerPath = result.file_path;
+          }
+
+          // Immediately merge the newly extracted stage into scanResult so it renders on UI right now!
+          setScanResult(prev => {
+            const existingMaps = prev?.maps || [];
+            const newMaps = result.maps || [];
+            const mergedMaps = [...existingMaps];
+            newMaps.forEach(nm => {
+              const idx = mergedMaps.findIndex(m => m.page_number === nm.page_number && m.map_type === nm.map_type);
+              if (idx >= 0) {
+                mergedMaps[idx] = nm;
+              } else {
+                mergedMaps.push(nm);
+              }
+            });
+
+            const existingSketches = prev?.sketches || [];
+            const newSketches = result.sketches || [];
+            const mergedSketches = [...existingSketches];
+            newSketches.forEach(ns => {
+              const idx = mergedSketches.findIndex(s => s.page_number === ns.page_number);
+              if (idx >= 0) {
+                mergedSketches[idx] = ns;
+              } else {
+                mergedSketches.push(ns);
+              }
+            });
+
+            const existingPins = prev?.all_pins || [];
+            const newPins = result.all_pins || [];
+            const mergedPins = [...existingPins];
+            newPins.forEach(np => {
+              if (!mergedPins.some(p => p.page_number === np.page_number && p.label === np.label)) {
+                mergedPins.push(np);
+              }
+            });
+
+            const existingPhotos = prev?.comparable_photos || [];
+            const newPhotos = result.comparable_photos || [];
+            const mergedPhotos = [...existingPhotos];
+            newPhotos.forEach(np => {
+              if (!mergedPhotos.some(p => p.page_number === np.page_number && p.comp_num === np.comp_num)) {
+                mergedPhotos.push(np);
+              }
+            });
+
+            return {
+              status: 'success',
+              file_name: result.file_name || prev?.file_name || filePath,
+              maps: mergedMaps,
+              sketches: mergedSketches,
+              comparable_photos: mergedPhotos,
+              all_pins: mergedPins
+            };
+          });
+
+          setCompletedStages(prev => new Set([...prev, stage.key]));
+        } catch (stageErr) {
+          console.warn(`Stage ${stage.key} error:`, stageErr);
+        }
       }
-
-      const response = await fetch(`${API_BASE_URL}/api/extract-maps/`, {
-        method: 'POST',
-        headers: headers,
-        body: bodyData
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.message || `Server returned HTTP ${response.status}`);
-      }
-
-      const result = await response.json();
-      setScanResult(result);
     } catch (err) {
       console.warn('Map & Sketch scan notice:', err);
-      setErrorMessage(
-        err.message || 'Could not scan exhibits via backend server. Ensure Django server is running or run "run_all.bat".'
-      );
+      const isNetworkError = !err.response && (err.message === 'Failed to fetch' || err.name === 'TypeError');
+      const friendlyMsg = isNetworkError
+        ? `Could not connect to backend server at ${API_BASE_URL}. Please ensure Django backend server is running on port 8000 (execute "python manage.py runserver" in appraisal_review or launch "run_all.bat").`
+        : (err.message || 'Could not scan exhibits via backend server.');
+      setErrorMessage(friendlyMsg);
     } finally {
       setLoading(false);
+      setExtractingStage(null);
+      setExtractProgressText('');
     }
   }, [selectedFile, allData, data]);
 
@@ -909,6 +1368,121 @@ export const MapAndSketchExhibitsSection = ({
         </Alert>
       )}
 
+      {/* Progressive Extraction Stepper Banner */}
+      {loading && (
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 2,
+            mb: 2.5,
+            borderRadius: 2,
+            bgcolor: '#f0f9ff',
+            borderColor: '#bae6fd'
+          }}
+        >
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.25 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={16} sx={{ color: '#0284c7' }} />
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#0369a1' }}>
+                {extractProgressText || 'Extracting Exhibits Progressively...'}
+              </Typography>
+            </Box>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: '#0284c7' }}>
+              Step {completedStages.size + (extractingStage ? 1 : 0)} of 4
+            </Typography>
+          </Stack>
+
+          <LinearProgress
+            variant="determinate"
+            value={(completedStages.size / 4) * 100}
+            sx={{
+              height: 6,
+              borderRadius: 3,
+              mb: 1.5,
+              bgcolor: '#e0f2fe',
+              '& .MuiLinearProgress-bar': { bgcolor: '#0284c7', borderRadius: 3 }
+            }}
+          />
+
+          <Grid container spacing={1}>
+            {EXHIBIT_STAGES.map((stg, sIdx) => {
+              const isDone = completedStages.has(stg.key);
+              const isCurrent = extractingStage === stg.key;
+              return (
+                <Grid size={{ xs: 6, sm: 3 }} key={stg.key}>
+                  <Box
+                    onClick={() => setActiveTab(stg.tabIndex)}
+                    sx={{
+                      p: 1,
+                      borderRadius: 1.5,
+                      border: '1px solid',
+                      borderColor: isCurrent ? '#0284c7' : (isDone ? '#86efac' : '#e2e8f0'),
+                      bgcolor: isCurrent ? '#e0f2fe' : (isDone ? '#f0fdf4' : '#ffffff'),
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      transition: 'all 0.2s ease-in-out',
+                      '&:hover': {
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.06)'
+                      }
+                    }}
+                  >
+                    {isCurrent ? (
+                      <CircularProgress size={16} sx={{ color: '#0284c7', flexShrink: 0 }} />
+                    ) : isDone ? (
+                      <CheckCircleIcon sx={{ fontSize: 18, color: '#16a34a', flexShrink: 0 }} />
+                    ) : (
+                      <Box
+                        sx={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: '50%',
+                          border: '2px solid #cbd5e1',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.65rem',
+                          fontWeight: 700,
+                          color: '#94a3b8',
+                          flexShrink: 0
+                        }}
+                      >
+                        {sIdx + 1}
+                      </Box>
+                    )}
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography
+                        variant="caption"
+                        noWrap
+                        sx={{
+                          display: 'block',
+                          fontWeight: isCurrent || isDone ? 700 : 500,
+                          color: isCurrent ? '#0369a1' : (isDone ? '#166534' : '#64748b'),
+                          fontSize: '0.73rem',
+                          lineHeight: 1.2
+                        }}
+                      >
+                        {stg.shortLabel}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontSize: '0.65rem',
+                          color: isCurrent ? '#0284c7' : (isDone ? '#15803d' : '#94a3b8')
+                        }}
+                      >
+                        {isCurrent ? 'Extracting...' : (isDone ? 'Extracted ✓' : 'Queued')}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Grid>
+              );
+            })}
+          </Grid>
+        </Paper>
+      )}
+
       {/* Tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2.5 }}>
         <Tabs
@@ -920,25 +1494,45 @@ export const MapAndSketchExhibitsSection = ({
           <Tab
             icon={<MapIcon sx={{ fontSize: 18 }} />}
             iconPosition="start"
-            label={`Location Map & Comps (${locationMaps.reduce((acc, m) => acc + (m.comparables?.length || 0), 0)} Comps)`}
+            label={
+              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                <span>Location Map & Comps ({locationMaps.reduce((acc, m) => acc + (m.comparables?.length || 0), 0)} Comps)</span>
+                {extractingStage === 'location_map' && <CircularProgress size={12} sx={{ color: '#0284c7' }} />}
+              </Box>
+            }
             sx={{ fontWeight: 600, textTransform: 'none' }}
           />
           <Tab
             icon={<SatelliteIcon sx={{ fontSize: 18 }} />}
             iconPosition="start"
-            label={`Aerial Map (${aerialMaps.length})`}
+            label={
+              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                <span>Aerial Map ({aerialMaps.length})</span>
+                {extractingStage === 'aerial_map' && <CircularProgress size={12} sx={{ color: '#0284c7' }} />}
+              </Box>
+            }
             sx={{ fontWeight: 600, textTransform: 'none' }}
           />
           <Tab
             icon={<ArchitectureIcon sx={{ fontSize: 18 }} />}
             iconPosition="start"
-            label={`Building Sketch & Floor Plan (${sketches.length})`}
+            label={
+              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                <span>Building Sketch & Floor Plan ({sketches.length})</span>
+                {extractingStage === 'building_sketch' && <CircularProgress size={12} sx={{ color: '#0284c7' }} />}
+              </Box>
+            }
             sx={{ fontWeight: 600, textTransform: 'none' }}
           />
           <Tab
             icon={<HomeIcon sx={{ fontSize: 18 }} />}
             iconPosition="start"
-            label={`Rentals & Other Maps (${rentalMaps.length})`}
+            label={
+              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                <span>Rentals & Other Maps ({rentalMaps.length})</span>
+                {extractingStage === 'rental_map' && <CircularProgress size={12} sx={{ color: '#0284c7' }} />}
+              </Box>
+            }
             sx={{ fontWeight: 600, textTransform: 'none' }}
           />
         </Tabs>
@@ -951,7 +1545,7 @@ export const MapAndSketchExhibitsSection = ({
             locationMaps.map((mapItem, mIdx) => (
               <Grid container spacing={2.5} key={mIdx}>
                 {/* Left: Comparables & Subject Data Table */}
-                <Grid item xs={12} lg={8}>
+                <Grid size={{ xs: 12, lg: 8 }}>
                   <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
                       <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1e293b' }}>
@@ -963,7 +1557,7 @@ export const MapAndSketchExhibitsSection = ({
                           : (mapItem.comparables || []);
                         const seenC = new Set();
                         const compsCount = rawItemsForCount.filter(c => {
-                          if (c.item_type === 'Rental') return false;
+                          if (c.item_type === 'Rental' || c.item_type === 'Listing') return false;
                           const k = (c.street || c.address || '').toLowerCase().replace(/[^\w]/g, '');
                           if (k && seenC.has(k)) return false;
                           if (k) seenC.add(k);
@@ -977,9 +1571,19 @@ export const MapAndSketchExhibitsSection = ({
                           if (k) seenR.add(k);
                           return true;
                         }).length;
-                        const chipText = rentalsCount > 0 
-                          ? `${compsCount} Comparables, ${rentalsCount} Rentals Detected`
-                          : `${compsCount} Comparables Detected`;
+                        const seenL = new Set();
+                        const listingsCount = rawItemsForCount.filter(c => {
+                          if (c.item_type !== 'Listing') return false;
+                          const k = (c.street || c.address || '').toLowerCase().replace(/[^\w]/g, '');
+                          if (k && seenL.has(k)) return false;
+                          if (k) seenL.add(k);
+                          return true;
+                        }).length;
+                        const parts = [];
+                        if (compsCount > 0) parts.push(`${compsCount} Comparables`);
+                        if (rentalsCount > 0) parts.push(`${rentalsCount} Rentals`);
+                        if (listingsCount > 0) parts.push(`${listingsCount} Listings`);
+                        const chipText = parts.length > 0 ? `${parts.join(', ')} Detected` : 'No Callouts Detected';
                         return (
                           <Chip
                             label={chipText}
@@ -1167,9 +1771,10 @@ export const MapAndSketchExhibitsSection = ({
                               };
                             });
 
-                            // 2. Separate into Comparables and Rentals
-                            const compsGroup = allItems.filter(it => !it.isRental);
-                            const rentalsGroup = allItems.filter(it => it.isRental);
+                            // 2. Separate into Comparables, Rentals, and Active Listings
+                            const listingsGroup = allItems.filter(it => it.pinInfo.item_type === 'Listing' || /listing/i.test(it.pinInfo.label || ''));
+                            const rentalsGroup = allItems.filter(it => (it.isRental || it.pinInfo.item_type === 'Rental') && !listingsGroup.includes(it));
+                            const compsGroup = allItems.filter(it => !it.isRental && it.pinInfo.item_type !== 'Rental' && !listingsGroup.includes(it));
 
                             // 3. Process each group: deduplicate identical addresses, fill missing numbers, and sort strictly 1..N
                             const processGroup = (group, prefix) => {
@@ -1178,6 +1783,12 @@ export const MapAndSketchExhibitsSection = ({
                               for (const it of group) {
                                 const sKey = (it.displayStreet || '').toLowerCase().replace(/[^\w]/g, '');
                                 if (sKey && sKey !== '—' && seenStreets.has(sKey)) {
+                                  continue;
+                                }
+                                // Filter out stray background road noise or empty fragments with no grid or photo match
+                                const isNoise = /^(?:conduit|belt\s*pkwy|expressway|interstate|highway|shore\s*pkwy|1\s*peny\s*1|2\s*sprft|92028\s*ccyle)$/i.test(it.displayStreet || '');
+                                if (isNoise) continue;
+                                if ((it.displayStreet || '').trim().length < 3 && (!it.gridComp?.address || it.gridComp.address === '—')) {
                                   continue;
                                 }
                                 if (sKey && sKey !== '—') seenStreets.add(sKey);
@@ -1219,10 +1830,12 @@ export const MapAndSketchExhibitsSection = ({
 
                             const finalComps = processGroup(compsGroup, 'Comp');
                             const finalRentals = processGroup(rentalsGroup, 'Rental');
-                            const sortedRows = [...finalComps, ...finalRentals];
+                            const finalListings = processGroup(listingsGroup, 'Listing');
+                            const sortedRows = [...finalComps, ...finalRentals, ...finalListings];
 
                             return sortedRows.map((rowItem, rIdx) => {
                               const { pinInfo, photoComp, gridComp, isRental, displayStreet, badgeLabel } = rowItem;
+                              const isListing = pinInfo.item_type === 'Listing' || /listing/i.test(pinInfo.label || '');
                               const compInfo = pinInfo;
 
                               const mapStreet = (compInfo.street && compInfo.street !== '(Address pin)') ? compInfo.street : (compInfo.address !== '(Address pin)' ? compInfo.address : '');
@@ -1243,19 +1856,35 @@ export const MapAndSketchExhibitsSection = ({
                                       px: 1,
                                       py: 0.25,
                                       borderRadius: 1,
-                                      bgcolor: isRental ? '#f0fdf4' : '#e0f2fe',
-                                      color: isRental ? '#166534' : '#0369a1',
-                                      border: isRental ? '1px solid #bbf7d0' : '1px solid #bae6fd',
+                                      bgcolor: isListing ? '#ccfbf1' : (isRental ? '#f0fdf4' : '#e0f2fe'),
+                                      color: isListing ? '#0f766e' : (isRental ? '#166534' : '#0369a1'),
+                                      border: isListing ? '1px solid #99f6e4' : (isRental ? '1px solid #bbf7d0' : '1px solid #bae6fd'),
                                       fontWeight: 700,
                                       fontSize: '0.75rem'
                                     }}>
-                                      {isRental ? '🟢' : '🔵'} {badgeLabel}
+                                      {isListing ? '📋' : (isRental ? '🟢' : '🔵')} {badgeLabel}
                                     </Box>
                                   </TableCell>
                                   <TableCell>
                                     <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
                                       {displayStreet}
                                     </Typography>
+                                    <Stack direction="row" spacing={0.5} sx={{ my: 0.25 }} flexWrap="wrap">
+                                      {compInfo.price && (
+                                        <Chip
+                                          label={compInfo.price}
+                                          size="small"
+                                          sx={{ height: 18, fontSize: '0.68rem', fontWeight: 700, bgcolor: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0' }}
+                                        />
+                                      )}
+                                      {compInfo.apn && (
+                                        <Chip
+                                          label={`APN: ${compInfo.apn}`}
+                                          size="small"
+                                          sx={{ height: 18, fontSize: '0.68rem', fontWeight: 600, bgcolor: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}
+                                        />
+                                      )}
+                                    </Stack>
                                     <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
                                       {compInfo.city ? `${compInfo.city}, ${compInfo.state} ${compInfo.zipcode}` : (gridComp?.city ? `${gridComp.city}, ${gridComp.state} ${gridComp.zipcode}` : '—')}
                                     </Typography>
@@ -1394,7 +2023,7 @@ export const MapAndSketchExhibitsSection = ({
                 </Grid>
 
                 {/* Right: Map Preview Image */}
-                <Grid item xs={12} lg={4}>
+                <Grid size={{ xs: 12, lg: 4 }}>
                   <Card variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
                     <Box sx={{ position: 'relative' }}>
                       <CardMedia
@@ -1425,9 +2054,21 @@ export const MapAndSketchExhibitsSection = ({
               </Grid>
             ))
           ) : (
-            <Alert severity="info">
-              No Location Map pages extracted yet. Click <strong>"Scan / Refresh Exhibits"</strong> above to extract pins.
-            </Alert>
+            extractingStage === 'location_map' ? (
+              <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', bgcolor: '#f8fafc', borderRadius: 2 }}>
+                <CircularProgress size={32} sx={{ color: '#0284c7', mb: 1.5 }} />
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                  Extracting Location Map & Sales Comparables...
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b', mt: 0.5 }}>
+                  Detecting subject pin, comparable pins, and cross-referencing addresses with the Sales Grid.
+                </Typography>
+              </Paper>
+            ) : (
+              <Alert severity="info">
+                No Location Map pages extracted yet. Click <strong>"Scan / Refresh Exhibits"</strong> above to extract pins.
+              </Alert>
+            )
           )}
         </Stack>
       )}
@@ -1438,7 +2079,7 @@ export const MapAndSketchExhibitsSection = ({
           {aerialMaps.length > 0 ? (
             aerialMaps.map((mapItem, aIdx) => (
               <Grid container spacing={2.5} key={aIdx}>
-                <Grid item xs={12} md={6}>
+                <Grid size={{ xs: 12, md: 6 }}>
                   <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                     <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1, color: '#1e293b' }}>
                       Aerial / Satellite Map (Page {mapItem.page_number})
@@ -1490,7 +2131,7 @@ export const MapAndSketchExhibitsSection = ({
                   </Paper>
                 </Grid>
 
-                <Grid item xs={12} md={6}>
+                <Grid size={{ xs: 12, md: 6 }}>
                   <Card variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
                     <CardMedia
                       component="img"
@@ -1508,9 +2149,30 @@ export const MapAndSketchExhibitsSection = ({
               </Grid>
             ))
           ) : (
-            <Alert severity="info">
-              No Aerial Map exhibit detected in this document.
-            </Alert>
+            extractingStage === 'aerial_map' ? (
+              <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', bgcolor: '#f8fafc', borderRadius: 2 }}>
+                <CircularProgress size={32} sx={{ color: '#0284c7', mb: 1.5 }} />
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                  Extracting Aerial / Satellite Map Exhibit...
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b', mt: 0.5 }}>
+                  Locating satellite imagery and subject property boundary callouts.
+                </Typography>
+              </Paper>
+            ) : loading && !completedStages.has('aerial_map') ? (
+              <Paper variant="outlined" sx={{ p: 3, textAlign: 'center', bgcolor: '#f8fafc', borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#475569' }}>
+                  Aerial Map Extraction Queued (Stage 2/4)
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b', mt: 0.5 }}>
+                  Will extract automatically once Location Map completes.
+                </Typography>
+              </Paper>
+            ) : (
+              <Alert severity="info">
+                No Aerial Map exhibit detected in this document.
+              </Alert>
+            )
           )}
         </Stack>
       )}
@@ -1526,7 +2188,7 @@ export const MapAndSketchExhibitsSection = ({
               return (
                 <Grid container spacing={2.5} key={sIdx}>
                   {/* Left: Extracted Room Labels, Floor Plan Layout, Area Calculations & Dimensions */}
-                  <Grid item xs={12} lg={7}>
+                  <Grid size={{ xs: 12, lg: 7 }}>
                     <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
                       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
                         <Box>
@@ -1558,7 +2220,7 @@ export const MapAndSketchExhibitsSection = ({
                       </Stack>
 
                       {/* Extracted Room Labels & Breakdown */}
-                      {(roomLabels.length > 0 || Object.keys(roomCats).length > 0) && (
+                      {(roomLabels.length > 0 || Object.keys(roomCats).length > 0 || sketchItem.gla || (sketchItem.areas && sketchItem.areas.length > 0) || sketchItem.raw_text_sample) && (
                         <Box sx={{ mb: 2.5, p: 2, borderRadius: 2, bgcolor: '#f8fafc', border: '1px solid #e2e8f0' }}>
                           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
                             <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 0.75 }}>
@@ -1571,6 +2233,31 @@ export const MapAndSketchExhibitsSection = ({
 
                           {/* Quick Summary Badges */}
                           <Stack direction="row" spacing={1} flexWrap="wrap" gap={1} sx={{ mb: 2 }}>
+                            {(() => {
+                              const sGLA = getSketchGLA(sketchItem);
+                              const impC = getImprovementsRoomCounts(data, allData);
+                              const gridC = getSalesGridSubjectRoomCounts(data, allData);
+                              const activeGLA = sGLA || impC.gla || gridC.gla;
+                              if (!activeGLA) return null;
+                              const numGla = Number(String(activeGLA).replace(/,/g, ''));
+                              if (isNaN(numGla) || numGla <= 0) return null;
+                              return (
+                                <Chip
+                                  icon={<ArchitectureIcon fontSize="small" />}
+                                  label={`${numGla.toLocaleString()} Sq Ft GLA`}
+                                  size="small"
+                                  sx={{ bgcolor: '#ecfdf5', color: '#047857', fontWeight: 700, border: '1px solid #a7f3d0' }}
+                                />
+                              );
+                            })()}
+                            {roomSum.total_rooms > 0 && (
+                              <Chip
+                                icon={<HomeIcon fontSize="small" />}
+                                label={`${roomSum.total_rooms} Total Rooms`}
+                                size="small"
+                                sx={{ bgcolor: '#ede9fe', color: '#5b21b6', fontWeight: 700, border: '1px solid #ddd6fe' }}
+                              />
+                            )}
                             {roomSum.bedroom_count > 0 && (
                               <Chip
                                 icon={<BedIcon fontSize="small" />}
@@ -1627,6 +2314,166 @@ export const MapAndSketchExhibitsSection = ({
                               />
                             )}
                           </Stack>
+
+                          {/* Room Count & GLA Reconciliation: Building Sketch vs Improvements vs Sales Grid */}
+                          {(() => {
+                            const impCounts = getImprovementsRoomCounts(data, allData);
+                            const gridCounts = getSalesGridSubjectRoomCounts(data, allData);
+                            const sketchGLA = getSketchGLA(sketchItem);
+
+                            const glaEval = evaluateRoomMatch(sketchGLA, impCounts.gla, gridCounts.gla, false, true);
+                            const bedEval = evaluateRoomMatch(roomSum.bedroom_count, impCounts.bedrooms, gridCounts.bedrooms, false);
+                            const bathEval = evaluateRoomMatch(roomSum.bathroom_count, impCounts.bathrooms, gridCounts.bathrooms, true);
+                            const totEval = evaluateRoomMatch(roomSum.total_rooms, impCounts.totalRooms, gridCounts.totalRooms, false);
+
+                            const rows = [
+                              {
+                                metric: 'Gross Living Area (GLA)',
+                                icon: <ArchitectureIcon fontSize="small" sx={{ color: '#059669' }} />,
+                                sketchDisplay: sketchGLA ? `${Number(sketchGLA).toLocaleString()} Sq Ft` : (sketchItem.areas?.length > 0 ? `${sketchItem.areas[0].area}` : '—'),
+                                sketchDetail: sketchGLA ? 'Calculated Floor Plan Area' : (sketchItem.areas?.length > 0 ? 'Canvas Area Extract' : 'See Area Table Below'),
+                                impDisplay: impCounts.gla ? `${Number(String(impCounts.gla).replace(/,/g, '')).toLocaleString()} Sq Ft` : '—',
+                                gridDisplay: gridCounts.gla ? `${Number(String(gridCounts.gla).replace(/,/g, '')).toLocaleString()} Sq Ft` : '—',
+                                eval: glaEval
+                              },
+                              {
+                                metric: 'Bedrooms',
+                                icon: <BedIcon fontSize="small" sx={{ color: '#4338ca' }} />,
+                                sketchDisplay: `${roomSum.bedroom_count} Bed${roomSum.bedroom_count !== 1 ? 's' : ''}`,
+                                impDisplay: impCounts.bedrooms ? `${impCounts.bedrooms} Bedrooms` : '—',
+                                gridDisplay: gridCounts.bedrooms ? `${gridCounts.bedrooms} Bedrooms` : '—',
+                                eval: bedEval
+                              },
+                              {
+                                metric: 'Bathrooms',
+                                icon: <BathIcon fontSize="small" sx={{ color: '#0e7490' }} />,
+                                sketchDisplay: roomSum.bathroom_display || `${roomSum.bathroom_count} Bath`,
+                                impDisplay: impCounts.bathrooms ? `${impCounts.bathrooms} Bath(s)` : '—',
+                                gridDisplay: gridCounts.bathrooms ? `${gridCounts.bathrooms} Bath(s)` : '—',
+                                eval: bathEval
+                              },
+                              {
+                                metric: 'Total Rooms',
+                                icon: <HomeIcon fontSize="small" sx={{ color: '#5b21b6' }} />,
+                                sketchDisplay: `${roomSum.total_rooms} Rooms`,
+                                sketchDetail: '(Bedrooms + Living + Dining + Kitchen)',
+                                impDisplay: impCounts.totalRooms ? `${impCounts.totalRooms} Rooms` : '—',
+                                gridDisplay: gridCounts.totalRooms ? `${gridCounts.totalRooms} Rooms` : '—',
+                                eval: totEval
+                              }
+                            ];
+
+                            const allMatched = glaEval.isMatch && bedEval.isMatch && bathEval.isMatch && totEval.isMatch;
+
+                            return (
+                              <Paper
+                                variant="outlined"
+                                sx={{
+                                  p: 2,
+                                  mb: 2.5,
+                                  borderRadius: 2,
+                                  bgcolor: '#ffffff',
+                                  borderColor: '#e2e8f0',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                                }}
+                              >
+                                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }} flexWrap="wrap" gap={1}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <LayersIcon fontSize="small" sx={{ color: '#4f46e5' }} />
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                                      Room Count & GLA Reconciliation: Building Sketch vs Improvements vs Sales Grid
+                                    </Typography>
+                                  </Box>
+                                  <Chip
+                                    label={allMatched ? "All Categories Consistent" : "Section Cross-Reference"}
+                                    size="small"
+                                    icon={allMatched ? <CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} /> : undefined}
+                                    sx={{
+                                      fontWeight: 700,
+                                      fontSize: '0.72rem',
+                                      bgcolor: allMatched ? '#dcfce7' : '#f1f5f9',
+                                      color: allMatched ? '#15803d' : '#475569',
+                                      border: allMatched ? '1px solid #bbf7d0' : '1px solid #e2e8f0'
+                                    }}
+                                  />
+                                </Stack>
+
+                                <TableContainer>
+                                  <Table size="small">
+                                    <TableHead sx={{ bgcolor: '#f8fafc' }}>
+                                      <TableRow>
+                                        <TableCell sx={{ fontWeight: 700, width: '22%' }}>Appraisal Metric</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, width: '26%' }}>Building Sketch Canvas</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, width: '22%' }}>Improvements Section</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, width: '18%' }}>Sales Grid (Subject)</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, width: '12%' }}>Audit Status</TableCell>
+                                      </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                      {rows.map((r, rIdx) => (
+                                        <TableRow key={rIdx} hover>
+                                          <TableCell sx={{ verticalAlign: 'middle' }}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                              {r.icon}
+                                              <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                                                {r.metric}
+                                              </Typography>
+                                            </Box>
+                                          </TableCell>
+                                          <TableCell sx={{ verticalAlign: 'middle' }}>
+                                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                                              {r.sketchDisplay}
+                                            </Typography>
+                                            {r.sketchDetail && (
+                                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.68rem', display: 'block' }}>
+                                                {r.sketchDetail}
+                                              </Typography>
+                                            )}
+                                          </TableCell>
+                                          <TableCell sx={{ verticalAlign: 'middle' }}>
+                                            <Typography variant="body2" sx={{ fontWeight: 600, color: '#334155' }}>
+                                              {r.impDisplay}
+                                            </Typography>
+                                            <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.68rem', display: 'block' }}>
+                                              Form Finished Area
+                                            </Typography>
+                                          </TableCell>
+                                          <TableCell sx={{ verticalAlign: 'middle' }}>
+                                            <Typography variant="body2" sx={{ fontWeight: 600, color: '#334155' }}>
+                                              {r.gridDisplay}
+                                            </Typography>
+                                            <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.68rem', display: 'block' }}>
+                                              Grid Subject Unit
+                                            </Typography>
+                                          </TableCell>
+                                          <TableCell sx={{ verticalAlign: 'middle' }}>
+                                            <Tooltip title={r.eval.detail || r.eval.label} arrow>
+                                              <Chip
+                                                size="small"
+                                                icon={r.eval.isMatch ? <CheckCircleIcon sx={{ fontSize: '13px !important', color: `${r.eval.color} !important` }} /> : undefined}
+                                                label={r.eval.label}
+                                                sx={{
+                                                  fontWeight: 700,
+                                                  fontSize: '0.72rem',
+                                                  bgcolor: r.eval.bg,
+                                                  color: r.eval.color,
+                                                  border: `1px solid ${r.eval.border}`
+                                                }}
+                                              />
+                                            </Tooltip>
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </TableContainer>
+
+                                <Typography variant="caption" sx={{ color: '#64748b', mt: 1.25, display: 'block', fontSize: '0.72rem', fontStyle: 'italic' }}>
+                                  * Note: As per ANSI Z765 & Fannie Mae guidelines, Gross Living Area (GLA) measures finished above-grade exterior dimensions. Total Rooms includes finished above-grade living rooms, bedrooms, kitchens, and dining rooms; bathrooms, hallways, basements, and utility rooms are excluded. In multi-unit (Form 1025) appraisals, Improvements shows total property count while Sales Grid reflects the subject evaluation unit.
+                                </Typography>
+                              </Paper>
+                            );
+                          })()}
 
                           {/* Floor-by-Floor (Level Breakdown) */}
                           {Object.keys(roomLevels).length > 0 ? (
@@ -1749,7 +2596,7 @@ export const MapAndSketchExhibitsSection = ({
                   </Grid>
 
                   {/* Right: Building Sketch Image Canvas */}
-                  <Grid item xs={12} lg={5}>
+                  <Grid size={{ xs: 12, lg: 5 }}>
                     <Card variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
                       <Box sx={{ position: 'relative' }}>
                         <CardMedia
@@ -1778,9 +2625,30 @@ export const MapAndSketchExhibitsSection = ({
               );
             })
           ) : (
-            <Alert severity="info">
-              No Building Sketch or Floor Plan pages detected in this file.
-            </Alert>
+            extractingStage === 'building_sketch' ? (
+              <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', bgcolor: '#f8fafc', borderRadius: 2 }}>
+                <CircularProgress size={32} sx={{ color: '#0284c7', mb: 1.5 }} />
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                  Extracting Building Sketch & Architectural Floor Plans...
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b', mt: 0.5 }}>
+                  Parsing room labels (Bedrooms, Baths, Kitchen, Garage), wall dimensions, and gross living area.
+                </Typography>
+              </Paper>
+            ) : loading && !completedStages.has('building_sketch') ? (
+              <Paper variant="outlined" sx={{ p: 3, textAlign: 'center', bgcolor: '#f8fafc', borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#475569' }}>
+                  Building Sketch Extraction Queued (Stage 3/4)
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b', mt: 0.5 }}>
+                  Will extract automatically once Aerial Map completes.
+                </Typography>
+              </Paper>
+            ) : (
+              <Alert severity="info">
+                No Building Sketch or Floor Plan pages detected in this file.
+              </Alert>
+            )
           )}
         </Stack>
       )}
@@ -1789,47 +2657,520 @@ export const MapAndSketchExhibitsSection = ({
       {activeTab === 3 && (
         <Stack spacing={2.5}>
           {rentalMaps.length > 0 ? (
-            rentalMaps.map((mapItem, rIdx) => (
-              <Grid container spacing={2.5} key={rIdx}>
-                <Grid item xs={12} md={6}>
-                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1, color: '#1e293b' }}>
-                      {mapItem.map_type || 'Map Exhibit'} (Page {mapItem.page_number})
-                    </Typography>
-                    {mapItem.subject && (
-                      <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: '#f8fafc', border: '1px solid #e2e8f0', mb: 1.5 }}>
-                        <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 600 }}>
-                          Subject Property (Rentals Reference):
-                        </Typography>
-                        <Typography variant="body1" sx={{ fontWeight: 700, color: '#0f172a' }}>
-                          {mapItem.subject.address || 'Subject marked'}
-                        </Typography>
-                      </Box>
-                    )}
-                  </Paper>
-                </Grid>
+            rentalMaps.map((mapItem, rIdx) => {
+              const rawSourceList = (mapItem.rentals && mapItem.rentals.length > 0)
+                ? mapItem.rentals
+                : (mapItem.comparables || []);
 
-                <Grid item xs={12} md={6}>
-                  <Card variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
-                    <CardMedia
-                      component="img"
-                      height="300"
-                      image={mapItem.image_preview}
-                      alt="Rentals Map Preview"
-                      sx={{ objectFit: 'contain', bgcolor: '#0f172a', cursor: 'pointer' }}
-                      onClick={() => {
-                        setPreviewImage(mapItem.image_preview);
-                        setRotation(0);
-                      }}
-                    />
-                  </Card>
+              return (
+                <Grid container spacing={2.5} key={rIdx}>
+                  {/* Left: Rentals & Subject Data Table */}
+                  <Grid size={{ xs: 12, lg: 8 }}>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }} flexWrap="wrap" gap={1}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                          {mapItem.map_type || 'Rentals Map'} (Page {mapItem.page_number})
+                        </Typography>
+                        {(() => {
+                          const seenR = new Set();
+                          const rentalsCount = rawSourceList.filter(c => {
+                            const k = (c.street || c.address || '').toLowerCase().replace(/[^\w]/g, '');
+                            if (k && seenR.has(k)) return false;
+                            if (k) seenR.add(k);
+                            return true;
+                          }).length;
+                          return (
+                            <Chip
+                              label={rentalsCount > 0 ? `${rentalsCount} Rental Comparables Detected` : 'Exhibits Reference Map'}
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                              sx={{ fontWeight: 600, color: '#16a34a', borderColor: '#bbf7d0', bgcolor: '#f0fdf4' }}
+                            />
+                          );
+                        })()}
+                      </Stack>
+
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead sx={{ bgcolor: '#f8fafc' }}>
+                            <TableRow>
+                              <TableCell sx={{ fontWeight: 700, width: '10%' }}>Item</TableCell>
+                              <TableCell sx={{ fontWeight: 700, width: '22%' }}>Rentals Map Pin</TableCell>
+                              <TableCell sx={{ fontWeight: 700, width: '26%' }}>Photo Addendum Data</TableCell>
+                              <TableCell sx={{ fontWeight: 700, width: '20%' }}>Rental Schedule / Grid</TableCell>
+                              <TableCell sx={{ fontWeight: 700, width: '11%' }}>Miles / Prox</TableCell>
+                              <TableCell sx={{ fontWeight: 700, width: '11%' }}>Match Status</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {/* Subject Property Row */}
+                            {mapItem.subject && (() => {
+                              const subInfo = cleanPinAddress(mapItem.subject);
+                              const subGrid = getSubjectGridData(data, allData);
+                              const subPhoto = getSubjectPhotoData(allData, data);
+                              const subMatch = compareAddresses(subInfo.street || subInfo.fullAddress, subGrid.fullAddress || subGrid.street);
+                              const subSubjectAddress = subPhoto?.address || subGrid.street || subGrid.fullAddress || subInfo.street || subInfo.fullAddress || 'Subject Property';
+
+                              return (
+                                <TableRow sx={{ bgcolor: '#fef2f2' }}>
+                                  <TableCell sx={{ verticalAlign: 'middle' }}>
+                                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 1, bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 700, fontSize: '0.75rem' }}>
+                                      🔴 Subject
+                                    </Box>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                                      {(subInfo.street && subInfo.street !== '(Address pin)') ? subInfo.street : (subGrid.street || subGrid.fullAddress || subPhoto?.address || 'Subject Property')}
+                                    </Typography>
+                                    <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                      {subInfo.city ? `${subInfo.city}, ${subInfo.state} ${subInfo.zipcode}` : (subGrid.city ? `${subGrid.city}, ${subGrid.state} ${subGrid.zipcode}` : '—')}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    {subPhoto ? (
+                                      <Stack direction="row" spacing={1} alignItems="center">
+                                        <Box
+                                          onClick={() => {
+                                            setPreviewImage(subPhoto.base64_preview);
+                                            setRotation(0);
+                                          }}
+                                          sx={{
+                                            width: 44,
+                                            height: 34,
+                                            borderRadius: 1,
+                                            overflow: 'hidden',
+                                            bgcolor: '#0f172a',
+                                            cursor: 'pointer',
+                                            flexShrink: 0,
+                                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                            transition: 'transform 0.15s',
+                                            '&:hover': { transform: 'scale(1.08)' }
+                                          }}
+                                        >
+                                          <img
+                                            src={subPhoto.base64_preview}
+                                            alt={subSubjectAddress}
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                          />
+                                        </Box>
+                                        <Box>
+                                          <Typography
+                                            variant="body2"
+                                            onClick={() => {
+                                              setPreviewImage(subPhoto.base64_preview);
+                                              setRotation(0);
+                                            }}
+                                            sx={{ fontWeight: 700, color: '#0f172a', cursor: 'pointer', '&:hover': { color: '#0284c7' } }}
+                                          >
+                                            {subSubjectAddress}
+                                          </Typography>
+                                          <Typography variant="caption" sx={{ color: '#0369a1', fontWeight: 600, display: 'block' }}>
+                                            {subPhoto.caption ? `${subPhoto.caption} • ` : 'Subject Front • '}Page {subPhoto.page} Exhibit Photo
+                                          </Typography>
+                                          {subGrid.city && !subSubjectAddress.toLowerCase().includes(subGrid.city.toLowerCase()) && (
+                                            <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                              {subGrid.city}, {subGrid.state} {subGrid.zipcode}
+                                            </Typography>
+                                          )}
+                                        </Box>
+                                      </Stack>
+                                    ) : (
+                                      <Box>
+                                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                                          {subSubjectAddress}
+                                        </Typography>
+                                        <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block' }}>
+                                          Form Subject (No Photo Attached)
+                                        </Typography>
+                                      </Box>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                                      {subGrid.fullAddress || subGrid.street || '—'}
+                                    </Typography>
+                                    <Typography variant="caption" sx={{ color: '#0369a1', fontWeight: 600 }}>
+                                      Form Subject
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={`${subInfo.miles} mi (Base)`}
+                                      size="small"
+                                      sx={{ bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 700, border: '1px solid #fecaca' }}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    {subMatch.status === 'match' ? (
+                                      <Chip
+                                        label="Match"
+                                        size="small"
+                                        icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
+                                        sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                      />
+                                    ) : (
+                                      <Chip
+                                        label={subMatch.label}
+                                        size="small"
+                                        sx={{ bgcolor: '#fef9c3', color: '#a16207', fontWeight: 700, border: '1px solid #fde047', fontSize: '0.72rem' }}
+                                      />
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })()}
+
+                            {/* Rental Comparables Rows Sorted in Strict Ascending Order (1..N) */}
+                            {(() => {
+                              const allItems = rawSourceList.map((comp, idx) => {
+                                const pinInfo = cleanPinAddress(comp, mapItem.subject, idx);
+                                const photoComp = getComparablePhotoData(pinInfo, idx, scanResult, allData, data);
+                                const gridComp = getGridComparableData(idx, pinInfo.label || `Rental #${idx + 1}`, pinInfo.street, data, allData);
+
+                                let num = null;
+                                if (gridComp?.gridCompNum) {
+                                  num = gridComp.gridCompNum;
+                                } else if (photoComp?.comp_num) {
+                                  num = photoComp.comp_num;
+                                } else {
+                                  const m = (pinInfo.label || '').match(/#?(\d+)/);
+                                  if (m) num = parseInt(m[1], 10);
+                                }
+
+                                const mMiles = (pinInfo.miles || pinInfo.proximity || '').match(/([0-9]+(?:\.[0-9]+)?)/);
+                                const milesVal = mMiles ? parseFloat(mMiles[1]) : 999.0;
+
+                                const displayStreet = (pinInfo.street && pinInfo.street !== '(Address pin)')
+                                  ? pinInfo.street
+                                  : (photoComp?.address || gridComp?.address || (pinInfo.address !== '(Address pin)' ? pinInfo.address : '') || '—');
+
+                                return {
+                                  pinInfo,
+                                  photoComp,
+                                  gridComp,
+                                  isRental: true,
+                                  num,
+                                  milesVal,
+                                  displayStreet
+                                };
+                              });
+
+                              // Deduplicate identical addresses
+                              const seenStreets = new Set();
+                              const deduped = [];
+                              for (const it of allItems) {
+                                const sKey = (it.displayStreet || '').toLowerCase().replace(/[^\w]/g, '');
+                                if (sKey && sKey !== '—' && seenStreets.has(sKey)) {
+                                  continue;
+                                }
+                                if ((it.displayStreet || '').trim().length < 3 && (!it.gridComp?.address || it.gridComp.address === '—')) {
+                                  continue;
+                                }
+                                if (sKey && sKey !== '—') seenStreets.add(sKey);
+                                deduped.push(it);
+                              }
+
+                              // Initial sort
+                              deduped.sort((a, b) => {
+                                if (a.num !== null && b.num !== null) return a.num - b.num;
+                                if (a.num !== null) return -1;
+                                if (b.num !== null) return 1;
+                                return a.milesVal - b.milesVal;
+                              });
+
+                              // Ensure unique 1..N numbering
+                              const usedNums = new Set();
+                              deduped.forEach(it => {
+                                if (it.num !== null && !usedNums.has(it.num)) {
+                                  usedNums.add(it.num);
+                                } else {
+                                  it.num = null;
+                                }
+                              });
+
+                              let nextNum = 1;
+                              deduped.forEach(it => {
+                                if (it.num === null) {
+                                  while (usedNums.has(nextNum)) nextNum++;
+                                  it.num = nextNum;
+                                  usedNums.add(nextNum);
+                                }
+                                it.badgeLabel = `Rental #${it.num}`;
+                              });
+
+                              deduped.sort((a, b) => a.num - b.num);
+
+                              return deduped.map((rowItem, rowIdx) => {
+                                const { pinInfo, photoComp, gridComp, displayStreet, badgeLabel } = rowItem;
+                                const compInfo = pinInfo;
+
+                                const mapStreet = (compInfo.street && compInfo.street !== '(Address pin)') ? compInfo.street : (compInfo.address !== '(Address pin)' ? compInfo.address : '');
+                                const photoStreet = photoComp?.address || '';
+                                const gridStreet = gridComp?.address || '';
+
+                                const mapMatchesPhoto = photoStreet ? compareAddresses(mapStreet, photoStreet).status === 'match' : false;
+                                const mapMatchesGrid = gridComp?.matchStatus === 'match';
+                                const photoMatchesGrid = (photoStreet && gridStreet && gridStreet !== '—') ? compareAddresses(photoStreet, gridStreet).status === 'match' : false;
+
+                                return (
+                                  <TableRow key={rowIdx} hover>
+                                    <TableCell sx={{ verticalAlign: 'middle' }}>
+                                      <Box sx={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 0.5,
+                                        px: 1,
+                                        py: 0.25,
+                                        borderRadius: 1,
+                                        bgcolor: '#f0fdf4',
+                                        color: '#166534',
+                                        border: '1px solid #bbf7d0',
+                                        fontWeight: 700,
+                                        fontSize: '0.75rem'
+                                      }}>
+                                        🟢 {badgeLabel}
+                                      </Box>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                                        {displayStreet}
+                                      </Typography>
+                                      <Stack direction="row" spacing={0.5} sx={{ my: 0.25 }} flexWrap="wrap">
+                                        {compInfo.price && (
+                                          <Chip
+                                            label={compInfo.price}
+                                            size="small"
+                                            sx={{ height: 18, fontSize: '0.68rem', fontWeight: 700, bgcolor: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0' }}
+                                          />
+                                        )}
+                                        {compInfo.apn && (
+                                          <Chip
+                                            label={`APN: ${compInfo.apn}`}
+                                            size="small"
+                                            sx={{ height: 18, fontSize: '0.68rem', fontWeight: 600, bgcolor: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}
+                                          />
+                                        )}
+                                      </Stack>
+                                      <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                        {compInfo.city ? `${compInfo.city}, ${compInfo.state} ${compInfo.zipcode}` : (gridComp?.city ? `${gridComp.city}, ${gridComp.state} ${gridComp.zipcode}` : '—')}
+                                      </Typography>
+                                    </TableCell>
+                                    <TableCell>
+                                      {photoComp ? (
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                          {(photoComp.thumbnail || photoComp.base64_preview) && (
+                                            <Tooltip title="Click to view photo & detailed cross-reference" arrow>
+                                              <Box
+                                                onClick={() => setSelectedCompPhotoModal({ compInfo, photoComp, gridComp })}
+                                                sx={{
+                                                  width: 44,
+                                                  height: 34,
+                                                  borderRadius: 1,
+                                                  overflow: 'hidden',
+                                                  bgcolor: '#0f172a',
+                                                  cursor: 'pointer',
+                                                  flexShrink: 0,
+                                                  boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                                  transition: 'transform 0.15s',
+                                                  '&:hover': { transform: 'scale(1.08)' }
+                                                }}
+                                              >
+                                                <img
+                                                  src={photoComp.thumbnail || photoComp.base64_preview}
+                                                  alt={photoComp.title || 'Rental Photo'}
+                                                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                />
+                                              </Box>
+                                            </Tooltip>
+                                          )}
+                                          <Box>
+                                            <Typography
+                                              variant="body2"
+                                              onClick={() => setSelectedCompPhotoModal({ compInfo, photoComp, gridComp })}
+                                              sx={{ fontWeight: 700, color: '#0f172a', cursor: 'pointer', '&:hover': { color: '#0284c7' } }}
+                                            >
+                                              {photoComp.address || photoComp.title}
+                                            </Typography>
+                                            <Typography variant="caption" sx={{ color: '#0369a1', fontWeight: 600, display: 'block' }}>
+                                              Page {photoComp.page} {photoComp.rent_amount || photoComp.sale_price ? `• $${photoComp.rent_amount || photoComp.sale_price}/mo` : ''} {photoComp.gla ? `• ${photoComp.gla} sf` : ''} {photoComp.bedrooms ? `• ${photoComp.bedrooms}B/${photoComp.bathrooms || '1'}Ba` : ''}
+                                            </Typography>
+                                            {photoComp.proximity && (
+                                              <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                                Prox: <strong>{photoComp.proximity}</strong>
+                                              </Typography>
+                                            )}
+                                          </Box>
+                                        </Stack>
+                                      ) : (
+                                        <span style={{ color: '#94a3b8' }}>—</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Typography variant="body2" sx={{ fontWeight: 700, color: gridComp.address !== '—' ? '#0f172a' : '#94a3b8' }}>
+                                        {gridComp.address}
+                                      </Typography>
+                                      {gridComp.gridCompLabel !== '—' && (
+                                        <Typography variant="caption" sx={{ color: '#0284c7', fontWeight: 600 }}>
+                                          Rental Grid {gridComp.gridCompLabel} {gridComp.sale_price && gridComp.sale_price !== '—' ? `• $${gridComp.sale_price}` : ''}
+                                        </Typography>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      {compInfo.proximity ? (
+                                        <Chip
+                                          label={`Map: ${compInfo.proximity}`}
+                                          size="small"
+                                          sx={{ fontWeight: 700, bgcolor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontSize: '0.72rem' }}
+                                        />
+                                      ) : (
+                                        <span style={{ color: '#94a3b8' }}>—</span>
+                                      )}
+                                      {photoComp?.proximity && (
+                                        <Typography variant="caption" sx={{ color: '#4338ca', display: 'block', mt: 0.25, fontWeight: 600 }}>
+                                          Photo: {photoComp.proximity}
+                                        </Typography>
+                                      )}
+                                      {gridComp.proximity && gridComp.proximity !== '—' && (
+                                        <Typography variant="caption" sx={{ color: '#047857', display: 'block', mt: 0.25, fontWeight: 600 }}>
+                                          Grid: {gridComp.proximity}
+                                        </Typography>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      {mapMatchesPhoto && (mapMatchesGrid || photoMatchesGrid) ? (
+                                        <Chip
+                                          label="3-Way Match"
+                                          size="small"
+                                          icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
+                                          sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                        />
+                                      ) : mapMatchesPhoto ? (
+                                        <Chip
+                                          label="Map ↔ Photo"
+                                          size="small"
+                                          icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#0284c7 !important' }} />}
+                                          sx={{ bgcolor: '#e0f2fe', color: '#0369a1', fontWeight: 700, border: '1px solid #bae6fd', fontSize: '0.72rem' }}
+                                        />
+                                      ) : mapMatchesGrid ? (
+                                        <Chip
+                                          label="Map ↔ Grid"
+                                          size="small"
+                                          icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
+                                          sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                        />
+                                      ) : gridComp.matchStatus === 'partial' ? (
+                                        <Chip
+                                          label="Near Match"
+                                          size="small"
+                                          sx={{ bgcolor: '#fef9c3', color: '#a16207', fontWeight: 700, border: '1px solid #fde047', fontSize: '0.72rem' }}
+                                        />
+                                      ) : gridComp.matchStatus === 'mismatch' ? (
+                                        <Chip
+                                          label="Mismatch"
+                                          size="small"
+                                          sx={{ bgcolor: '#fee2e2', color: '#b91c1c', fontWeight: 700, border: '1px solid #fecaca', fontSize: '0.72rem' }}
+                                        />
+                                      ) : (
+                                        <Chip
+                                          label="Not in Grid"
+                                          size="small"
+                                          sx={{ bgcolor: '#f1f5f9', color: '#64748b', fontWeight: 600, border: '1px solid #e2e8f0', fontSize: '0.72rem' }}
+                                        />
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              });
+                            })()}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </Paper>
+                  </Grid>
+
+                  {/* Right: Rentals Map Preview Image */}
+                  <Grid size={{ xs: 12, lg: 4 }}>
+                    <Card variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+                      <Box sx={{ position: 'relative' }}>
+                        <CardMedia
+                          component="img"
+                          height="320"
+                          image={mapItem.image_preview}
+                          alt="Rentals Map Preview"
+                          sx={{ objectFit: 'contain', bgcolor: '#0f172a', cursor: 'pointer' }}
+                          onClick={() => {
+                            setPreviewImage(mapItem.image_preview);
+                            setRotation(0);
+                          }}
+                        />
+                        <Stack
+                          direction="row"
+                          spacing={0.5}
+                          sx={{
+                            position: 'absolute',
+                            top: 8,
+                            right: 8,
+                            bgcolor: 'rgba(15, 23, 42, 0.75)',
+                            backdropFilter: 'blur(4px)',
+                            borderRadius: 1,
+                            p: 0.5
+                          }}
+                        >
+                          <Tooltip title="View Fullscreen" arrow>
+                            <IconButton
+                              size="small"
+                              sx={{ color: '#ffffff' }}
+                              onClick={() => {
+                                setPreviewImage(mapItem.image_preview);
+                                setRotation(0);
+                              }}
+                            >
+                              <FullscreenIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </Box>
+                      <Box sx={{ p: 1.5, bgcolor: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center">
+                          <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 600 }}>
+                            Page {mapItem.page_number} • {mapItem.map_type}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#0284c7', fontWeight: 700, cursor: 'pointer' }} onClick={() => { setPreviewImage(mapItem.image_preview); setRotation(0); }}>
+                            Click image to expand
+                          </Typography>
+                        </Stack>
+                      </Box>
+                    </Card>
+                  </Grid>
                 </Grid>
-              </Grid>
-            ))
+              );
+            })
           ) : (
-            <Alert severity="info">
-              No additional Rentals or Flood Map exhibits found.
-            </Alert>
+            extractingStage === 'rental_map' ? (
+              <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', bgcolor: '#f8fafc', borderRadius: 2 }}>
+                <CircularProgress size={32} sx={{ color: '#0284c7', mb: 1.5 }} />
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                  Extracting Rentals, Flood & Plat Map Exhibits...
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b', mt: 0.5 }}>
+                  Scanning rental comparables, flood hazard boundaries, and plat maps.
+                </Typography>
+              </Paper>
+            ) : loading && !completedStages.has('rental_map') ? (
+              <Paper variant="outlined" sx={{ p: 3, textAlign: 'center', bgcolor: '#f8fafc', borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#475569' }}>
+                  Rentals & Other Maps Extraction Queued (Stage 4/4)
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b', mt: 0.5 }}>
+                  Will extract automatically once Building Sketch completes.
+                </Typography>
+              </Paper>
+            ) : (
+              <Alert severity="info">
+                No additional Rentals or Flood Map exhibits found.
+              </Alert>
+            )
           )}
         </Stack>
       )}
@@ -1841,8 +3182,8 @@ export const MapAndSketchExhibitsSection = ({
         maxWidth="lg"
         fullWidth
       >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+        <DialogTitle component="div" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography component="span" variant="subtitle1" sx={{ fontWeight: 700 }}>
             Exhibit Viewer (Full Resolution)
           </Typography>
           <Stack direction="row" spacing={1}>
@@ -1881,10 +3222,10 @@ export const MapAndSketchExhibitsSection = ({
         fullWidth
         PaperProps={{ sx: { borderRadius: 3, p: 1 } }}
       >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
+        <DialogTitle component="div" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Chip label={selectedCompPhotoModal?.photoComp?.title || 'Comparable Photo'} color="primary" size="small" sx={{ fontWeight: 700 }} />
-            <Typography variant="h6" sx={{ fontWeight: 700, color: '#0f172a' }}>
+            <Typography component="span" variant="h6" sx={{ fontWeight: 700, color: '#0f172a' }}>
               {selectedCompPhotoModal?.photoComp?.address || selectedCompPhotoModal?.compInfo?.street}
             </Typography>
             <Tooltip title={copiedKey === 'modal' ? 'Copied!' : 'Copy Clean Address'} arrow>
@@ -1900,7 +3241,7 @@ export const MapAndSketchExhibitsSection = ({
         <DialogContent sx={{ pt: 1.5 }}>
           <Grid container spacing={2.5}>
             {/* Left: Image */}
-            <Grid item xs={12} sm={5}>
+            <Grid size={{ xs: 12, sm: 5 }}>
               <Box sx={{ borderRadius: 2, overflow: 'hidden', bgcolor: '#0f172a', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
                 <img
                   src={selectedCompPhotoModal?.photoComp?.thumbnail || selectedCompPhotoModal?.photoComp?.base64_preview}
@@ -1914,7 +3255,7 @@ export const MapAndSketchExhibitsSection = ({
             </Grid>
 
             {/* Right: Cross-Reference Comparison Table */}
-            <Grid item xs={12} sm={7}>
+            <Grid size={{ xs: 12, sm: 7 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: '#1e293b' }}>
                 Cross-Reference Comparison (Map vs. Photo Addendum vs. Sales Grid)
               </Typography>

@@ -297,7 +297,7 @@ const HomePage = () => {
           ) : (
             <Grid container spacing={3} display='flex' justifyContent='center' alignItems="center">
 
-              <Grid item xs={12} md={8}>
+              <Grid size={{ xs: 12, md: 8 }}>
                 <Paper elevation={0} sx={{ p: 2, borderRadius: 3, border: '1px solid rgba(0,0,0,0.08)', height: 320, display: 'flex', flexDirection: 'column' }}>
                   <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                     <Typography variant="subtitle2" fontWeight={700}>Reviews Completed</Typography>
@@ -329,9 +329,9 @@ const HomePage = () => {
               </Grid>
 
 
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <Grid container spacing={3} direction="column" style={{ height: '100%' }}>
-                  <Grid item xs={12} sx={{ flex: 1 }}>
+                  <Grid size={12} sx={{ flex: 1 }}>
                     <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: '1px solid rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                       <Typography variant="subtitle2" color="text.secondary">Avg. Turnaround Time</Typography>
                       <Typography variant="h3" fontWeight={800} color="primary.main" my={1}>
@@ -368,7 +368,7 @@ const HomePage = () => {
         </Typography>
 
         <Grid container spacing={3} mb={5} display='flex' justifyContent='center' alignItems="center">
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <AnimatedCard
               to="/extractor"
               title="Full File Review"
@@ -377,7 +377,7 @@ const HomePage = () => {
               color="#1976d2"
             />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <AnimatedCard
               to="/erc"
               title="ERC Review"
@@ -386,7 +386,7 @@ const HomePage = () => {
               color="#e91e63"
             />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <AnimatedCard
               to="/extractor?formType=Appraisal Version %231"
               title="Appraisal Version #1"
@@ -395,7 +395,7 @@ const HomePage = () => {
               color="#4caf50"
             />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <AnimatedCard
               to="/compare"
               title="Revised File Review"
@@ -404,7 +404,7 @@ const HomePage = () => {
               color="#9c27b0"
             />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <AnimatedCard
               to="https://praman-strdjrbservices.pythonanywhere.com/api/automation/"
               title="Automation Dashboard"
@@ -422,7 +422,7 @@ const HomePage = () => {
         </Typography>
 
         <Grid container spacing={3} mb={5} display='flex' justifyContent='center' alignItems="center">
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <AnimatedCard
               to="/query"
               title="Custom Query"
@@ -433,7 +433,7 @@ const HomePage = () => {
             />
           </Grid>
 
-          <Grid item xs={12} md={4}  >
+          <Grid size={{ xs: 12, md: 4 }}>
             <AnimatedCard
               to="/1004D"
               title="1004D"
@@ -443,7 +443,7 @@ const HomePage = () => {
             />
           </Grid>
 
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <AnimatedCard
               to="/history"
               title="Review History"
@@ -459,7 +459,7 @@ const HomePage = () => {
         </Typography>
 
         <Grid container spacing={3} display='flex' justifyContent='center' alignItems="center">
-          <Grid item xs={12} md={6}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <AnimatedCard
               to="/guide"
               title="User Guide"
@@ -469,7 +469,7 @@ const HomePage = () => {
               newTab
             />
           </Grid>
-          <Grid item xs={12} md={6}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <AnimatedCard
               to="/contact"
               title="Contact Us"

@@ -318,7 +318,7 @@ const detectFormTypeFromXmlString = (xmlString) => {
     }
 
     const combined = (reportAttrs + ' ' + formMatches.join(' ') + ' ' + formIdentifiers.join(' ')).toUpperCase();
-    const has1007 = [...formMatches, ...formIdentifiers].some(f => 
+    const has1007 = [...formMatches, ...formIdentifiers].some(f =>
       /\b(?:1007|FNM\s*1007|FRE\s*1000|SRX)\b|SINGLE\s*FAMILY\s*(?:COMPARABLE\s*)?RENT/i.test(f)
     );
 
@@ -2320,7 +2320,10 @@ function Subject({ defaultFormType }) {
     'Lender/Client',
     'Address (Lender/Client)',
     'Offered for Sale in Last 12 Months',
-    'Report data source(s) used, offering price(s), and date(s)'
+    'Report data source(s) used, offering price(s), and date(s)',
+    // 'ANSI',
+    // 'Exposure Comment',
+    // 'Prior Service Comment'
   ];
 
   const subjectPdfFields = [...topCheckFields, ...subjectFields];
@@ -3671,12 +3674,12 @@ function Subject({ defaultFormType }) {
     }
 
     // Unpack Comparable Rental Data comps
-    const rentGrid = result.fields?.['Comparable Rental Data'] || 
-                     result.fields?.['COMPARABLE_RENTAL_DATA'] || 
-                     result.clean_data?.['Comparable Rental Data'] || 
-                     result.clean_data?.['COMPARABLE_RENTAL_DATA'] || 
-                     result['Comparable Rental Data'] ||
-                     result['COMPARABLE_RENTAL_DATA'];
+    const rentGrid = result.fields?.['Comparable Rental Data'] ||
+      result.fields?.['COMPARABLE_RENTAL_DATA'] ||
+      result.clean_data?.['Comparable Rental Data'] ||
+      result.clean_data?.['COMPARABLE_RENTAL_DATA'] ||
+      result['Comparable Rental Data'] ||
+      result['COMPARABLE_RENTAL_DATA'];
     if (rentGrid && typeof rentGrid === 'object') {
       normalizedFields["Comparable Rental Data"] = { ...(normalizedFields["Comparable Rental Data"] || {}), ...rentGrid };
       normalizedFields["COMPARABLE_RENTAL_DATA"] = { ...(normalizedFields["COMPARABLE_RENTAL_DATA"] || {}), ...rentGrid };
@@ -3699,10 +3702,10 @@ function Subject({ defaultFormType }) {
 
     // Unpack Single Family Rent Schedule (Subject)
     const rentSubj = result.fields?.['Single Family Rent Schedule'] ||
-                     result.clean_data?.['Single Family Rent Schedule'] ||
-                     result.fields?.['Subject Rent Schedule'] ||
-                     result.clean_data?.['Subject Rent Schedule'] ||
-                     result['Single Family Rent Schedule'];
+      result.clean_data?.['Single Family Rent Schedule'] ||
+      result.fields?.['Subject Rent Schedule'] ||
+      result.clean_data?.['Subject Rent Schedule'] ||
+      result['Single Family Rent Schedule'];
     if (rentSubj && typeof rentSubj === 'object') {
       normalizedFields["Single Family Rent Schedule"] = { ...(normalizedFields["Single Family Rent Schedule"] || {}), ...rentSubj };
       normalizedFields["Subject Rent Schedule"] = { ...(normalizedFields["Subject Rent Schedule"] || {}), ...rentSubj };
@@ -6818,7 +6821,7 @@ function Subject({ defaultFormType }) {
 
                     <Grid container spacing={2}>
                       {(data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number'] || data?.Subject?.['FHA Case No.'] || data?.Subject?.['FHA Case #'] || data?.Subject?.['FHA Case Number'] || data?.SUBJECT?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case #'] || data?.SUBJECT?.['FHA Case Number']) && (
-                        <Grid item xs={12} sm={6} md={4}>
+                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                           <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%', borderColor: ((data['FHA Case No.'] || data['FHA Case #'] || data?.Subject?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case No.']) === '000-0000000') ? 'error.main' : 'divider', bgcolor: ((data['FHA Case No.'] || data['FHA Case #'] || data?.Subject?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case No.']) === '000-0000000') ? '#fff5f5' : 'background.paper' }}>
                             <Box sx={{ overflow: 'hidden' }}>
                               <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>FHA Case #</Typography>
@@ -6846,7 +6849,7 @@ function Subject({ defaultFormType }) {
                       )}
 
                       {data['ADU File Check'] && (
-                        <Grid item xs={12} sm={6} md={4}>
+                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                           <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%' }}>
                             <Box sx={{ overflow: 'hidden' }}>
                               <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>ADU File Check</Typography>
@@ -6862,7 +6865,7 @@ function Subject({ defaultFormType }) {
                       )}
 
                       {(data['1004MC Addendum'] || data['1004MC Present'] || data?.Subject?.['1004MC Addendum'] || data?.has_1004mc !== undefined) && (
-                        <Grid item xs={12} sm={6} md={4}>
+                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                           <Paper
                             variant="outlined"
                             sx={{
@@ -6905,32 +6908,83 @@ function Subject({ defaultFormType }) {
                         </Grid>
                       )}
 
-                      {data['ANSI'] && (
-                        <Grid item xs={12} sm={6} md={4}>
-                          <Paper variant="outlined" sx={{ p: 1.5, height: '100%' }}>
-                            <Typography variant="caption" color="text.secondary" fontWeight="bold" display="block" noWrap>ANSI</Typography>
-                            <EditableField fieldPath={['ANSI']} value={data['ANSI']} onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField} isEditable={isEditable} allData={data} />
-                          </Paper>
-                        </Grid>
-                      )}
+                      {/* ANSI - Compulsory Extraction Check */}
+                      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: 1.5,
+                            height: '100%',
+                            borderColor: ((data['ANSI'] || data?.Subject?.['ANSI'] || data?.SUBJECT?.['ANSI']) && !String(data['ANSI'] || data?.Subject?.['ANSI'] || '').toLowerCase().includes('not present')) ? 'success.main' : 'warning.main',
+                            bgcolor: ((data['ANSI'] || data?.Subject?.['ANSI'] || data?.SUBJECT?.['ANSI']) && !String(data['ANSI'] || data?.Subject?.['ANSI'] || '').toLowerCase().includes('not present')) ? '#f0fdf4' : '#fffbeb'
+                          }}
+                        >
+                          <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>
+                            ANSI
+                          </Typography>
+                          <EditableField
+                            fieldPath={['ANSI']}
+                            value={data['ANSI'] || data?.Subject?.['ANSI'] || data?.SUBJECT?.['ANSI'] || 'Not Present'}
+                            onDataChange={handleDataChange}
+                            editingField={editingField}
+                            setEditingField={setEditingField}
+                            isEditable={isEditable}
+                            allData={data}
+                          />
+                        </Paper>
+                      </Grid>
 
-                      {(data['Exposure comment'] || data['Exposure Comment']) && (
-                        <Grid item xs={12} sm={6} md={6}>
-                          <Paper variant="outlined" sx={{ p: 1.5, height: '100%' }}>
-                            <Typography variant="caption" color="text.secondary" fontWeight="bold" display="block" noWrap>Exposure Comment</Typography>
-                            <EditableField fieldPath={['Exposure comment']} value={data['Exposure comment'] || data['Exposure Comment']} onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField} isEditable={isEditable} allData={data} />
-                          </Paper>
-                        </Grid>
-                      )}
+                      {/* Exposure Comment - Compulsory Extraction Check */}
+                      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: 1.5,
+                            height: '100%',
+                            borderColor: ((data['Exposure comment'] || data['Exposure Comment'] || data?.Subject?.['Exposure comment'] || data?.SUBJECT?.['Exposure comment']) && !String(data['Exposure comment'] || data['Exposure Comment'] || '').toLowerCase().includes('not present')) ? 'success.main' : 'warning.main',
+                            bgcolor: ((data['Exposure comment'] || data['Exposure Comment'] || data?.Subject?.['Exposure comment'] || data?.SUBJECT?.['Exposure comment']) && !String(data['Exposure comment'] || data['Exposure Comment'] || '').toLowerCase().includes('not present')) ? '#f0fdf4' : '#fffbeb'
+                          }}
+                        >
+                          <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>
+                            Exposure Comment
+                          </Typography>
+                          <EditableField
+                            fieldPath={['Exposure comment']}
+                            value={data['Exposure comment'] || data['Exposure Comment'] || data?.Subject?.['Exposure comment'] || data?.Subject?.['Exposure Comment'] || data?.SUBJECT?.['Exposure comment'] || data?.SUBJECT?.['Exposure Comment'] || 'Not Present'}
+                            onDataChange={handleDataChange}
+                            editingField={editingField}
+                            setEditingField={setEditingField}
+                            isEditable={isEditable}
+                            allData={data}
+                          />
+                        </Paper>
+                      </Grid>
 
-                      {(data['Prior service comment'] || data['Prior Service Comment'] || data['Prior Service']) && (
-                        <Grid item xs={12} sm={6} md={6}>
-                          <Paper variant="outlined" sx={{ p: 1.5, height: '100%' }}>
-                            <Typography variant="caption" color="text.secondary" fontWeight="bold" display="block" noWrap>Prior Service Comment</Typography>
-                            <EditableField fieldPath={['Prior service comment']} value={data['Prior service comment'] || data['Prior Service Comment'] || data['Prior Service']} onDataChange={handleDataChange} editingField={editingField} setEditingField={setEditingField} isEditable={isEditable} allData={data} />
-                          </Paper>
-                        </Grid>
-                      )}
+                      {/* Prior Service Comment - Compulsory Extraction Check */}
+                      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: 1.5,
+                            height: '100%',
+                            borderColor: ((data['Prior service comment'] || data['Prior Service Comment'] || data?.Subject?.['Prior service comment'] || data?.SUBJECT?.['Prior service comment']) && !String(data['Prior service comment'] || data['Prior Service Comment'] || '').toLowerCase().includes('not present')) ? 'success.main' : 'warning.main',
+                            bgcolor: ((data['Prior service comment'] || data['Prior Service Comment'] || data?.Subject?.['Prior service comment'] || data?.SUBJECT?.['Prior service comment']) && !String(data['Prior service comment'] || data['Prior Service Comment'] || '').toLowerCase().includes('not present')) ? '#f0fdf4' : '#fffbeb'
+                          }}
+                        >
+                          <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>
+                            Prior Service Comment
+                          </Typography>
+                          <EditableField
+                            fieldPath={['Prior service comment']}
+                            value={data['Prior service comment'] || data['Prior Service Comment'] || data?.Subject?.['Prior service comment'] || data?.Subject?.['Prior Service Comment'] || data?.SUBJECT?.['Prior service comment'] || data?.SUBJECT?.['Prior Service Comment'] || 'Not Present'}
+                            onDataChange={handleDataChange}
+                            editingField={editingField}
+                            setEditingField={setEditingField}
+                            isEditable={isEditable}
+                            allData={data}
+                          />
+                        </Paper>
+                      </Grid>
                     </Grid>
 
                     {isUnpaidOkLender && (
