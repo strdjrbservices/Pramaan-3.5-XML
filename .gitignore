@@ -53,6 +53,10 @@ yarn-error.log*
 **/Downloads/
 **/scratch/
 scratch/
+test_maps/
+**/test_maps/
+scratch_test/
+**/scratch_test/
 
 # Archives
 *.zip
