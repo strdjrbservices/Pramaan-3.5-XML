@@ -986,7 +986,9 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         uspap_page, _ = _find_keyword_in_pages(pages_text, [
             r"USPAP\s*Compliance(?:\s*Addendum)?",
             r"USPAP\s*Addendum",
-            r"USPAP\s*Identification"
+            r"USPAP\s*Identification",
+            r"APPRAISAL\s+(?:AND|&)\s+REPORT\s+IDENTIFICATION",
+            r"COMMENTS\s+ON\s+APPRAISAL\s+AND\s+REPORT\s+IDENTIFICATION"
         ])
 
         rep_opt_page, _ = _find_keyword_in_pages(pages_text, [

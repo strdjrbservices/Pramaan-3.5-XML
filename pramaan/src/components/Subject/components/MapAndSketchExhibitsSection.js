@@ -243,6 +243,16 @@ const parseSketchRooms = (sketchItem) => {
   };
 };
 
+const extractCompNumberFromLabel = (label) => {
+  if (!label) return null;
+  const m = label.match(/(?:comp(?:arable)?|rental|listing|sale|no\.?|#)\s*#?\s*([0-9]+)\b/i) || label.match(/^#\s*([0-9]+)\b/);
+  if (m) {
+    const val = parseInt(m[1], 10);
+    if (val >= 1 && val <= 30) return val;
+  }
+  return null;
+};
+
 const cleanPinAddress = (pin, subjectPin = null, compIndex = null) => {
   if (!pin) return { street: '', city: '', state: '', zipcode: '', fullAddress: '', miles: '', proximity: '', label: '', photo_data: null, raw_pin: null, item_type: 'Comparable' };
 
@@ -264,7 +274,7 @@ const cleanPinAddress = (pin, subjectPin = null, compIndex = null) => {
         .replace(/[0-9]+(?:\.[0-9]+)?\s*(?:miles?|mi|mlles?)\b(?:\s*[NSEWnsew]{1,2}|North|South|East|West)?/gi, '')
         .replace(/[;,.\s]+\b(?:[NSEW]{1,2}|North|South|East|West)\b\s*$/i, '')
         .trim();
-      const mNum = tClean.match(/\b([0-9]{1,6}(?:-[0-9]{1,6})?\s+[A-Za-z0-9#\s.,'-]+)/);
+      const mNum = tClean.match(/\b([0-9]{1,6}(?:-[0-9]{1,6})?\s+[A-Za-z0-9#\\s.,'-]+)/);
       if (mNum) {
         let cand = mNum[1].trim().replace(/[;,.\s]+\b(?:[NSEW]{1,2}|North|South|East|West)\b\s*$/i, '').trim();
         cand = cand.replace(/\s+[~_].*$/, '').trim();
@@ -290,20 +300,17 @@ const cleanPinAddress = (pin, subjectPin = null, compIndex = null) => {
       if (!city) city = mCsz[1].replace(/,/g, '').trim();
       if (!state) state = mCsz[2].toUpperCase();
       if (!zipcode) zipcode = mCsz[3];
-    } else {
-      const mTown = raw.match(/\b(Ozone Park|Greenport|Southold|Hueytown|Bessemer|Mesa|Tempe|Brooklyn|Scottsdale|Jamaica)\b/i);
-      if (mTown) {
-        city = mTown[1];
-        if (subjectPin?.state) state = subjectPin.state;
-      } else if (subjectPin && subjectPin.city && !isRental) {
-        city = subjectPin.city;
-        state = subjectPin.state || '';
-        zipcode = subjectPin.zipcode || '';
-      } else if (pin.photo_data?.city) {
-        city = pin.photo_data.city;
-        state = pin.photo_data.state || '';
-        zipcode = pin.photo_data.zipcode || '';
-      }
+    } else if (pin.photo_data?.city) {
+      city = pin.photo_data.city;
+      if (!state) state = pin.photo_data.state || '';
+      if (!zipcode) zipcode = pin.photo_data.zipcode || '';
+    } else if (subjectPin?.city && !isRental) {
+      city = subjectPin.city;
+      if (!state) state = subjectPin.state || '';
+      if (!zipcode) zipcode = subjectPin.zipcode || '';
+    }
+    if (!state && subjectPin?.state) {
+      state = subjectPin.state;
     }
   }
 
@@ -333,12 +340,14 @@ const cleanPinAddress = (pin, subjectPin = null, compIndex = null) => {
     }
   }
 
-  // 4. Label & Comp / Rental Number Normalization
+  // 4. Label & Comp / Rental Number Normalization (strictly preserve true labels, never overwrite with fake compIndex)
   let label = pin.label || (isSub ? 'Subject' : (isRental ? 'Rental' : 'Comparable'));
   if (!isSub) {
-    const mNum = label.match(/#?([0-9]+)/);
-    if (mNum && parseInt(mNum[1], 10) > 30) {
-      label = isRental ? `Rental #${compIndex !== null ? compIndex + 1 : 1}` : `Comparable #${compIndex !== null ? compIndex + 1 : 1}`;
+    const explicitLabelNum = extractCompNumberFromLabel(label);
+    if (explicitLabelNum) {
+      label = isRental ? `Rental #${explicitLabelNum}` : `Comparable #${explicitLabelNum}`;
+    } else {
+      label = isRental ? 'Rental' : 'Comparable';
     }
   }
 
@@ -363,16 +372,19 @@ const getComparablePhotoData = (compInfo, compIndex, scanResult, allData, data) 
   if (compInfo?.photo_data) return compInfo.photo_data;
   if (compInfo?.raw_pin?.photo_data) return compInfo.raw_pin.photo_data;
 
-  const isRental = compInfo?.item_type === 'Rental' || /rental/i.test(compInfo?.label || '');
+  const isRental = compInfo?.item_type === 'Rental' || 
+                   /rental/i.test(compInfo?.label || '') ||
+                   compInfo?.isRental;
   const compPhotosList = scanResult?.comparable_photos || [];
   const allPhotos = allData?.EXTRACTED_PHOTOS || data?.EXTRACTED_PHOTOS || allData?.extracted_photos || data?.extracted_photos || [];
   
   const allCandidatePhotos = [
-    ...compPhotosList,
-    ...allPhotos.filter(p => p.category === 'Comparable' || p.category === 'Rental' || (p.comp_number && p.address) || p.sale_price)
+    ...(compPhotosList || []).filter(Boolean),
+    ...allPhotos.filter(p => p && (p.category === 'Comparable' || p.category === 'Rental' || (p.comp_number && p.address) || p.sale_price))
   ];
 
   const compPhotos = allCandidatePhotos.filter(p => {
+    if (!p) return false;
     const pIsRental = p.category === 'Rental' || p.is_rental || /rental/i.test(p.title || '') || /rental/i.test(p.caption || '');
     return isRental ? pIsRental : !pIsRental;
   });
@@ -394,37 +406,61 @@ const getComparablePhotoData = (compInfo, compIndex, scanResult, allData, data) 
   const pinNumMatch = pinStreet.match(/^([0-9]{1,6}(?:-[0-9]{1,6})?)/);
   const pinNum = pinNumMatch ? pinNumMatch[1] : '';
 
-  // 1. Match by address street number & keywords
+  // 1. Match by address street number & keywords from pin street
   if (pinNum) {
     for (const cp of compPhotos) {
+      if (!cp) continue;
       const cpAddrNorm = norm(cp.address || '');
       const cpNumMatch = cpAddrNorm.match(/^([0-9]{1,6}(?:-[0-9]{1,6})?)/);
-      if (cpNumMatch) {
-        const cpNum = cpNumMatch[1];
-        if (cpNum === pinNum) {
-          const pinWords = pinStreet.split(' ').slice(1).filter(w => w.length >= 4 && !['street', 'road', 'avenue', 'lane', 'drive', 'court'].includes(w));
-          const cpWords = cpAddrNorm.split(' ').slice(1).filter(w => w.length >= 4);
-          if (!pinWords.length || pinWords.some(w => cpWords.some(cw => cw.includes(w) || w.includes(cw)))) {
-            return cp;
-          }
+      if (cpNumMatch && cpNumMatch[1] === pinNum) {
+        const pinWords = pinStreet.split(' ').slice(1).filter(w => w.length >= 4 && !['street', 'road', 'avenue', 'lane', 'drive', 'court'].includes(w));
+        const cpWords = cpAddrNorm.split(' ').slice(1).filter(w => w.length >= 4);
+        if (!pinWords.length || pinWords.some(w => cpWords.some(cw => cw.includes(w) || w.includes(cw)))) {
+          return cp;
         }
       }
     }
   }
 
-  // 2. Match by Comparable / Rental Number in label (#1, #2, etc.)
-  const labelNumMatch = (compInfo?.label || '').match(/#?(\d+)/);
-  const targetCompNum = labelNumMatch ? parseInt(labelNumMatch[1], 10) : (compIndex !== null ? compIndex + 1 : null);
-  if (targetCompNum) {
-    const byNum = compPhotos.find(cp => cp.comp_number === targetCompNum || cp.comp_num === targetCompNum);
-    if (byNum) return byNum;
+  // 2. Match by verified gridComp address if linked
+  if (compInfo?.gridComp?.address && compInfo.gridComp.address !== '—') {
+    const gridAddrNorm = norm(compInfo.gridComp.address);
+    const mGNum = gridAddrNorm.match(/^([0-9]{1,6})/);
+    if (mGNum) {
+      for (const cp of compPhotos) {
+        if (!cp) continue;
+        const cpAddrNorm = norm(cp.address || '');
+        const cpNumMatch = cpAddrNorm.match(/^([0-9]{1,6})/);
+        if (cpNumMatch && cpNumMatch[1] === mGNum[1]) {
+          return cp;
+        }
+      }
+    }
   }
 
-  // 3. Match by Proximity / Distance (e.g. 2.79 miles or 0.29 miles)
+  // 3. Match by explicit comp / rental number (ONLY if explicitly labeled or verified gridCompNum)
+  const targetCompNum = extractCompNumberFromLabel(compInfo?.label) || (compInfo?.gridComp?.matchStatus !== 'mismatch' ? compInfo?.gridComp?.gridCompNum : null);
+  if (targetCompNum) {
+    const byNum = compPhotos.find(cp => cp && (cp.comp_number === targetCompNum || cp.comp_num === targetCompNum));
+    if (byNum) {
+      // Validate photo address does not conflict with pinStreet house number
+      if (pinNum) {
+        const cpAddrNorm = norm(byNum.address || '');
+        const cpNumMatch = cpAddrNorm.match(/^([0-9]{1,6})/);
+        if (!cpNumMatch || cpNumMatch[1] === pinNum) {
+          return byNum;
+        }
+      } else {
+        return byNum;
+      }
+    }
+  }
+
+  // 4. Match by Proximity / Distance (e.g. 2.79 miles or 0.29 miles)
   const distMatch = (compInfo?.proximity || compInfo?.miles || '').match(/([0-9]+\.[0-9]+)/);
   if (distMatch) {
     const dVal = distMatch[1];
-    const byDist = compPhotos.find(cp => (cp.proximity || '').includes(dVal));
+    const byDist = compPhotos.find(cp => cp && (cp.proximity || '').includes(dVal));
     if (byDist) return byDist;
   }
 
@@ -433,7 +469,7 @@ const getComparablePhotoData = (compInfo, compIndex, scanResult, allData, data) 
 
 const getSubjectPhotoData = (allData, data) => {
   const allPhotos = allData?.EXTRACTED_PHOTOS || data?.EXTRACTED_PHOTOS || allData?.extracted_photos || data?.extracted_photos || [];
-  return allPhotos.find(p => p.category === 'Subject' || /front/i.test(p.caption || '') || /front/i.test(p.title || '')) || null;
+  return allPhotos.find(p => p && (p.category === 'Subject' || /front/i.test(p.caption || '') || /front/i.test(p.title || ''))) || null;
 };
 
 const normalizeAddressForCompare = (str) => {
@@ -834,25 +870,23 @@ const evaluateRoomMatch = (sketchVal, impVal, gridVal, isBath = false, isGLA = f
 const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) => {
   const root = { ...(allData || {}), ...(data || {}) };
   const sGrid = root.SALES_GRID || root['Sales Grid'] || {};
+  const rGrid = root.RENTAL_GRID || root['Rental Grid'] || root.RENTALS || root['Rentals'] || {};
 
-  let explicitNum = null;
-  const mLabel = (compLabel || '').match(/#?(\d+)/);
-  if (mLabel && parseInt(mLabel[1], 10) <= 20) {
-    explicitNum = parseInt(mLabel[1], 10);
-  } else if (compIndex !== null && compIndex >= 0 && compIndex < 10) {
-    explicitNum = compIndex + 1;
-  }
+  const explicitNum = extractCompNumberFromLabel(compLabel);
+  const isRentalLabel = /rental/i.test(compLabel || '');
 
   const normMap = normalizeAddressForCompare(compStreet);
   const mMapNum = normMap.match(/^(\d+)/);
   const mapNum = mMapNum ? mMapNum[1] : '';
 
-  const extractFromCompObj = (obj) => {
+  const extractFromCompObj = (obj, isRental = false) => {
     if (!obj) return { address: '', proximity: '', sale_price: '', gla: '', bed_bath: '', site: '', quality_age: '' };
     if (typeof obj === 'string') return { address: obj, proximity: '', sale_price: '', gla: '', bed_bath: '', site: '', quality_age: '' };
     const addr = obj['Address'] || obj['Comparable Property Address'] || obj['Property Address'] || obj['Physical Address'] || '';
     const prox = obj['Proximity to Subject'] || obj['Proximity'] || '';
-    const sale_price = obj['Sale Price'] || obj['Sales Price'] || obj['Settlement Price'] || '';
+    const sale_price = isRental
+      ? (obj['Gross Monthly Rent'] || obj['Monthly Rent'] || obj['Rental Price'] || obj['Adjusted Monthly Rent'] || obj['Actual Rent'] || obj['Rent'] || obj['Sale Price'] || '')
+      : (obj['Sale Price'] || obj['Sales Price'] || obj['Settlement Price'] || '');
     const gla = obj['Gross Living Area'] || obj['GLA'] || '';
     const beds = obj['Total Bedrooms'] || obj['Bedrooms'] || '';
     const baths = obj['Total Bathrooms'] || obj['Bathrooms'] || '';
@@ -866,83 +900,96 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) 
     return { address: addr, proximity: prox, sale_price, gla, bed_bath, site, quality_age };
   };
 
-  // 1. Check Rental Grid if item is a Rental
-  const isRental = /rental/i.test(compLabel || '');
-  if (isRental) {
-    const rGrid = root.RENTAL_GRID || root['Rental Grid'] || root.RENTALS || root['Rentals'] || {};
-    for (let i = 1; i <= 9; i++) {
-      const candidateKeys = [
-        `RENTAL #${i}`,
-        `Rental #${i}`,
-        `RENTAL_${i}`,
-        `Rental ${i}`,
-        `RENTAL_COMPARABLE_${i}`
-      ];
-      for (const k of candidateKeys) {
-        const item = root[k] || rGrid[k];
-        if (item) {
-          const compData = extractFromCompObj(item);
-          if (compData.address) {
-            const cmpRes = compareAddresses(compStreet, compData.address);
-            if (cmpRes.status === 'match' || cmpRes.status === 'partial') {
-              return {
-                gridCompNum: i,
-                gridCompLabel: `Rental #${i}`,
-                ...compData,
-                matchStatus: cmpRes.status,
-                matchLabel: cmpRes.label
-              };
-            }
-          }
-        }
-      }
-    }
-    if (explicitNum) {
-      const candidateKeys = [
-        `RENTAL #${explicitNum}`,
-        `Rental #${explicitNum}`,
-        `RENTAL_${explicitNum}`,
-        `Rental ${explicitNum}`,
-        `RENTAL_COMPARABLE_${explicitNum}`
-      ];
-      for (const k of candidateKeys) {
-        const item = root[k] || rGrid[k];
-        if (item) {
-          const compData = extractFromCompObj(item);
-          if (compData.address) {
-            const cmpRes = compareAddresses(compStreet, compData.address);
-            return {
-              gridCompNum: explicitNum,
-              gridCompLabel: `Rental #${explicitNum}`,
-              ...compData,
-              matchStatus: cmpRes.status,
-              matchLabel: cmpRes.label
-            };
-          }
-        }
-      }
-    }
-  }
+  // Dynamically extract all sales comps from grid
+  const salesComps = [];
+  const allSalesKeys = new Set([...Object.keys(root || {}), ...Object.keys(sGrid || {})]);
+  const salesCompNums = new Set();
+  allSalesKeys.forEach(k => {
+    const m = k.match(/(?:COMPARABLE(?:\s+SALE)?|COMP)[_\s]+#?([0-9]+)/i);
+    if (m) salesCompNums.add(parseInt(m[1], 10));
+  });
+  const sortedSalesNums = Array.from(salesCompNums).sort((a, b) => a - b);
+  const salesNumsToCheck = sortedSalesNums.length > 0 ? sortedSalesNums : [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-  // 2. Lookup by explicit comp number first if present (e.g. Comp #1 -> Grid Comp #1, Comp #3 -> Grid Comp #3)
-  if (explicitNum && !isRental) {
+  for (const i of salesNumsToCheck) {
     const candidateKeys = [
-      `COMPARABLE SALE #${explicitNum}`,
-      `Comparable #${explicitNum}`,
-      `Comparable Sale ${explicitNum}`,
-      `COMP_${explicitNum}`,
-      `Comparable #${explicitNum} Address`
+      `COMPARABLE SALE #${i}`,
+      `Comparable #${i}`,
+      `Comparable Sale ${i}`,
+      `COMP_${i}`,
+      `Comparable #${i} Address`,
+      `COMP_SALE_${i}`
     ];
     for (const k of candidateKeys) {
       const item = root[k] || sGrid[k];
       if (item) {
         const compData = extractFromCompObj(item);
         if (compData.address) {
-          const cmpRes = compareAddresses(compStreet, compData.address);
+          salesComps.push({ num: i, label: `Comp #${i}`, ...compData });
+          break;
+        }
+      }
+    }
+  }
+
+  // Dynamically extract all rental comps from grid
+  const rentalComps = [];
+  const allRentalKeys = new Set([...Object.keys(root || {}), ...Object.keys(rGrid || {})]);
+  const rentalCompNums = new Set();
+  allRentalKeys.forEach(k => {
+    const m = k.match(/RENTAL(?:_COMPARABLE)?[_\s]+#?([0-9]+)/i);
+    if (m) rentalCompNums.add(parseInt(m[1], 10));
+  });
+  const sortedRentalNums = Array.from(rentalCompNums).sort((a, b) => a - b);
+  const rentalNumsToCheck = sortedRentalNums.length > 0 ? sortedRentalNums : [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+  for (const i of rentalNumsToCheck) {
+    const candidateKeys = [
+      `RENTAL #${i}`,
+      `Rental #${i}`,
+      `RENTAL_${i}`,
+      `Rental ${i}`,
+      `RENTAL_COMPARABLE_${i}`
+    ];
+    for (const k of candidateKeys) {
+      const item = root[k] || rGrid[k];
+      if (item) {
+        const compData = extractFromCompObj(item, true);
+        if (compData.address) {
+          rentalComps.push({ num: i, label: `Rental #${i}`, ...compData });
+          break;
+        }
+      }
+    }
+  }
+
+  // 1. High-confidence address match:
+  if (compStreet && compStreet !== '—' && compStreet !== '(Address pin)') {
+    if (isRentalLabel) {
+      // Strictly match only against Rental Comps
+      for (const rc of rentalComps) {
+        const cmpRes = compareAddresses(compStreet, rc.address);
+        if (cmpRes.status === 'match' || cmpRes.status === 'partial') {
           return {
-            gridCompNum: explicitNum,
-            gridCompLabel: `Comp #${explicitNum}`,
-            ...compData,
+            gridCompNum: rc.num,
+            gridCompLabel: rc.label,
+            ...rc,
+            isRental: true,
+            matchStatus: cmpRes.status,
+            matchLabel: cmpRes.label
+          };
+        }
+      }
+    } else {
+      // Strictly match only against Sales Comps
+      for (const sc of salesComps) {
+        const cmpRes = compareAddresses(compStreet, sc.address);
+        if (cmpRes.status === 'match' || cmpRes.status === 'partial') {
+          return {
+            gridCompNum: sc.num,
+            gridCompLabel: sc.label,
+            ...sc,
+            isRental: false,
             matchStatus: cmpRes.status,
             matchLabel: cmpRes.label
           };
@@ -951,34 +998,73 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) 
     }
   }
 
-  // 3. Otherwise search all Sales Grid comps (1..9) requiring house number match
-  if (mapNum && !isRental) {
-    for (let i = 1; i <= 9; i++) {
-      const candidateKeys = [
-        `COMPARABLE SALE #${i}`,
-        `Comparable #${i}`,
-        `Comparable Sale ${i}`,
-        `COMP_${i}`
-      ];
-      for (const k of candidateKeys) {
-        const item = root[k] || sGrid[k];
-        if (item) {
-          const compData = extractFromCompObj(item);
-          if (compData.address) {
-            const gridNorm = normalizeAddressForCompare(compData.address);
-            const mGridNum = gridNorm.match(/^(\d+)/);
-            const gridNum = mGridNum ? mGridNum[1] : '';
-            if (gridNum && gridNum === mapNum) {
-              const cmpRes = compareAddresses(compStreet, compData.address);
-              return {
-                gridCompNum: i,
-                gridCompLabel: `Comp #${i}`,
-                ...compData,
-                matchStatus: cmpRes.status,
-                matchLabel: cmpRes.label
-              };
-            }
-          }
+  // 2. Explicit comp or rental number from label
+  if (explicitNum) {
+    if (isRentalLabel) {
+      const matchedRental = rentalComps.find(r => r.num === explicitNum);
+      if (matchedRental) {
+        const cmpRes = compareAddresses(compStreet, matchedRental.address);
+        if (cmpRes.status !== 'mismatch' || !compStreet || compStreet === '—') {
+          return {
+            gridCompNum: explicitNum,
+            gridCompLabel: `Rental #${explicitNum}`,
+            ...matchedRental,
+            isRental: true,
+            matchStatus: cmpRes.status,
+            matchLabel: cmpRes.label
+          };
+        }
+      }
+    } else {
+      const matchedComp = salesComps.find(s => s.num === explicitNum);
+      if (matchedComp) {
+        const cmpRes = compareAddresses(compStreet, matchedComp.address);
+        if (cmpRes.status !== 'mismatch' || !compStreet || compStreet === '—') {
+          return {
+            gridCompNum: explicitNum,
+            gridCompLabel: `Comp #${explicitNum}`,
+            ...matchedComp,
+            isRental: false,
+            matchStatus: cmpRes.status,
+            matchLabel: cmpRes.label
+          };
+        }
+      }
+    }
+  }
+
+  // 3. Fallback: match by house number if available
+  if (mapNum) {
+    if (isRentalLabel) {
+      for (const rc of rentalComps) {
+        const gridNorm = normalizeAddressForCompare(rc.address);
+        const mGridNum = gridNorm.match(/^(\d+)/);
+        if (mGridNum && mGridNum[1] === mapNum) {
+          const cmpRes = compareAddresses(compStreet, rc.address);
+          return {
+            gridCompNum: rc.num,
+            gridCompLabel: rc.label,
+            ...rc,
+            isRental: true,
+            matchStatus: cmpRes.status,
+            matchLabel: cmpRes.label
+          };
+        }
+      }
+    } else {
+      for (const sc of salesComps) {
+        const gridNorm = normalizeAddressForCompare(sc.address);
+        const mGridNum = gridNorm.match(/^(\d+)/);
+        if (mGridNum && mGridNum[1] === mapNum) {
+          const cmpRes = compareAddresses(compStreet, sc.address);
+          return {
+            gridCompNum: sc.num,
+            gridCompLabel: sc.label,
+            ...sc,
+            isRental: false,
+            matchStatus: cmpRes.status,
+            matchLabel: cmpRes.label
+          };
         }
       }
     }
@@ -994,8 +1080,221 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) 
     bed_bath: '—',
     site: '—',
     quality_age: '—',
+    isRental: isRentalLabel,
     matchStatus: 'missing',
     matchLabel: 'Not in Grid'
+  };
+};
+
+const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, allData, forceRental = false) => {
+  const root = { ...(allData || {}), ...(data || {}) };
+  const sGrid = root.SALES_GRID || root['Sales Grid'] || {};
+  const rGrid = root.RENTAL_GRID || root['Rental Grid'] || root.RENTALS || root['Rentals'] || {};
+
+  // Dynamically count max sales comps and rental comps available in grid
+  let maxSalesComps = 0;
+  const allSalesKeys = [...Object.keys(root || {}), ...Object.keys(sGrid || {})];
+  allSalesKeys.forEach(k => {
+    const m = k.match(/(?:COMPARABLE(?:\s+SALE)?|COMP)[_\s]+#?([0-9]+)/i);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > maxSalesComps) maxSalesComps = n;
+    }
+  });
+  if (maxSalesComps === 0) maxSalesComps = Infinity;
+
+  let maxRentalComps = 0;
+  const allRentalKeys = [...Object.keys(root || {}), ...Object.keys(rGrid || {})];
+  allRentalKeys.forEach(k => {
+    const m = k.match(/RENTAL(?:_COMPARABLE)?[_\s]+#?([0-9]+)/i);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > maxRentalComps) maxRentalComps = n;
+    }
+  });
+  if (maxRentalComps === 0) maxRentalComps = Infinity;
+
+  // 1. Resolve all pin metadata, photo match, and grid match
+  const allItems = (rawSourceList || []).map((comp, idx) => {
+    const pinInfo = cleanPinAddress(comp, mapItem?.subject, idx);
+    const isRental = forceRental || 
+                     pinInfo.item_type === 'Rental' || 
+                     /rental/i.test(pinInfo.label || '') || 
+                     /rental/i.test(mapItem?.map_type || '');
+
+    const compLabel = isRental
+      ? (pinInfo.label?.toLowerCase()?.includes('rental') ? pinInfo.label : `Rental ${pinInfo.label || `#${idx + 1}`}`)
+      : pinInfo.label;
+
+    const gridComp = getGridComparableData(idx, compLabel, pinInfo.street, data, allData);
+    const photoComp = getComparablePhotoData({ ...pinInfo, gridComp, isRental }, idx, scanResult, allData, data);
+
+    let num = null;
+    if (gridComp?.gridCompNum) {
+      num = gridComp.gridCompNum;
+    } else if (photoComp?.comp_num) {
+      num = photoComp.comp_num;
+    } else {
+      num = extractCompNumberFromLabel(pinInfo.label);
+    }
+
+    const mMiles = (pinInfo.miles || pinInfo.proximity || '').match(/([0-9]+(?:\.[0-9]+)?)/);
+    const milesVal = mMiles ? parseFloat(mMiles[1]) : 999.0;
+
+    const displayStreet = (pinInfo.street && pinInfo.street !== '(Address pin)')
+      ? pinInfo.street
+      : (photoComp?.address || gridComp?.address || (pinInfo.address !== '(Address pin)' ? pinInfo.address : '') || '—');
+
+    return {
+      pinInfo,
+      photoComp,
+      gridComp,
+      isRental,
+      num,
+      milesVal,
+      displayStreet
+    };
+  });
+
+  // Separate into groups
+  const listingsGroup = allItems.filter(it => it.pinInfo.item_type === 'Listing' || /listing/i.test(it.pinInfo.label || ''));
+  const rentalsGroup = allItems.filter(it => (it.isRental || it.pinInfo.item_type === 'Rental') && !listingsGroup.includes(it));
+  const compsGroup = allItems.filter(it => !it.isRental && it.pinInfo.item_type !== 'Rental' && !listingsGroup.includes(it));
+
+  // Process each group: deduplicate identical addresses, fill missing numbers, and sort strictly 1..N
+  const processGroup = (group, prefix, maxAllowedComps) => {
+    const deduped = [];
+    const seenGridNums = new Set();
+    const seenStreets = new Set();
+
+    // Prioritize high-quality matches first: items that match grid or photo by address
+    const sortedCandidates = [...group].sort((a, b) => {
+      const aScore = (a.gridComp?.matchStatus === 'match' ? 3 : (a.gridComp?.matchStatus === 'partial' ? 2 : 0)) +
+                     (a.photoComp ? 1 : 0);
+      const bScore = (b.gridComp?.matchStatus === 'match' ? 3 : (b.gridComp?.matchStatus === 'partial' ? 2 : 0)) +
+                     (b.photoComp ? 1 : 0);
+      return bScore - aScore;
+    });
+
+    for (const it of sortedCandidates) {
+      const sKey = (it.displayStreet || '').toLowerCase().replace(/[^\w]/g, '');
+      const rawSt = (it.displayStreet || '').trim();
+      const letterCount = (rawSt.match(/[a-zA-Z]/g) || []).length;
+      const isStandaloneHwy = !/\d/.test(rawSt) && /^(?:interstate|highway|hwy|fwy|freeway|expressway|turnpike|parkway|pkwy|beltway)\b/i.test(rawSt);
+      const isNoise = (letterCount < 3 || isStandaloneHwy) && (!it.gridComp?.address || it.gridComp.address === '—');
+      if (isNoise) continue;
+
+      // Check if this exact street has been processed
+      if (sKey && sKey !== '—' && seenStreets.has(sKey)) {
+        continue;
+      }
+
+      // Check street tokens base: e.g. "6 Newport Ave" vs "8996 Newport Ave"
+      // If a full 4-digit address on Newport Ave was already seen or exists in grid/rentals, drop the clipped fragment
+      const stNorm = normalizeAddressForCompare(it.displayStreet);
+      const mNum = stNorm.match(/^(\d+)\s+(.*)/);
+      if (mNum) {
+        const houseNum = mNum[1];
+        const streetBase = mNum[2].replace(/\b(?:st|ave|dr|ln|rd|ct|blvd|cir|pl|way)\b/g, '').trim();
+        if (houseNum.length <= 2 && streetBase.length >= 4) {
+          const alreadyHasFull = deduped.some(d => {
+            const dNorm = normalizeAddressForCompare(d.displayStreet);
+            const dM = dNorm.match(/^(\d+)\s+(.*)/);
+            if (dM && dM[1].length > houseNum.length && dM[2].includes(streetBase)) {
+              return true;
+            }
+            return false;
+          });
+          if (alreadyHasFull) continue;
+        }
+      }
+
+      // Check if grid comp number is already claimed by a verified comp
+      if (it.gridComp?.gridCompNum) {
+        if (seenGridNums.has(it.gridComp.gridCompNum)) {
+          it.gridComp = {
+            gridCompNum: null,
+            gridCompLabel: '—',
+            address: '—',
+            proximity: '—',
+            sale_price: '—',
+            gla: '—',
+            bed_bath: '—',
+            site: '—',
+            quality_age: '—',
+            isRental: Boolean(it.isRental),
+            matchStatus: 'missing',
+            matchLabel: 'Not in Grid'
+          };
+          it.num = null;
+        } else if (it.gridComp.matchStatus === 'match' || it.gridComp.matchStatus === 'partial') {
+          seenGridNums.add(it.gridComp.gridCompNum);
+        }
+      }
+
+      if (sKey && sKey !== '—') seenStreets.add(sKey);
+      deduped.push(it);
+    }
+
+    // Sort by comp number if valid, then by miles
+    deduped.sort((a, b) => {
+      if (a.num !== null && b.num !== null) return a.num - b.num;
+      if (a.num !== null) return -1;
+      if (b.num !== null) return 1;
+      return a.milesVal - b.milesVal;
+    });
+
+    // Assign unique ascending numbers up to maxAllowedComps without creating phantoms
+    const usedNums = new Set();
+    deduped.forEach(it => {
+      if (it.num !== null && it.num <= maxAllowedComps && !usedNums.has(it.num)) {
+        usedNums.add(it.num);
+      } else {
+        it.num = null;
+      }
+    });
+
+    let nextNum = 1;
+    deduped.forEach(it => {
+      if (it.num === null) {
+        while (usedNums.has(nextNum) && nextNum <= maxAllowedComps) nextNum++;
+        if (nextNum <= maxAllowedComps) {
+          it.num = nextNum;
+          usedNums.add(nextNum);
+          it.badgeLabel = `${prefix} #${it.num}`;
+        } else {
+          it.badgeLabel = `${prefix} Pin`;
+        }
+      } else {
+        it.badgeLabel = `${prefix} #${it.num}`;
+      }
+    });
+
+    deduped.sort((a, b) => {
+      const aN = a.num !== null ? a.num : 999;
+      const bN = b.num !== null ? b.num : 999;
+      return aN - bN;
+    });
+
+    return deduped;
+  };
+
+  const finalComps = processGroup(compsGroup, 'Comp', maxSalesComps);
+  const finalRentals = processGroup(rentalsGroup, 'Rental', maxRentalComps);
+  const finalListings = processGroup(listingsGroup, 'Listing', Infinity);
+  
+  // Strictly isolate: Rentals tab gets only rentals, Sales tab gets only sales comps & listings
+  const sortedRows = forceRental ? finalRentals : [...finalComps, ...finalListings];
+
+  return {
+    allItems,
+    finalComps,
+    finalRentals,
+    finalListings,
+    sortedRows,
+    compsCount: finalComps.length,
+    rentalsCount: finalRentals.length,
+    listingsCount: finalListings.length
   };
 };
 
@@ -1221,11 +1520,12 @@ export const MapAndSketchExhibitsSection = ({
     }
   }, [effectiveFile, effectiveFilePath, scanResult, loading, handleScanExhibits]);
 
-  // Extracted Location / Comp Maps
+  // Extracted Location / Comp Maps (strictly non-rental)
   const locationMaps = useMemo(() => {
     if (!scanResult?.maps) return [];
     return scanResult.maps.filter(m =>
-      /location|comparable|sales\s*map/i.test(m.map_type || '')
+      /location|comparable|sales\s*map/i.test(m.map_type || '') &&
+      !/rental/i.test(m.map_type || '')
     );
   }, [scanResult]);
 
@@ -1235,11 +1535,12 @@ export const MapAndSketchExhibitsSection = ({
     return scanResult.maps.filter(m => /aerial|satellite/i.test(m.map_type || ''));
   }, [scanResult]);
 
-  // Extracted Rentals & Other Maps (Plat, Flood, Parcel)
+  // Extracted Rentals & Other Maps (strictly rentals, plat, flood, parcel)
   const rentalMaps = useMemo(() => {
     if (!scanResult?.maps) return [];
     return scanResult.maps.filter(m =>
-      /rental|plat|flood|parcel|hazard/i.test(m.map_type || '') ||
+      /rental/i.test(m.map_type || '') ||
+      /plat|flood|parcel|hazard/i.test(m.map_type || '') ||
       (!/location|comparable|sales\s*map/i.test(m.map_type || '') && !/aerial|satellite/i.test(m.map_type || ''))
     );
   }, [scanResult]);
@@ -1542,68 +1843,48 @@ export const MapAndSketchExhibitsSection = ({
       {activeTab === 0 && (
         <Stack spacing={2.5}>
           {locationMaps.length > 0 ? (
-            locationMaps.map((mapItem, mIdx) => (
-              <Grid container spacing={2.5} key={mIdx}>
-                {/* Left: Comparables & Subject Data Table */}
-                <Grid size={{ xs: 12, lg: 8 }}>
-                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1e293b' }}>
-                        {mapItem.map_type} (Page {mapItem.page_number})
-                      </Typography>
-                      {(() => {
-                        const rawItemsForCount = (mapItem.comparables && mapItem.rentals)
-                          ? [...mapItem.comparables.filter(c => c.item_type !== 'Rental'), ...(mapItem.rentals || [])]
-                          : (mapItem.comparables || []);
-                        const seenC = new Set();
-                        const compsCount = rawItemsForCount.filter(c => {
-                          if (c.item_type === 'Rental' || c.item_type === 'Listing') return false;
-                          const k = (c.street || c.address || '').toLowerCase().replace(/[^\w]/g, '');
-                          if (k && seenC.has(k)) return false;
-                          if (k) seenC.add(k);
-                          return true;
-                        }).length;
-                        const seenR = new Set();
-                        const rentalsCount = rawItemsForCount.filter(c => {
-                          if (c.item_type !== 'Rental') return false;
-                          const k = (c.street || c.address || '').toLowerCase().replace(/[^\w]/g, '');
-                          if (k && seenR.has(k)) return false;
-                          if (k) seenR.add(k);
-                          return true;
-                        }).length;
-                        const seenL = new Set();
-                        const listingsCount = rawItemsForCount.filter(c => {
-                          if (c.item_type !== 'Listing') return false;
-                          const k = (c.street || c.address || '').toLowerCase().replace(/[^\w]/g, '');
-                          if (k && seenL.has(k)) return false;
-                          if (k) seenL.add(k);
-                          return true;
-                        }).length;
-                        const parts = [];
-                        if (compsCount > 0) parts.push(`${compsCount} Comparables`);
-                        if (rentalsCount > 0) parts.push(`${rentalsCount} Rentals`);
-                        if (listingsCount > 0) parts.push(`${listingsCount} Listings`);
-                        const chipText = parts.length > 0 ? `${parts.join(', ')} Detected` : 'No Callouts Detected';
-                        return (
-                          <Chip
-                            label={chipText}
-                            size="small"
-                            color="primary"
-                            variant="outlined"
-                            sx={{ fontWeight: 600 }}
-                          />
-                        );
-                      })()}
-                    </Stack>
+            locationMaps.map((mapItem, mIdx) => {
+              const rawSourceList = (mapItem.comparables_only && mapItem.comparables_only.length > 0)
+                ? mapItem.comparables_only
+                : (mapItem.comparables || []).filter(c => c.item_type !== 'Rental');
+
+              const {
+                sortedRows,
+                compsCount,
+                listingsCount
+              } = buildProcessedExhibitsRows(rawSourceList, mapItem, scanResult, data, allData, false);
+
+              const parts = [];
+              if (compsCount > 0) parts.push(`${compsCount} Sales Comparables`);
+              if (listingsCount > 0) parts.push(`${listingsCount} Listings`);
+              const chipText = parts.length > 0 ? `${parts.join(', ')} Detected` : 'No Sales Callouts Detected';
+
+              return (
+                <Grid container spacing={2.5} key={mIdx}>
+                  {/* Left: Comparables & Subject Data Table */}
+                  <Grid size={{ xs: 12, lg: 8 }}>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                          {mapItem.map_type} (Page {mapItem.page_number})
+                        </Typography>
+                        <Chip
+                          label={chipText}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                          sx={{ fontWeight: 600 }}
+                        />
+                      </Stack>
 
                     <TableContainer>
                       <Table size="small">
                         <TableHead sx={{ bgcolor: '#f8fafc' }}>
                           <TableRow>
                             <TableCell sx={{ fontWeight: 700, width: '10%' }}>Item</TableCell>
-                            <TableCell sx={{ fontWeight: 700, width: '22%' }}>Location Map Pin</TableCell>
-                            <TableCell sx={{ fontWeight: 700, width: '26%' }}>Photo Addendum Data</TableCell>
-                            <TableCell sx={{ fontWeight: 700, width: '20%' }}>Sales Grid Address</TableCell>
+                            <TableCell sx={{ fontWeight: 700, width: '22%', color: '#047857' }}>Sales Grid Address</TableCell>
+                            <TableCell sx={{ fontWeight: 700, width: '22%', color: '#0369a1' }}>Location Map Pin</TableCell>
+                            <TableCell sx={{ fontWeight: 700, width: '24%', color: '#4338ca' }}>Photo Addendum Data</TableCell>
                             <TableCell sx={{ fontWeight: 700, width: '11%' }}>Miles / Prox</TableCell>
                             <TableCell sx={{ fontWeight: 700, width: '11%' }}>Match Status</TableCell>
                           </TableRow>
@@ -1614,7 +1895,14 @@ export const MapAndSketchExhibitsSection = ({
                             const subInfo = cleanPinAddress(mapItem.subject);
                             const subGrid = getSubjectGridData(data, allData);
                             const subPhoto = getSubjectPhotoData(allData, data);
-                            const subMatch = compareAddresses(subInfo.street || subInfo.fullAddress, subGrid.fullAddress || subGrid.street);
+                            const subGridStreet = subGrid.fullAddress || subGrid.street || '';
+                            const subMapStreet = (subInfo.street && subInfo.street !== '(Address pin)') ? subInfo.street : (subInfo.fullAddress || '');
+                            const subPhotoStreet = subPhoto?.address || '';
+
+                            const gridMatchesMap = subGridStreet && subMapStreet ? compareAddresses(subGridStreet, subMapStreet).status === 'match' : false;
+                            const gridMatchesPhoto = subGridStreet && subPhotoStreet ? compareAddresses(subGridStreet, subPhotoStreet).status === 'match' : false;
+                            const mapMatchesPhoto = subMapStreet && subPhotoStreet ? compareAddresses(subMapStreet, subPhotoStreet).status === 'match' : false;
+                            const isThreeWayMatch = gridMatchesMap && (subPhotoStreet ? (gridMatchesPhoto || mapMatchesPhoto) : true);
                             const subSubjectAddress = subPhoto?.address || subGrid.street || subGrid.fullAddress || subInfo.street || subInfo.fullAddress || 'Subject Property';
 
                             return (
@@ -1623,6 +1911,14 @@ export const MapAndSketchExhibitsSection = ({
                                   <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 1, bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 700, fontSize: '0.75rem' }}>
                                     🔴 Subject
                                   </Box>
+                                </TableCell>
+                                <TableCell>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                                    {subGrid.fullAddress || subGrid.street || '—'}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: '#047857', fontWeight: 600 }}>
+                                    Form Subject / Sales Grid
+                                  </Typography>
                                 </TableCell>
                                 <TableCell>
                                   <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
@@ -1692,14 +1988,6 @@ export const MapAndSketchExhibitsSection = ({
                                   )}
                                 </TableCell>
                                 <TableCell>
-                                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
-                                    {subGrid.fullAddress || subGrid.street || '—'}
-                                  </Typography>
-                                  <Typography variant="caption" sx={{ color: '#0369a1', fontWeight: 600 }}>
-                                    Form Subject
-                                  </Typography>
-                                </TableCell>
-                                <TableCell>
                                   <Chip
                                     label={`${subInfo.miles} mi (Base)`}
                                     size="small"
@@ -1707,18 +1995,39 @@ export const MapAndSketchExhibitsSection = ({
                                   />
                                 </TableCell>
                                 <TableCell>
-                                  {subMatch.status === 'match' ? (
+                                  {isThreeWayMatch ? (
                                     <Chip
-                                      label="Match"
+                                      label="3-Way Match"
                                       size="small"
                                       icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
                                       sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
                                     />
+                                  ) : gridMatchesMap ? (
+                                    <Chip
+                                      label="Grid ↔ Map"
+                                      size="small"
+                                      icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
+                                      sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                    />
+                                  ) : gridMatchesPhoto ? (
+                                    <Chip
+                                      label="Grid ↔ Photo"
+                                      size="small"
+                                      icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#4338ca !important' }} />}
+                                      sx={{ bgcolor: '#e0e7ff', color: '#3730a3', fontWeight: 700, border: '1px solid #c7d2fe', fontSize: '0.72rem' }}
+                                    />
+                                  ) : mapMatchesPhoto ? (
+                                    <Chip
+                                      label="Map ↔ Photo"
+                                      size="small"
+                                      icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#0284c7 !important' }} />}
+                                      sx={{ bgcolor: '#e0f2fe', color: '#0369a1', fontWeight: 700, border: '1px solid #bae6fd', fontSize: '0.72rem' }}
+                                    />
                                   ) : (
                                     <Chip
-                                      label={subMatch.label}
+                                      label={subGridStreet && subMapStreet ? compareAddresses(subGridStreet, subMapStreet).label : 'Mismatch'}
                                       size="small"
-                                      sx={{ bgcolor: '#fef9c3', color: '#a16207', fontWeight: 700, border: '1px solid #fde047', fontSize: '0.72rem' }}
+                                      sx={{ bgcolor: '#fee2e2', color: '#b91c1c', fontWeight: 700, border: '1px solid #fecaca', fontSize: '0.72rem' }}
                                     />
                                   )}
                                 </TableCell>
@@ -1727,123 +2036,31 @@ export const MapAndSketchExhibitsSection = ({
                           })()}
 
                           {/* Comparables & Rentals Rows Sorted in Strict Ascending Order (1..N) */}
-                          {(() => {
-                            const rawSourceList = (mapItem.comparables && mapItem.rentals)
-                              ? [...mapItem.comparables.filter(c => c.item_type !== 'Rental'), ...(mapItem.rentals || [])]
-                              : (mapItem.comparables || []);
-
-                            // 1. Resolve all pin metadata, photo match, and grid match first
-                            const allItems = rawSourceList.map((comp, idx) => {
-                              const pinInfo = cleanPinAddress(comp, mapItem.subject, idx);
-                              const photoComp = getComparablePhotoData(pinInfo, idx, scanResult, allData, data);
-                              const gridComp = getGridComparableData(idx, pinInfo.label, pinInfo.street, data, allData);
-
-                              const isRental = pinInfo.item_type === 'Rental' || 
-                                               /rental/i.test(pinInfo.label || '') || 
-                                               /rental/i.test(gridComp?.gridCompLabel || '') || 
-                                               /rental/i.test(photoComp?.category || '');
-
-                              let num = null;
-                              if (gridComp?.gridCompNum) {
-                                num = gridComp.gridCompNum;
-                              } else if (photoComp?.comp_num) {
-                                num = photoComp.comp_num;
-                              } else {
-                                const m = (pinInfo.label || '').match(/#?(\d+)/);
-                                if (m) num = parseInt(m[1], 10);
-                              }
-
-                              const mMiles = (pinInfo.miles || pinInfo.proximity || '').match(/([0-9]+(?:\.[0-9]+)?)/);
-                              const milesVal = mMiles ? parseFloat(mMiles[1]) : 999.0;
-
-                              const displayStreet = (pinInfo.street && pinInfo.street !== '(Address pin)')
-                                ? pinInfo.street
-                                : (photoComp?.address || gridComp?.address || (pinInfo.address !== '(Address pin)' ? pinInfo.address : '') || '—');
-
-                              return {
-                                pinInfo,
-                                photoComp,
-                                gridComp,
-                                isRental,
-                                num,
-                                milesVal,
-                                displayStreet
+                          {sortedRows.map((rowItem, rIdx) => {
+                            const { pinInfo, photoComp, gridComp, isRental, displayStreet, badgeLabel } = rowItem;
+                              const isListing = pinInfo?.item_type === 'Listing' || /listing/i.test(pinInfo?.label || '');
+                              const compInfo = pinInfo || {};
+                              const safeGridComp = gridComp || {
+                                gridCompNum: null,
+                                gridCompLabel: '—',
+                                address: '—',
+                                proximity: '—',
+                                sale_price: '—',
+                                gla: '—',
+                                bed_bath: '—',
+                                site: '—',
+                                quality_age: '—',
+                                isRental: Boolean(isRental),
+                                matchStatus: 'missing',
+                                matchLabel: 'Not in Grid'
                               };
-                            });
-
-                            // 2. Separate into Comparables, Rentals, and Active Listings
-                            const listingsGroup = allItems.filter(it => it.pinInfo.item_type === 'Listing' || /listing/i.test(it.pinInfo.label || ''));
-                            const rentalsGroup = allItems.filter(it => (it.isRental || it.pinInfo.item_type === 'Rental') && !listingsGroup.includes(it));
-                            const compsGroup = allItems.filter(it => !it.isRental && it.pinInfo.item_type !== 'Rental' && !listingsGroup.includes(it));
-
-                            // 3. Process each group: deduplicate identical addresses, fill missing numbers, and sort strictly 1..N
-                            const processGroup = (group, prefix) => {
-                              const seenStreets = new Set();
-                              const deduped = [];
-                              for (const it of group) {
-                                const sKey = (it.displayStreet || '').toLowerCase().replace(/[^\w]/g, '');
-                                if (sKey && sKey !== '—' && seenStreets.has(sKey)) {
-                                  continue;
-                                }
-                                // Filter out stray background road noise or empty fragments with no grid or photo match
-                                const isNoise = /^(?:conduit|belt\s*pkwy|expressway|interstate|highway|shore\s*pkwy|1\s*peny\s*1|2\s*sprft|92028\s*ccyle)$/i.test(it.displayStreet || '');
-                                if (isNoise) continue;
-                                if ((it.displayStreet || '').trim().length < 3 && (!it.gridComp?.address || it.gridComp.address === '—')) {
-                                  continue;
-                                }
-                                if (sKey && sKey !== '—') seenStreets.add(sKey);
-                                deduped.push(it);
-                              }
-
-                              // Initial sort by existing number if known, then by distance
-                              deduped.sort((a, b) => {
-                                if (a.num !== null && b.num !== null) return a.num - b.num;
-                                if (a.num !== null) return -1;
-                                if (b.num !== null) return 1;
-                                return a.milesVal - b.milesVal;
-                              });
-
-                              // Ensure unique, strictly sequential ascending numbering (1..N) without duplicates
-                              const usedNums = new Set();
-                              deduped.forEach(it => {
-                                if (it.num !== null && !usedNums.has(it.num)) {
-                                  usedNums.add(it.num);
-                                } else {
-                                  it.num = null;
-                                }
-                              });
-
-                              let nextNum = 1;
-                              deduped.forEach(it => {
-                                if (it.num === null) {
-                                  while (usedNums.has(nextNum)) nextNum++;
-                                  it.num = nextNum;
-                                  usedNums.add(nextNum);
-                                }
-                                it.badgeLabel = `${prefix} #${it.num}`;
-                              });
-
-                              // Strict ascending numerical sort
-                              deduped.sort((a, b) => a.num - b.num);
-                              return deduped;
-                            };
-
-                            const finalComps = processGroup(compsGroup, 'Comp');
-                            const finalRentals = processGroup(rentalsGroup, 'Rental');
-                            const finalListings = processGroup(listingsGroup, 'Listing');
-                            const sortedRows = [...finalComps, ...finalRentals, ...finalListings];
-
-                            return sortedRows.map((rowItem, rIdx) => {
-                              const { pinInfo, photoComp, gridComp, isRental, displayStreet, badgeLabel } = rowItem;
-                              const isListing = pinInfo.item_type === 'Listing' || /listing/i.test(pinInfo.label || '');
-                              const compInfo = pinInfo;
 
                               const mapStreet = (compInfo.street && compInfo.street !== '(Address pin)') ? compInfo.street : (compInfo.address !== '(Address pin)' ? compInfo.address : '');
                               const photoStreet = photoComp?.address || '';
-                              const gridStreet = gridComp?.address || '';
+                              const gridStreet = safeGridComp.address || '';
 
                               const mapMatchesPhoto = photoStreet ? compareAddresses(mapStreet, photoStreet).status === 'match' : false;
-                              const mapMatchesGrid = gridComp?.matchStatus === 'match';
+                              const mapMatchesGrid = safeGridComp.matchStatus === 'match';
                               const photoMatchesGrid = (photoStreet && gridStreet && gridStreet !== '—') ? compareAddresses(photoStreet, gridStreet).status === 'match' : false;
 
                               return (
@@ -1864,6 +2081,16 @@ export const MapAndSketchExhibitsSection = ({
                                     }}>
                                       {isListing ? '📋' : (isRental ? '🟢' : '🔵')} {badgeLabel}
                                     </Box>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2" sx={{ fontWeight: 700, color: safeGridComp.address !== '—' ? '#0f172a' : '#94a3b8' }}>
+                                      {safeGridComp.address}
+                                    </Typography>
+                                    {safeGridComp.gridCompLabel !== '—' && (
+                                      <Typography variant="caption" sx={{ color: isRental ? '#166534' : '#047857', fontWeight: 600 }}>
+                                        {isRental ? `Rental Schedule ${safeGridComp.gridCompLabel}` : `Sales Grid ${safeGridComp.gridCompLabel}`} {safeGridComp.sale_price && safeGridComp.sale_price !== '—' ? `• $${safeGridComp.sale_price}` : ''}
+                                      </Typography>
+                                    )}
                                   </TableCell>
                                   <TableCell>
                                     <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
@@ -1925,7 +2152,7 @@ export const MapAndSketchExhibitsSection = ({
                                           >
                                             {photoComp.address || photoComp.title}
                                           </Typography>
-                                          <Typography variant="caption" sx={{ color: '#0369a1', fontWeight: 600, display: 'block' }}>
+                                          <Typography variant="caption" sx={{ color: '#4338ca', fontWeight: 600, display: 'block' }}>
                                             Page {photoComp.page} {photoComp.sale_price ? `• $${photoComp.sale_price}` : ''} {photoComp.gla ? `• ${photoComp.gla} sf` : ''} {photoComp.bedrooms ? `• ${photoComp.bedrooms}B/${photoComp.bathrooms || '1'}Ba` : ''}
                                           </Typography>
                                           {photoComp.proximity && (
@@ -1940,16 +2167,11 @@ export const MapAndSketchExhibitsSection = ({
                                     )}
                                   </TableCell>
                                   <TableCell>
-                                    <Typography variant="body2" sx={{ fontWeight: 700, color: gridComp.address !== '—' ? '#0f172a' : '#94a3b8' }}>
-                                      {gridComp.address}
-                                    </Typography>
-                                    {gridComp.gridCompLabel !== '—' && (
-                                      <Typography variant="caption" sx={{ color: '#0284c7', fontWeight: 600 }}>
-                                        Sales Grid {gridComp.gridCompLabel} {gridComp.sale_price && gridComp.sale_price !== '—' ? `• $${gridComp.sale_price}` : ''}
+                                    {safeGridComp.proximity && safeGridComp.proximity !== '—' && (
+                                      <Typography variant="caption" sx={{ color: '#047857', display: 'block', mb: 0.25, fontWeight: 600 }}>
+                                        Grid: {safeGridComp.proximity}
                                       </Typography>
                                     )}
-                                  </TableCell>
-                                  <TableCell>
                                     {compInfo.proximity ? (
                                       <Chip
                                         label={`Map: ${compInfo.proximity}`}
@@ -1964,19 +2186,28 @@ export const MapAndSketchExhibitsSection = ({
                                         Photo: {photoComp.proximity}
                                       </Typography>
                                     )}
-                                    {gridComp.proximity && gridComp.proximity !== '—' && (
-                                      <Typography variant="caption" sx={{ color: '#047857', display: 'block', mt: 0.25, fontWeight: 600 }}>
-                                        Grid: {gridComp.proximity}
-                                      </Typography>
-                                    )}
                                   </TableCell>
                                   <TableCell>
-                                    {mapMatchesPhoto && (mapMatchesGrid || photoMatchesGrid) ? (
+                                    {(mapMatchesPhoto && (mapMatchesGrid || photoMatchesGrid)) || (mapMatchesGrid && photoMatchesGrid) ? (
                                       <Chip
                                         label="3-Way Match"
                                         size="small"
                                         icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
                                         sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                      />
+                                    ) : mapMatchesGrid ? (
+                                      <Chip
+                                        label="Grid ↔ Map"
+                                        size="small"
+                                        icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
+                                        sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                      />
+                                    ) : photoMatchesGrid ? (
+                                      <Chip
+                                        label="Grid ↔ Photo"
+                                        size="small"
+                                        icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#4338ca !important' }} />}
+                                        sx={{ bgcolor: '#e0e7ff', color: '#3730a3', fontWeight: 700, border: '1px solid #c7d2fe', fontSize: '0.72rem' }}
                                       />
                                     ) : mapMatchesPhoto ? (
                                       <Chip
@@ -1985,20 +2216,13 @@ export const MapAndSketchExhibitsSection = ({
                                         icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#0284c7 !important' }} />}
                                         sx={{ bgcolor: '#e0f2fe', color: '#0369a1', fontWeight: 700, border: '1px solid #bae6fd', fontSize: '0.72rem' }}
                                       />
-                                    ) : mapMatchesGrid ? (
-                                      <Chip
-                                        label="Map ↔ Grid"
-                                        size="small"
-                                        icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
-                                        sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
-                                      />
-                                    ) : gridComp.matchStatus === 'partial' ? (
+                                    ) : safeGridComp.matchStatus === 'partial' ? (
                                       <Chip
                                         label="Near Match"
                                         size="small"
                                         sx={{ bgcolor: '#fef9c3', color: '#a16207', fontWeight: 700, border: '1px solid #fde047', fontSize: '0.72rem' }}
                                       />
-                                    ) : gridComp.matchStatus === 'mismatch' ? (
+                                    ) : safeGridComp.matchStatus === 'mismatch' ? (
                                       <Chip
                                         label="Mismatch"
                                         size="small"
@@ -2014,8 +2238,7 @@ export const MapAndSketchExhibitsSection = ({
                                   </TableCell>
                                 </TableRow>
                               );
-                            });
-                          })()}
+                            })}
                         </TableBody>
                       </Table>
                     </TableContainer>
@@ -2052,7 +2275,8 @@ export const MapAndSketchExhibitsSection = ({
                   </Card>
                 </Grid>
               </Grid>
-            ))
+            );
+          })
           ) : (
             extractingStage === 'location_map' ? (
               <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', bgcolor: '#f8fafc', borderRadius: 2 }}>
@@ -2660,7 +2884,12 @@ export const MapAndSketchExhibitsSection = ({
             rentalMaps.map((mapItem, rIdx) => {
               const rawSourceList = (mapItem.rentals && mapItem.rentals.length > 0)
                 ? mapItem.rentals
-                : (mapItem.comparables || []);
+                : (mapItem.comparables || []).filter(c => c.item_type === 'Rental' || /rental/i.test(mapItem.map_type || ''));
+
+              const {
+                sortedRows,
+                rentalsCount
+              } = buildProcessedExhibitsRows(rawSourceList, mapItem, scanResult, data, allData, true);
 
               return (
                 <Grid container spacing={2.5} key={rIdx}>
@@ -2671,24 +2900,13 @@ export const MapAndSketchExhibitsSection = ({
                         <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1e293b' }}>
                           {mapItem.map_type || 'Rentals Map'} (Page {mapItem.page_number})
                         </Typography>
-                        {(() => {
-                          const seenR = new Set();
-                          const rentalsCount = rawSourceList.filter(c => {
-                            const k = (c.street || c.address || '').toLowerCase().replace(/[^\w]/g, '');
-                            if (k && seenR.has(k)) return false;
-                            if (k) seenR.add(k);
-                            return true;
-                          }).length;
-                          return (
-                            <Chip
-                              label={rentalsCount > 0 ? `${rentalsCount} Rental Comparables Detected` : 'Exhibits Reference Map'}
-                              size="small"
-                              color="success"
-                              variant="outlined"
-                              sx={{ fontWeight: 600, color: '#16a34a', borderColor: '#bbf7d0', bgcolor: '#f0fdf4' }}
-                            />
-                          );
-                        })()}
+                        <Chip
+                          label={rentalsCount > 0 ? `${rentalsCount} Rental Comparables Detected` : 'Exhibits Reference Map'}
+                          size="small"
+                          color="success"
+                          variant="outlined"
+                          sx={{ fontWeight: 600, color: '#16a34a', borderColor: '#bbf7d0', bgcolor: '#f0fdf4' }}
+                        />
                       </Stack>
 
                       <TableContainer>
@@ -2696,9 +2914,9 @@ export const MapAndSketchExhibitsSection = ({
                           <TableHead sx={{ bgcolor: '#f8fafc' }}>
                             <TableRow>
                               <TableCell sx={{ fontWeight: 700, width: '10%' }}>Item</TableCell>
-                              <TableCell sx={{ fontWeight: 700, width: '22%' }}>Rentals Map Pin</TableCell>
-                              <TableCell sx={{ fontWeight: 700, width: '26%' }}>Photo Addendum Data</TableCell>
-                              <TableCell sx={{ fontWeight: 700, width: '20%' }}>Rental Schedule / Grid</TableCell>
+                              <TableCell sx={{ fontWeight: 700, width: '22%', color: '#047857' }}>Rental Schedule / Grid</TableCell>
+                              <TableCell sx={{ fontWeight: 700, width: '22%', color: '#0369a1' }}>Rentals Map Pin</TableCell>
+                              <TableCell sx={{ fontWeight: 700, width: '24%', color: '#4338ca' }}>Photo Addendum Data</TableCell>
                               <TableCell sx={{ fontWeight: 700, width: '11%' }}>Miles / Prox</TableCell>
                               <TableCell sx={{ fontWeight: 700, width: '11%' }}>Match Status</TableCell>
                             </TableRow>
@@ -2709,7 +2927,14 @@ export const MapAndSketchExhibitsSection = ({
                               const subInfo = cleanPinAddress(mapItem.subject);
                               const subGrid = getSubjectGridData(data, allData);
                               const subPhoto = getSubjectPhotoData(allData, data);
-                              const subMatch = compareAddresses(subInfo.street || subInfo.fullAddress, subGrid.fullAddress || subGrid.street);
+                              const subGridStreet = subGrid.fullAddress || subGrid.street || '';
+                              const subMapStreet = (subInfo.street && subInfo.street !== '(Address pin)') ? subInfo.street : (subInfo.fullAddress || '');
+                              const subPhotoStreet = subPhoto?.address || '';
+
+                              const gridMatchesMap = subGridStreet && subMapStreet ? compareAddresses(subGridStreet, subMapStreet).status === 'match' : false;
+                              const gridMatchesPhoto = subGridStreet && subPhotoStreet ? compareAddresses(subGridStreet, subPhotoStreet).status === 'match' : false;
+                              const mapMatchesPhoto = subMapStreet && subPhotoStreet ? compareAddresses(subMapStreet, subPhotoStreet).status === 'match' : false;
+                              const isThreeWayMatch = gridMatchesMap && (subPhotoStreet ? (gridMatchesPhoto || mapMatchesPhoto) : true);
                               const subSubjectAddress = subPhoto?.address || subGrid.street || subGrid.fullAddress || subInfo.street || subInfo.fullAddress || 'Subject Property';
 
                               return (
@@ -2718,6 +2943,14 @@ export const MapAndSketchExhibitsSection = ({
                                     <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 1, bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 700, fontSize: '0.75rem' }}>
                                       🔴 Subject
                                     </Box>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                                      {subGrid.fullAddress || subGrid.street || '—'}
+                                    </Typography>
+                                    <Typography variant="caption" sx={{ color: '#047857', fontWeight: 600 }}>
+                                      Form Subject / Rental Schedule
+                                    </Typography>
                                   </TableCell>
                                   <TableCell>
                                     <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
@@ -2787,14 +3020,6 @@ export const MapAndSketchExhibitsSection = ({
                                     )}
                                   </TableCell>
                                   <TableCell>
-                                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
-                                      {subGrid.fullAddress || subGrid.street || '—'}
-                                    </Typography>
-                                    <Typography variant="caption" sx={{ color: '#0369a1', fontWeight: 600 }}>
-                                      Form Subject
-                                    </Typography>
-                                  </TableCell>
-                                  <TableCell>
                                     <Chip
                                       label={`${subInfo.miles} mi (Base)`}
                                       size="small"
@@ -2802,18 +3027,39 @@ export const MapAndSketchExhibitsSection = ({
                                     />
                                   </TableCell>
                                   <TableCell>
-                                    {subMatch.status === 'match' ? (
+                                    {isThreeWayMatch ? (
                                       <Chip
-                                        label="Match"
+                                        label="3-Way Match"
                                         size="small"
                                         icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
                                         sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
                                       />
+                                    ) : gridMatchesMap ? (
+                                      <Chip
+                                        label="Grid ↔ Map"
+                                        size="small"
+                                        icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
+                                        sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                      />
+                                    ) : gridMatchesPhoto ? (
+                                      <Chip
+                                        label="Grid ↔ Photo"
+                                        size="small"
+                                        icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#4338ca !important' }} />}
+                                        sx={{ bgcolor: '#e0e7ff', color: '#3730a3', fontWeight: 700, border: '1px solid #c7d2fe', fontSize: '0.72rem' }}
+                                      />
+                                    ) : mapMatchesPhoto ? (
+                                      <Chip
+                                        label="Map ↔ Photo"
+                                        size="small"
+                                        icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#0284c7 !important' }} />}
+                                        sx={{ bgcolor: '#e0f2fe', color: '#0369a1', fontWeight: 700, border: '1px solid #bae6fd', fontSize: '0.72rem' }}
+                                      />
                                     ) : (
                                       <Chip
-                                        label={subMatch.label}
+                                        label={subGridStreet && subMapStreet ? compareAddresses(subGridStreet, subMapStreet).label : 'Mismatch'}
                                         size="small"
-                                        sx={{ bgcolor: '#fef9c3', color: '#a16207', fontWeight: 700, border: '1px solid #fde047', fontSize: '0.72rem' }}
+                                        sx={{ bgcolor: '#fee2e2', color: '#b91c1c', fontWeight: 700, border: '1px solid #fecaca', fontSize: '0.72rem' }}
                                       />
                                     )}
                                   </TableCell>
@@ -2822,95 +3068,30 @@ export const MapAndSketchExhibitsSection = ({
                             })()}
 
                             {/* Rental Comparables Rows Sorted in Strict Ascending Order (1..N) */}
-                            {(() => {
-                              const allItems = rawSourceList.map((comp, idx) => {
-                                const pinInfo = cleanPinAddress(comp, mapItem.subject, idx);
-                                const photoComp = getComparablePhotoData(pinInfo, idx, scanResult, allData, data);
-                                const gridComp = getGridComparableData(idx, pinInfo.label || `Rental #${idx + 1}`, pinInfo.street, data, allData);
-
-                                let num = null;
-                                if (gridComp?.gridCompNum) {
-                                  num = gridComp.gridCompNum;
-                                } else if (photoComp?.comp_num) {
-                                  num = photoComp.comp_num;
-                                } else {
-                                  const m = (pinInfo.label || '').match(/#?(\d+)/);
-                                  if (m) num = parseInt(m[1], 10);
-                                }
-
-                                const mMiles = (pinInfo.miles || pinInfo.proximity || '').match(/([0-9]+(?:\.[0-9]+)?)/);
-                                const milesVal = mMiles ? parseFloat(mMiles[1]) : 999.0;
-
-                                const displayStreet = (pinInfo.street && pinInfo.street !== '(Address pin)')
-                                  ? pinInfo.street
-                                  : (photoComp?.address || gridComp?.address || (pinInfo.address !== '(Address pin)' ? pinInfo.address : '') || '—');
-
-                                return {
-                                  pinInfo,
-                                  photoComp,
-                                  gridComp,
+                            {sortedRows.map((rowItem, rowIdx) => {
+                              const { pinInfo, photoComp, gridComp, displayStreet, badgeLabel } = rowItem;
+                                const compInfo = pinInfo || {};
+                                const safeGridComp = gridComp || {
+                                  gridCompNum: null,
+                                  gridCompLabel: '—',
+                                  address: '—',
+                                  proximity: '—',
+                                  sale_price: '—',
+                                  gla: '—',
+                                  bed_bath: '—',
+                                  site: '—',
+                                  quality_age: '—',
                                   isRental: true,
-                                  num,
-                                  milesVal,
-                                  displayStreet
+                                  matchStatus: 'missing',
+                                  matchLabel: 'Not in Grid'
                                 };
-                              });
-
-                              // Deduplicate identical addresses
-                              const seenStreets = new Set();
-                              const deduped = [];
-                              for (const it of allItems) {
-                                const sKey = (it.displayStreet || '').toLowerCase().replace(/[^\w]/g, '');
-                                if (sKey && sKey !== '—' && seenStreets.has(sKey)) {
-                                  continue;
-                                }
-                                if ((it.displayStreet || '').trim().length < 3 && (!it.gridComp?.address || it.gridComp.address === '—')) {
-                                  continue;
-                                }
-                                if (sKey && sKey !== '—') seenStreets.add(sKey);
-                                deduped.push(it);
-                              }
-
-                              // Initial sort
-                              deduped.sort((a, b) => {
-                                if (a.num !== null && b.num !== null) return a.num - b.num;
-                                if (a.num !== null) return -1;
-                                if (b.num !== null) return 1;
-                                return a.milesVal - b.milesVal;
-                              });
-
-                              // Ensure unique 1..N numbering
-                              const usedNums = new Set();
-                              deduped.forEach(it => {
-                                if (it.num !== null && !usedNums.has(it.num)) {
-                                  usedNums.add(it.num);
-                                } else {
-                                  it.num = null;
-                                }
-                              });
-
-                              let nextNum = 1;
-                              deduped.forEach(it => {
-                                if (it.num === null) {
-                                  while (usedNums.has(nextNum)) nextNum++;
-                                  it.num = nextNum;
-                                  usedNums.add(nextNum);
-                                }
-                                it.badgeLabel = `Rental #${it.num}`;
-                              });
-
-                              deduped.sort((a, b) => a.num - b.num);
-
-                              return deduped.map((rowItem, rowIdx) => {
-                                const { pinInfo, photoComp, gridComp, displayStreet, badgeLabel } = rowItem;
-                                const compInfo = pinInfo;
 
                                 const mapStreet = (compInfo.street && compInfo.street !== '(Address pin)') ? compInfo.street : (compInfo.address !== '(Address pin)' ? compInfo.address : '');
                                 const photoStreet = photoComp?.address || '';
-                                const gridStreet = gridComp?.address || '';
+                                const gridStreet = safeGridComp.address || '';
 
                                 const mapMatchesPhoto = photoStreet ? compareAddresses(mapStreet, photoStreet).status === 'match' : false;
-                                const mapMatchesGrid = gridComp?.matchStatus === 'match';
+                                const mapMatchesGrid = safeGridComp.matchStatus === 'match';
                                 const photoMatchesGrid = (photoStreet && gridStreet && gridStreet !== '—') ? compareAddresses(photoStreet, gridStreet).status === 'match' : false;
 
                                 return (
@@ -2931,6 +3112,16 @@ export const MapAndSketchExhibitsSection = ({
                                       }}>
                                         🟢 {badgeLabel}
                                       </Box>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Typography variant="body2" sx={{ fontWeight: 700, color: safeGridComp.address !== '—' ? '#0f172a' : '#94a3b8' }}>
+                                        {safeGridComp.address}
+                                      </Typography>
+                                      {safeGridComp.gridCompLabel !== '—' && (
+                                        <Typography variant="caption" sx={{ color: '#047857', fontWeight: 600 }}>
+                                          Rental Grid {safeGridComp.gridCompLabel} {safeGridComp.sale_price && safeGridComp.sale_price !== '—' ? `• $${safeGridComp.sale_price}` : ''}
+                                        </Typography>
+                                      )}
                                     </TableCell>
                                     <TableCell>
                                       <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
@@ -3007,16 +3198,11 @@ export const MapAndSketchExhibitsSection = ({
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      <Typography variant="body2" sx={{ fontWeight: 700, color: gridComp.address !== '—' ? '#0f172a' : '#94a3b8' }}>
-                                        {gridComp.address}
-                                      </Typography>
-                                      {gridComp.gridCompLabel !== '—' && (
-                                        <Typography variant="caption" sx={{ color: '#0284c7', fontWeight: 600 }}>
-                                          Rental Grid {gridComp.gridCompLabel} {gridComp.sale_price && gridComp.sale_price !== '—' ? `• $${gridComp.sale_price}` : ''}
+                                      {safeGridComp.proximity && safeGridComp.proximity !== '—' && (
+                                        <Typography variant="caption" sx={{ color: '#047857', display: 'block', mb: 0.25, fontWeight: 600 }}>
+                                          Grid: {safeGridComp.proximity}
                                         </Typography>
                                       )}
-                                    </TableCell>
-                                    <TableCell>
                                       {compInfo.proximity ? (
                                         <Chip
                                           label={`Map: ${compInfo.proximity}`}
@@ -3031,19 +3217,28 @@ export const MapAndSketchExhibitsSection = ({
                                           Photo: {photoComp.proximity}
                                         </Typography>
                                       )}
-                                      {gridComp.proximity && gridComp.proximity !== '—' && (
-                                        <Typography variant="caption" sx={{ color: '#047857', display: 'block', mt: 0.25, fontWeight: 600 }}>
-                                          Grid: {gridComp.proximity}
-                                        </Typography>
-                                      )}
                                     </TableCell>
                                     <TableCell>
-                                      {mapMatchesPhoto && (mapMatchesGrid || photoMatchesGrid) ? (
+                                      {(mapMatchesPhoto && (mapMatchesGrid || photoMatchesGrid)) || (mapMatchesGrid && photoMatchesGrid) ? (
                                         <Chip
                                           label="3-Way Match"
                                           size="small"
                                           icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
                                           sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                        />
+                                      ) : mapMatchesGrid ? (
+                                        <Chip
+                                          label="Grid ↔ Map"
+                                          size="small"
+                                          icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
+                                          sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                        />
+                                      ) : photoMatchesGrid ? (
+                                        <Chip
+                                          label="Grid ↔ Photo"
+                                          size="small"
+                                          icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#4338ca !important' }} />}
+                                          sx={{ bgcolor: '#e0e7ff', color: '#3730a3', fontWeight: 700, border: '1px solid #c7d2fe', fontSize: '0.72rem' }}
                                         />
                                       ) : mapMatchesPhoto ? (
                                         <Chip
@@ -3052,20 +3247,13 @@ export const MapAndSketchExhibitsSection = ({
                                           icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#0284c7 !important' }} />}
                                           sx={{ bgcolor: '#e0f2fe', color: '#0369a1', fontWeight: 700, border: '1px solid #bae6fd', fontSize: '0.72rem' }}
                                         />
-                                      ) : mapMatchesGrid ? (
-                                        <Chip
-                                          label="Map ↔ Grid"
-                                          size="small"
-                                          icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
-                                          sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
-                                        />
-                                      ) : gridComp.matchStatus === 'partial' ? (
+                                      ) : safeGridComp.matchStatus === 'partial' ? (
                                         <Chip
                                           label="Near Match"
                                           size="small"
                                           sx={{ bgcolor: '#fef9c3', color: '#a16207', fontWeight: 700, border: '1px solid #fde047', fontSize: '0.72rem' }}
                                         />
-                                      ) : gridComp.matchStatus === 'mismatch' ? (
+                                      ) : safeGridComp.matchStatus === 'mismatch' ? (
                                         <Chip
                                           label="Mismatch"
                                           size="small"
@@ -3081,8 +3269,7 @@ export const MapAndSketchExhibitsSection = ({
                                     </TableCell>
                                   </TableRow>
                                 );
-                              });
-                            })()}
+                              })}
                           </TableBody>
                         </Table>
                       </TableContainer>
@@ -3256,65 +3443,76 @@ export const MapAndSketchExhibitsSection = ({
 
             {/* Right: Cross-Reference Comparison Table */}
             <Grid size={{ xs: 12, sm: 7 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: '#1e293b' }}>
-                Cross-Reference Comparison (Map vs. Photo Addendum vs. Sales Grid)
-              </Typography>
-              <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-                <Table size="small">
-                  <TableHead sx={{ bgcolor: '#f8fafc' }}>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>Attribute</TableCell>
-                      <TableCell sx={{ fontWeight: 700, color: '#0369a1' }}>Location Map</TableCell>
-                      <TableCell sx={{ fontWeight: 700, color: '#4338ca' }}>Photo Addendum</TableCell>
-                      <TableCell sx={{ fontWeight: 700, color: '#047857' }}>Sales Grid</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Address</TableCell>
-                      <TableCell>{selectedCompPhotoModal?.compInfo?.street || '—'}</TableCell>
-                      <TableCell sx={{ fontWeight: 600, color: '#4338ca' }}>{selectedCompPhotoModal?.photoComp?.address || '—'}</TableCell>
-                      <TableCell>{selectedCompPhotoModal?.gridComp?.address || '—'}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Proximity</TableCell>
-                      <TableCell>{selectedCompPhotoModal?.compInfo?.proximity || selectedCompPhotoModal?.compInfo?.miles || '—'}</TableCell>
-                      <TableCell sx={{ fontWeight: 600, color: '#4338ca' }}>{selectedCompPhotoModal?.photoComp?.proximity || '—'}</TableCell>
-                      <TableCell>{selectedCompPhotoModal?.gridComp?.proximity || '—'}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Sale Price</TableCell>
-                      <TableCell>—</TableCell>
-                      <TableCell sx={{ fontWeight: 600, color: '#16a34a' }}>{selectedCompPhotoModal?.photoComp?.sale_price ? `$${selectedCompPhotoModal.photoComp.sale_price}` : '—'}</TableCell>
-                      <TableCell>{selectedCompPhotoModal?.gridComp?.sale_price && selectedCompPhotoModal?.gridComp?.sale_price !== '—' ? `$${selectedCompPhotoModal.gridComp.sale_price}` : (selectedCompPhotoModal?.gridComp?.sale_price || '—')}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Living Area (GLA)</TableCell>
-                      <TableCell>—</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>{selectedCompPhotoModal?.photoComp?.gla ? `${selectedCompPhotoModal.photoComp.gla} sf` : '—'}</TableCell>
-                      <TableCell>{selectedCompPhotoModal?.gridComp?.gla || '—'}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Bed / Bath Count</TableCell>
-                      <TableCell>—</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>{selectedCompPhotoModal?.photoComp?.bedrooms ? `${selectedCompPhotoModal.photoComp.bedrooms} Bed / ${selectedCompPhotoModal.photoComp.bathrooms || '1'} Bath` : '—'}</TableCell>
-                      <TableCell>{selectedCompPhotoModal?.gridComp?.bed_bath || '—'}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Site Area</TableCell>
-                      <TableCell>—</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>{selectedCompPhotoModal?.photoComp?.site || '—'}</TableCell>
-                      <TableCell>{selectedCompPhotoModal?.gridComp?.site || '—'}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Quality / Age</TableCell>
-                      <TableCell>—</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>{selectedCompPhotoModal?.photoComp?.quality || '—'} {selectedCompPhotoModal?.photoComp?.age ? `/ ${selectedCompPhotoModal.photoComp.age} yrs` : ''}</TableCell>
-                      <TableCell>{selectedCompPhotoModal?.gridComp?.quality_age || '—'}</TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              {(() => {
+                const isRental = Boolean(selectedCompPhotoModal?.photoComp?.rent_amount || selectedCompPhotoModal?.photoComp?.title?.toLowerCase()?.includes('rental') || selectedCompPhotoModal?.compInfo?.badgeLabel?.includes('Rental'));
+                return (
+                  <>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: '#1e293b' }}>
+                      Cross-Reference Comparison ({isRental ? 'Rental Grid vs. Rentals Map vs. Photo Addendum' : 'Sales Grid vs. Location Map vs. Photo Addendum'})
+                    </Typography>
+                    <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                      <Table size="small">
+                        <TableHead sx={{ bgcolor: '#f8fafc' }}>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>Attribute</TableCell>
+                            <TableCell sx={{ fontWeight: 700, color: '#047857' }}>{isRental ? 'Rental Schedule / Grid' : 'Sales Grid'}</TableCell>
+                            <TableCell sx={{ fontWeight: 700, color: '#0369a1' }}>{isRental ? 'Rentals Map Pin' : 'Location Map Pin'}</TableCell>
+                            <TableCell sx={{ fontWeight: 700, color: '#4338ca' }}>Photo Addendum Data</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 600 }}>Address</TableCell>
+                            <TableCell sx={{ fontWeight: 600, color: '#047857' }}>{selectedCompPhotoModal?.gridComp?.address || '—'}</TableCell>
+                            <TableCell>{selectedCompPhotoModal?.compInfo?.street || '—'}</TableCell>
+                            <TableCell sx={{ fontWeight: 600, color: '#4338ca' }}>{selectedCompPhotoModal?.photoComp?.address || '—'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 600 }}>Proximity</TableCell>
+                            <TableCell sx={{ fontWeight: 600, color: '#047857' }}>{selectedCompPhotoModal?.gridComp?.proximity || '—'}</TableCell>
+                            <TableCell>{selectedCompPhotoModal?.compInfo?.proximity || selectedCompPhotoModal?.compInfo?.miles || '—'}</TableCell>
+                            <TableCell sx={{ fontWeight: 600, color: '#4338ca' }}>{selectedCompPhotoModal?.photoComp?.proximity || '—'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 600 }}>{isRental ? 'Rent / Price' : 'Sale Price'}</TableCell>
+                            <TableCell sx={{ fontWeight: 600, color: '#047857' }}>{selectedCompPhotoModal?.gridComp?.sale_price && selectedCompPhotoModal?.gridComp?.sale_price !== '—' ? `$${selectedCompPhotoModal.gridComp.sale_price}${isRental ? '/mo' : ''}` : (selectedCompPhotoModal?.gridComp?.sale_price || '—')}</TableCell>
+                            <TableCell>{selectedCompPhotoModal?.compInfo?.price || '—'}</TableCell>
+                            <TableCell sx={{ fontWeight: 600, color: '#16a34a' }}>
+                              {selectedCompPhotoModal?.photoComp?.rent_amount
+                                ? `$${selectedCompPhotoModal.photoComp.rent_amount}/mo`
+                                : (selectedCompPhotoModal?.photoComp?.sale_price ? `$${selectedCompPhotoModal.photoComp.sale_price}${isRental ? '/mo' : ''}` : '—')}
+                            </TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 600 }}>Living Area (GLA)</TableCell>
+                            <TableCell sx={{ fontWeight: 600, color: '#047857' }}>{selectedCompPhotoModal?.gridComp?.gla || '—'}</TableCell>
+                            <TableCell>—</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>{selectedCompPhotoModal?.photoComp?.gla ? `${selectedCompPhotoModal.photoComp.gla} sf` : '—'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 600 }}>Bed / Bath Count</TableCell>
+                            <TableCell sx={{ fontWeight: 600, color: '#047857' }}>{selectedCompPhotoModal?.gridComp?.bed_bath || '—'}</TableCell>
+                            <TableCell>—</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>{selectedCompPhotoModal?.photoComp?.bedrooms ? `${selectedCompPhotoModal.photoComp.bedrooms} Bed / ${selectedCompPhotoModal.photoComp.bathrooms || '1'} Bath` : '—'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 600 }}>Site Area</TableCell>
+                            <TableCell sx={{ fontWeight: 600, color: '#047857' }}>{selectedCompPhotoModal?.gridComp?.site || '—'}</TableCell>
+                            <TableCell>—</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>{selectedCompPhotoModal?.photoComp?.site || '—'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 600 }}>Quality / Age</TableCell>
+                            <TableCell sx={{ fontWeight: 600, color: '#047857' }}>{selectedCompPhotoModal?.gridComp?.quality_age || '—'}</TableCell>
+                            <TableCell>—</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>{selectedCompPhotoModal?.photoComp?.quality || '—'} {selectedCompPhotoModal?.photoComp?.age ? `/ ${selectedCompPhotoModal.photoComp.age} yrs` : ''}</TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </>
+                );
+              })()}
             </Grid>
           </Grid>
         </DialogContent>

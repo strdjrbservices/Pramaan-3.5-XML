@@ -632,7 +632,7 @@ def _detect_form_1007_presence(file_path: str, rep: Optional[Dict[str, Any]] = N
                     rent_amt = (r.attrib.get("MonthlyRentAmount") or r.attrib.get("GrossMonthlyRentAmount") or "").strip()
                     if rent_amt and re.search(r"\d", rent_amt) and rent_amt not in ["0", "0.0", "0.00"]:
                         return True
-                    seq = str(r.attrib.get("PropertySequenceIdentifier", "")).strip()
+                    seq = (r.attrib.get("PropertySequenceIdentifier") or "").strip()
                     loc = r.find("LOCATION")
                     loc_has_addr = bool(loc is not None and (loc.attrib or list(loc) or (loc.text and loc.text.strip())))
                     if seq in ["1", "2", "3", "4"] and loc_has_addr:
@@ -900,7 +900,7 @@ def evaluate_confirmation_checklist_offline(old_path: str, new_path: str) -> Dic
         has_aerial = bool(re.search(r"aerial\s+map|aerial\s+view|satellite\s+map|aerial\s+photo", full_text))
         has_location = bool(re.search(r"location\s+map|subject\s+location\s+map|vicinity\s+map|plat\s+map|comparables\s+map", full_text))
         has_uad = bool(re.search(r"uniform\s+appraisal\s+dataset|uad\s+definitions|uad\s+dataset|uad\s+version", full_text))
-        has_1004mc = bool(re.search(r"1004mc|market\s+conditions\s+addendum", full_text))
+        has_1004mc = bool(re.search(r"1004mc|market\s+conditions\s+addendum", full_text, re.IGNORECASE))
 
         if not has_1004mc and "1004mc" in str(fields).lower():
             has_1004mc = True
@@ -2038,10 +2038,11 @@ def verify_revision_request_offline(
         # ---------------------------------------------------------------------
         elif any(k in item_lower for k in [
             "1007", "216", "1004mc", "rent schedule", "operating income", "market conditions addendum",
+            "uspap", "appraisal and report identification",
             "aerial map", "location map", "plat map", "boundary map", "flood map"
         ]):
             section = "Forms & Addenda"
-            form_match = re.search(r"\b(1007|216|1004mc|rent schedule|operating income|aerial map|location map|plat map|boundary map|flood map)\b", item_lower)
+            form_match = re.search(r"\b(1007|216|1004mc|rent schedule|operating income|market conditions addendum|uspap|appraisal and report identification|aerial map|location map|plat map|boundary map|flood map)\b", item_lower)
             form_name = form_match.group(1).upper() if form_match else "Form/Addendum"
 
             f_pages = _find_pages_for_keywords(new_pages, [form_name.lower(), "rent schedule", "operating income", "1004mc", "aerial map"], min_page=2)
@@ -2050,10 +2051,10 @@ def verify_revision_request_offline(
             form_present = False
             if form_name in ["1007", "RENT SCHEDULE"]:
                 form_present = _detect_form_1007_presence(new_path, new_rep)
-            elif form_name in ["216", "OPERATING INCOME"]:
-                form_present = _detect_form_216_presence(new_path, new_rep)
             elif form_name in ["1004MC", "MARKET CONDITIONS"]:
-                form_present = bool(re.search(r"1004mc|market\s+conditions\s+addendum", new_full_text)) or "1004mc" in str(new_fields).lower()
+                form_present = bool(re.search(r"1004mc|market\s+conditions\s+addendum", new_full_text, re.IGNORECASE)) or "1004mc" in str(new_fields).lower()
+            elif form_name in ["USPAP", "APPRAISAL AND REPORT IDENTIFICATION"]:
+                form_present = bool(re.search(r"uspap\s*(?:addendum|compliance|identification)?|appraisal\s+(?:and|&)\s+report\s+identification", new_full_text, re.IGNORECASE)) or "uspap" in str(new_fields).lower()
             elif "aerial" in form_name.lower():
                 form_present = bool(re.search(r"aerial\s+map|aerial\s+view|satellite\s+map", new_full_text))
             elif "location" in form_name.lower():

@@ -19,6 +19,15 @@ try:
 except ImportError:
     from api.xml_extractor import find_comparable_rent_schedule_pages, extract_rent_schedule_from_pdf_page
 
+try:
+    from api.eo_extractor import extract_eo_insurance_from_doc
+except ImportError:
+    try:
+        from .eo_extractor import extract_eo_insurance_from_doc  # type: ignore
+    except Exception:
+        def extract_eo_insurance_from_doc(doc: Any) -> Dict[str, str]:  # type: ignore
+            return {"E&O Insurance": "", "Policy Period From": "", "Policy Period To": ""}
+
 
 
 
@@ -395,6 +404,7 @@ def locate_appraisal_pages(doc):
         "form_p3": None,
         "comps_4_6": None,
         "1004mc": None,
+        "uspap_identification": None,
         "certifications": None
     }
 
@@ -437,6 +447,19 @@ def locate_appraisal_pages(doc):
             if page_map["1004mc"] is None and "table of contents" not in t_lower:
                 if "1004mc" in t_lower or "market conditions addendum" in t_lower or ("inventory analysis" in t_lower and ("prior 7-12" in t_lower or "prior 7–12" in t_lower or "absorption rate" in t_lower)):
                     page_map["1004mc"] = idx
+
+            # USPAP / Appraisal and Report Identification
+            if page_map.get("uspap_identification") is None and "table of contents" not in t_lower:
+                if (
+                    "appraisal and report identification" in t_lower
+                    or "appraisal & report identification" in t_lower
+                    or "comments on appraisal and report identification" in t_lower
+                    or "uspap addendum" in t_lower
+                    or "uspap compliance" in t_lower
+                    or "uspap identification" in t_lower
+                    or ("uspap" in t_lower and ("standards rule" in t_lower or "reporting option" in t_lower or "reasonable exposure time" in t_lower))
+                ):
+                    page_map["uspap_identification"] = idx
 
             # Certifications (Page 6 of 6 / Appraiser Certification)
             if page_map["certifications"] is None:
@@ -4065,6 +4088,18 @@ def extract_certification_section(pdf_path, full_doc_text=""):
         cert["Appraiser's Fee"] = fee_val
         cert["Appraiser Fee"] = fee_val
 
+    # Extract E&O Insurance details (Policy Number, Policy Period From, Policy Period To)
+    try:
+        eo_details = extract_eo_insurance_from_doc(doc)
+        if eo_details.get("E&O Insurance"):
+            cert["E&O Insurance"] = eo_details["E&O Insurance"]
+        if eo_details.get("Policy Period From"):
+            cert["Policy Period From"] = eo_details["Policy Period From"]
+        if eo_details.get("Policy Period To"):
+            cert["Policy Period To"] = eo_details["Policy Period To"]
+    except Exception as e:
+        print(f"[pdf_extractor_offline] E&O extraction notice: {e}")
+
     return cert
 
 
@@ -5788,6 +5823,7 @@ def detect_form_pages(doc) -> Dict[str, Any]:
         "comps_4_6": None,
         "extra_comp_pages": [],
         "market_conditions": None,
+        "uspap_identification": None,
         "rent_schedule_pages": []
     }
     if not doc:
@@ -5835,8 +5871,23 @@ def detect_form_pages(doc) -> Dict[str, Any]:
         # Market Conditions Addendum (Form 1004MC)
         if indices["market_conditions"] is None and (
             "MARKET CONDITIONS ADDENDUM" in txt or "FORM 1004MC" in txt
+            or ("INVENTORY ANALYSIS" in txt and ("PRIOR 7-12" in txt or "ABSORPTION RATE" in txt))
         ):
             indices["market_conditions"] = idx
+            continue
+
+        # USPAP / Appraisal and Report Identification page
+        is_cert_page = ("APPRAISER'S CERTIFICATION" in txt or "SUPERVISORY APPRAISER" in txt) and ("PAGE 5 OF 6" in txt or "PAGE 6 OF 6" in txt or "PAGE 4 OF 4" in txt or "PAGE 5 OF 5" in txt)
+        if not is_cert_page and indices["uspap_identification"] is None and (
+            "APPRAISAL AND REPORT IDENTIFICATION" in txt
+            or "APPRAISAL & REPORT IDENTIFICATION" in txt
+            or "COMMENTS ON APPRAISAL AND REPORT IDENTIFICATION" in txt
+            or "USPAP ADDENDUM" in txt
+            or "USPAP COMPLIANCE" in txt
+            or "USPAP IDENTIFICATION" in txt
+            or ("USPAP" in txt and ("REPORTING OPTION" in txt or "STANDARDS RULE" in txt or "REASONABLE EXPOSURE TIME" in txt))
+        ):
+            indices["uspap_identification"] = idx
             continue
 
     # Additional Comparables Addenda (Pages with Comps 4-6, 7-9, 10-12, etc.)
@@ -6140,7 +6191,8 @@ def extract_fields_from_pdf_offline(pdf_path):
 
             # 1004MC Presence Detection in PDF
             mc_idx = page_indices.get("market_conditions") if "page_indices" in locals() and isinstance(page_indices, dict) else None
-            has_1004mc_pdf = (mc_idx is not None) or bool(data.get("MARKET_CONDITIONS"))
+            has_mc_keywords = bool(re.search(r"1004mc|market\s+conditions\s+addendum", full_doc_text, re.IGNORECASE))
+            has_1004mc_pdf = (mc_idx is not None) or bool(data.get("MARKET_CONDITIONS")) or has_mc_keywords
             mc_present_pdf = f"Present (Page {mc_idx + 1})" if mc_idx is not None else ("Present" if has_1004mc_pdf else "Not Present")
             data["1004MC Addendum"] = mc_present_pdf
             data["1004MC Present"] = "Yes" if has_1004mc_pdf else "No"
@@ -6149,6 +6201,31 @@ def extract_fields_from_pdf_offline(pdf_path):
                 data["SUBJECT"]["1004MC Addendum"] = mc_present_pdf
                 data["SUBJECT"]["1004MC Present"] = "Yes" if has_1004mc_pdf else "No"
                 data["SUBJECT"]["has_1004mc"] = has_1004mc_pdf
+            if "Subject" in data and isinstance(data["Subject"], dict):
+                data["Subject"]["1004MC Addendum"] = mc_present_pdf
+                data["Subject"]["1004MC Present"] = "Yes" if has_1004mc_pdf else "No"
+                data["Subject"]["has_1004mc"] = has_1004mc_pdf
+
+            # USPAP / Appraisal and Report Identification Presence Detection in PDF
+            uspap_idx = page_indices.get("uspap_identification") if "page_indices" in locals() and isinstance(page_indices, dict) else None
+            has_uspap_keywords = bool(re.search(r"uspap\s*(?:addendum|compliance|identification)?|appraisal\s+(?:and|&)\s+report\s+identification", full_doc_text, re.IGNORECASE))
+            has_uspap_pdf = (uspap_idx is not None) or has_uspap_keywords
+            uspap_present_pdf = f"Present (Page {uspap_idx + 1})" if uspap_idx is not None else ("Present" if has_uspap_pdf else "Not Present")
+            data["USPAP / Appraisal and Report Identification"] = uspap_present_pdf
+            data["Appraisal and Report Identification"] = uspap_present_pdf
+            data["USPAP Addendum"] = uspap_present_pdf
+            data["USPAP Present"] = "Yes" if has_uspap_pdf else "No"
+            data["has_uspap_identification"] = has_uspap_pdf
+            if "SUBJECT" in data and isinstance(data["SUBJECT"], dict):
+                data["SUBJECT"]["USPAP / Appraisal and Report Identification"] = uspap_present_pdf
+                data["SUBJECT"]["Appraisal and Report Identification"] = uspap_present_pdf
+                data["SUBJECT"]["USPAP Addendum"] = uspap_present_pdf
+                data["SUBJECT"]["has_uspap_identification"] = has_uspap_pdf
+            if "Subject" in data and isinstance(data["Subject"], dict):
+                data["Subject"]["USPAP / Appraisal and Report Identification"] = uspap_present_pdf
+                data["Subject"]["Appraisal and Report Identification"] = uspap_present_pdf
+                data["Subject"]["USPAP Addendum"] = uspap_present_pdf
+                data["Subject"]["has_uspap_identification"] = has_uspap_pdf
 
             # Apply Master Sanitization & Clean-up FIRST so signed values and numbers are pristine
             clean_data = clean_appraisal_extracted_data(data)

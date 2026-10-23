@@ -145,6 +145,18 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
         ?? (allData?.has_1004mc ? "Present" : "");
       if (mcVal) return renderValue(mcVal);
     }
+    if (field === "USPAP / Appraisal and Report Identification" || field === "Appraisal and Report Identification" || field === "USPAP Addendum" || field === "USPAP") {
+      const uspapVal = data?.["USPAP / Appraisal and Report Identification"]
+        ?? data?.["Appraisal and Report Identification"]
+        ?? data?.["USPAP Addendum"]
+        ?? data?.SUBJECT?.["USPAP / Appraisal and Report Identification"]
+        ?? data?.SUBJECT?.["Appraisal and Report Identification"]
+        ?? allData?.["USPAP / Appraisal and Report Identification"]
+        ?? allData?.["Appraisal and Report Identification"]
+        ?? allData?.SUBJECT?.["USPAP / Appraisal and Report Identification"]
+        ?? (allData?.has_uspap_identification ? "Present" : "");
+      if (uspapVal) return renderValue(uspapVal);
+    }
     const val = data?.[field] 
       ?? data?.CONTRACT?.[field] 
       ?? data?.NEIGHBORHOOD?.[field] 

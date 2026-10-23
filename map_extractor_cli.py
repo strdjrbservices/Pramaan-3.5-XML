@@ -202,21 +202,16 @@ class MapExtractor:
         """Identifies pages containing Location, Aerial, Comparable Sales, or Rental Maps."""
         map_pages = []
         map_keywords = [
-            ("Location Map", [
-                r"\b(?:COMPARABLE\s+(?:SALES\s+)?)?LOCATION\s+MAP(?:\s+ADDENDUM)?\b",
-                r"\bCOMPARABLE\s+SALES\s+MAP\b",
-                r"\bSALES\s+COMPARABLES?\s+MAP\b",
-                r"\bCOMP\s+MAP\b",
-                r"\bLOCATION\s+MAP\b"
+            ("Rentals Map", [
+                r"\bRENTALS?\s+(?:LOCATION\s+)?MAP(?:\s+ADDENDUM)?\b",
+                r"\bCOMPARABLE\s+RENTALS?\s+(?:LOCATION\s+)?MAP(?:\s+ADDENDUM)?\b",
+                r"\bRENTALS?\s+MAP\b",
+                r"\bRENTAL\s+LOCATION\s+MAP\b"
             ]),
             ("Aerial Map", [
                 r"\bAERIAL\s+(?:MAP|VIEW|PHOTO)(?:\s+ADDENDUM)?\b",
                 r"\bSATELLITE\s+(?:MAP|VIEW|PHOTO)(?:\s+ADDENDUM)?\b",
                 r"\bAERIAL\s+LOCATION\s+MAP\b"
-            ]),
-            ("Rentals Map", [
-                r"\bRENTALS?\s+(?:LOCATION\s+)?MAP(?:\s+ADDENDUM)?\b",
-                r"\bCOMPARABLE\s+RENTALS?\s+MAP\b"
             ]),
             ("Plat Map", [
                 r"\bPLAT\s+MAP\b",
@@ -226,6 +221,13 @@ class MapExtractor:
             ("Flood Map", [
                 r"\bFLOOD\s+(?:HAZARD\s+)?(?:MAP|ADDENDUM)\b",
                 r"\bFEMA\s+FLOOD\s+MAP\b"
+            ]),
+            ("Location Map", [
+                r"\b(?:COMPARABLE\s+(?:SALES\s+)?)?LOCATION\s+MAP(?:\s+ADDENDUM)?\b",
+                r"\bCOMPARABLE\s+SALES\s+MAP\b",
+                r"\bSALES\s+COMPARABLES?\s+MAP\b",
+                r"\bCOMP\s+MAP\b",
+                r"\bLOCATION\s+MAP\b"
             ])
         ]
 
@@ -692,66 +694,14 @@ class MapExtractor:
         t = re.sub(r'\bListing_\b', 'Listing 1', t, flags=re.I)
         t = re.sub(r'\bRental_\b', 'Rental 1', t, flags=re.I)
         t = re.sub(r'\bComp_\b', 'Comp 1', t, flags=re.I)
-        # Specific OCR misreads across sample map exhibits
-        t = re.sub(r'\b(?:Tatke|T3tker|Tatker)\s+Ln\b', 'Tasker Ln', t, flags=re.I)
-        t = re.sub(r'\bFini\s+St\b', 'Flint St', t, flags=re.I)
-        t = re.sub(r'\bSerlira\s+Fi\b', 'Sterling Pl', t, flags=re.I)
-        t = re.sub(r'\bScund\s+R[0-9d#oO]+\b', 'Sound Rd', t, flags=re.I)
-        t = re.sub(r'\bSoune\s+Rd\b', 'Sound Rd', t, flags=re.I)
-        t = re.sub(r'\bKawa\s+(?:Bid|Brd|Blvd)\b', 'Kerwin Blvd', t, flags=re.I)
-        t = re.sub(r'\bBenra\s+R\b', 'Bennet Rd', t, flags=re.I)
-        t = re.sub(r'\bFton;\s*s:\b', 'Front St', t, flags=re.I)
-        t = re.sub(r'\bMain\s+E3view\s+Rd\b', 'Main Bayview Rd', t, flags=re.I)
-        t = re.sub(r'\bSquihc\b', 'Southold', t, flags=re.I)
-        t = re.sub(r'\b(?:Greenpoo|Giebnpon|Greanp01t|Greanpon|Greerooit|Gueercort|ereenper|ergenper)\b', 'Greenport', t, flags=re.I)
-        t = re.sub(r'\b(?:Cull\s+Pend|Qull\s+Fcnd|Qull\s+Fend)\b', 'Gull Pond', t, flags=re.I)
-        t = re.sub(r'\b2[28]0\s+Gull\s+Pond\b', '290 Gull Pond', t, flags=re.I)
-        t = re.sub(r'\b(?:DROOKLYN|BROOKIYN|BROOKLNN|BROOKLyn|BKOOKLYN|BROORIYN|BROCKILYN|BrOCKYN|KHLXJKIYN|Bruuklyn|broCKLYN|HFODKLYN|KKLJJKLYH|KKLJLIELTI|KKLJUJKLTM|KKLJLJKLYH|HRQOKIYN|brooKLTN|RRMOM\s*YM|EXUURLYN|RROOMYN|ROCKYN)\b', 'BROOKLYN', t)
-        t = re.sub(r'\b8OND\b', '82ND', t, flags=re.I)
-        t = re.sub(r'\b(?:I4J0ait\s*10mmMSiXLT|1445\s*(?:Eazt|0azt|Cas1|Lasi|Eag1|0arT|oarT|[A-Za-z0-9]+)\s*(?:10[0WwMmHh]+[A-Za-z]*\s*(?:STITET|STET|SIET|SIXET|STRLET|STREET|SIREET|SLT)|iooim|iodin|ooih|sir)[a-z]*)\b', '1445 EAST 100TH STREET', t, flags=re.I)
-        t = re.sub(r'\b(?:1445\s+Lasi\s+iodinsirtei|1445Cas1\s+iooimsirlli)\b', '1445 EAST 100TH STREET', t, flags=re.I)
-        t = re.sub(r'\b1725\s+Shor\b', '1725 Short 14th St N', t, flags=re.I)
-        t = re.sub(r'\b1301\s+27th\s+Ave\b', '1301 27th Ave N', t, flags=re.I)
+        # Generic distance and proximity cleanups
         t = re.sub(r'\b([0-9])mies\b', r'\1 miles', t, flags=re.I)
         t = re.sub(r'\b([0-9])([0-9]{2})\s*m[li]{2,}es?\b', r'\1.\2 miles', t, flags=re.I)
-        t = re.sub(r'\b([0-9]+)\s*m[4a]2:\s*Sw\b', r'\1 miles SW', t, flags=re.I)
-        t = re.sub(r'\b1aamles\b', '1.43 miles', t, flags=re.I)
-        t = re.sub(r'\b(?:WX10|DX10)\s+#?VEN[UV]E\s+J\b', '9816 AVENUE J', t, flags=re.I)
-        t = re.sub(r'\b(?:4411\s+#exyDy\s+XechVc|4411\s+#?exy[a-z0-9]*\s*[A-Za-z0-9]*|4u11\s*pcxy[a-z0-9]*|Cnmkirblc\s*%c1.*)\b', '9811 SEAVIEW AVENUE', t, flags=re.I)
-        t = re.sub(r'\b(?:4011\s+HHJL.*|WIdM\s*T\s*ae\s*nat|Enmp\s*4011.*)\b', '8801 SEAVIEW AVENUE', t, flags=re.I)
-        t = re.sub(r'\b(?:1110\s*Engl\s*14191\s*4IREET|Cunipwull\s*Cuk\s*\]\s*1110.*)\b', '1118 EAST 101ST STREET', t, flags=re.I)
-        t = re.sub(r'\b(?:1471E151\s*10QIH\s*SIREET|1433EAST\s*1qqiH\s*STRLET|11736\s*003\s*mdar\s*Gw\s*4)\b', '1438 EAST 100TH STREET 0.03 miles SW', t, flags=re.I)
-        t = re.sub(r'\b(?:1137\s*Fag\s*10sih\s*SIREET|1137Eag1\s*10S1hXIRFE)\b', '1137 EAST 105TH STREET', t, flags=re.I)
-        t = re.sub(r'\b(?:1177\s*FasT|1377\s*ExsT\s*#?JNd\s*STRFFT|1277\s*ExsT.*)\b', '1277 EAST 82ND STREET', t, flags=re.I)
-        t = re.sub(r'\b(?:9209\s+SEXVIEWN|92q9\s*SE[IMV]+VIEW?N?\s*\(?W?ENVE)\b', '9209 SEAVIEW AVENUE', t, flags=re.I)
-        t = re.sub(r'\b100\s+Cullp\b', '290 Gull Pond Ln', t, flags=re.I)
-        t = re.sub(r'\b3\s+Coiiniy\s+Por\b', '210 Bennet Rd', t, flags=re.I)
-        t = re.sub(r'\b512\s+SQU\b', '5125 Main Bayview Rd', t, flags=re.I)
-        t = re.sub(r'\b725Ta\s*ker\s+Ln\b', '725 Tasker Ln', t, flags=re.I)
-        t = re.sub(r'\bSielg\s+FI\b', 'Sterling Pl', t, flags=re.I)
-        t = re.sub(r'\bGreenpon\b', 'Greenport', t, flags=re.I)
-        t = re.sub(r'\bGeunpor\b', 'Greenport', t, flags=re.I)
-        t = re.sub(r'\b(?:Czore|Drant|CZOHE|Ozona)\s*(?:Fark|Park|Rak|Ran-)\b', 'Ozone Park', t, flags=re.I)
-        t = re.sub(r'\b9127\s+Gold\s+[Aa][a-z]*(?:\s+Fn)?\b', '9127 Gold Rd', t, flags=re.I)
-        t = re.sub(r'\b107-2[38]\s+10[68]th\s+St\b', '107-28 108th St', t, flags=re.I)
-        t = re.sub(r'\b(?:3\s+Aye\s+)?137[.-]34\s*94[a-z0-9]*\s*(?:St|31)\b', '137-34 94th St', t, flags=re.I)
-        t = re.sub(r'\b137\.3494m?\s*31\b', '137-34 94th St', t, flags=re.I)
-        t = re.sub(r'\b9515\s+P[4a]kin(?:\s+Ave)?\b', '9515 Pitkin Ave', t, flags=re.I)
-        t = re.sub(r'\b(?:84-09\s+)?(?:4\s+Ave|107th\s+Ave)\b', '84-09 107th Ave', t, flags=re.I)
-        t = re.sub(r',\s*VI\s+Siver.*', '', t, flags=re.I)
-        t = re.sub(r'\bVI\s+Siver\s+E\s+3\s+Ra\b', '', t, flags=re.I)
-        t = re.sub(r'\b010Mucz\s*Sw\b', '0.10 miles SW', t, flags=re.I)
-        t = re.sub(r'\b412\s*MewSh\b', '0.12 miles SW', t, flags=re.I)
-        t = re.sub(r'\b05\]\s*Ines\s*NW\b', '0.50 miles NW', t, flags=re.I)
-        t = re.sub(r'\bV66\s*MIN\s*NNv\b', '0.66 miles NW', t, flags=re.I)
-        t = re.sub(r'\b0djmiar\s*Gw\b', '0.03 miles SW', t, flags=re.I)
-        t = re.sub(r'\bpJp\s*Mkz\s*S\*x\b', '0.96 miles SW', t, flags=re.I)
-        t = re.sub(r'\b0S2Mioe\s*NI\b', '0.52 miles NW', t, flags=re.I)
-        t = re.sub(r'\bImilto\s*Ew\b', '0.43 miles SW', t, flags=re.I)
+        t = re.sub(r'\b([0-9]+(?:\.[0-9]+)?)\s*m[4a]2?:\s*([NSEWnsew]{1,2})\b', r'\1 miles \2', t, flags=re.I)
+        t = re.sub(r'\b([0-9]+(?:\.[0-9]+)?)\s*m[il|1]{2,}e?[sz]?\b', r'\1 miles', t, flags=re.I)
         t = re.sub(r'\b([A-Za-z]+)[;,.\s]+N[J\)\]\s]+([0-9]{5})\b', r'\1, NJ \2', t, flags=re.I)
         t = re.sub(r'\b([0-9]{1,6})\s+5\s+([A-Za-z]+)', r'\1 S \2', t)
-        t = re.sub(r'\bGriggs\s+l\b', 'Griggs Pl', t, flags=re.I)
-        t = re.sub(r'\bMain\s+SL\b', 'Main St', t, flags=re.I)
+        t = re.sub(r'\b([A-Za-z0-9]+)\s+SL\b', r'\1 St', t, flags=re.I)
         return t
 
     def parse_pin_text(self, lines: List[str], pin_color: str, subject_csz: Optional[Dict[str, str]] = None, map_type: str = "") -> List[Dict[str, Any]]:
@@ -785,13 +735,11 @@ class MapExtractor:
             ) or (pin_color == "white" and re.search(r'\bSUBJECT\b', combined, re.I))
 
             is_rental_map = bool(re.search(r'rental', map_type, re.I))
-            is_rental = (
-                (is_rental_map and not is_sub)
-                or bool(re.search(r'\b(?:RENTAL|RENT)\b', combined, re.I))
-                or (
-                    pin_color in ("green", "orange") and bool(re.search(r'\b(?:RENTAL|RENT)\b|[\$sS5]\d{1,3}(?:,\d{3})+|[0-9]+(?:\.[0-9]+)?\s*miles', combined, re.I))
-                )
-            )
+            if is_rental_map:
+                is_rental = not is_sub
+            else:
+                # On non-rental maps (Location Map / Sales Comps), only mark as Rental if explicitly designated Rental and not Sale
+                is_rental = bool(re.search(r'\b(?:RENTAL|RENTALS|RENT)\b', combined, re.I)) and not bool(re.search(r'\b(?:SALE|SALES)\b', combined, re.I))
             is_listing = bool(re.search(r'\bLISTING\b', combined, re.I)) or (
                 pin_color == "teal" and bool(re.search(r'\bLISTING\b|[\$sS5]\d{1,3}(?:,\d{3})+', combined, re.I))
             )
@@ -953,7 +901,7 @@ class MapExtractor:
                     cand = re.sub(r'^(?:[0-9]+\.)?\s+', '', cand).strip()
                     cand = re.sub(r'\s+[~_].*$', '', cand).strip()
                     cand_words = [w.lower() for w in re.findall(r'[A-Za-z]+', cand)]
-                    disallowed = {'miles', 'mile', 'milez', 'mles', 'miloc', 'milos', 'brighton'}
+                    disallowed = {'miles', 'mile', 'milez', 'mles', 'miloc', 'milos'}
                     if any(w in disallowed for w in cand_words):
                         cand = ""
                     if cand and len(cand.split()) >= 2 and re.match(r'^[1-9]', cand):
@@ -1145,17 +1093,19 @@ class MapExtractor:
 
                 for parsed in parsed_items:
                     raw_txt = parsed.get("raw_text", "")
-
-                    # Disqualify common background road/highway names from map tiles (e.g. Conduit Ave, 155th Ave, Belt Pkwy)
-                    road_noise = bool(re.search(r'\b(?:conduit|belt\s*pkwy|expressway|interstate|highway|shore\s*pkwy|basin\s*park|ecology\s*park|islamic\s*services|church\s*of\s*brooklyn|nyra\s*bets|st\.\s*helen)\b', raw_txt, re.I))
-                    if road_noise and not bool(re.search(r'\b(?:Subject|Comp|Comparable|Rental|Listing|Sale)\b|[\$sS5]\d{1,3}(?:,\d{3})+', raw_txt, re.I)):
-                        continue
-
-                    has_addr = bool(parsed.get("street") or parsed.get("address"))
                     is_sub = (parsed.get("item_type") == "Subject")
-                    has_dist = bool(parsed.get("distance") or parsed.get("proximity"))
-                    has_price = bool(parsed.get("price"))
-                    has_hdr = bool(re.search(r'\b(?:Subject|Comp|Comparable|Rental|Listing|Sale)\b', parsed.get("label", ""), re.I))
+                    has_addr = bool(parsed.get("street") or parsed.get("address"))
+                    has_dist = bool(parsed.get("distance") or parsed.get("proximity") or re.search(r'\b\d+(?:\.\d+)?\s*(?:mi|miles)\b', raw_txt, re.I))
+                    has_price = bool(parsed.get("price") or re.search(r'[\$sS5]\d{1,3}(?:,\d{3})+', raw_txt))
+                    has_hdr = bool(re.search(r'\b(?:Subject|Comp|Comparable|Rental|Listing|Sale)\b', parsed.get("label", "") or raw_txt, re.I))
+
+                    # Disqualify standalone background road/highway names from map tiles that have no street number or comp header
+                    st_val = (parsed.get("street") or "").strip()
+                    is_standalone_hwy = bool(not re.search(r'\d', st_val) and re.search(r'\b(?:interstate|highway|hwy|fwy|freeway|expressway|turnpike|parkway|pkwy|beltway)\b', st_val, re.I))
+                    letter_count = len(re.findall(r'[A-Za-z]', st_val))
+
+                    if not is_sub and (is_standalone_hwy or (st_val and letter_count < 3)) and not (has_hdr or has_price or has_dist):
+                        continue
 
                     if not is_sub and not has_addr:
                         continue
@@ -1720,9 +1670,9 @@ class MapExtractor:
         map_pages = []
         for mp in all_map_pages:
             m_type = mp.get("map_type", "")
-            is_loc = bool(re.search(r'location|comparable|sales\s*map', m_type, re.IGNORECASE))
+            is_rent = bool(re.search(r'rental', m_type, re.IGNORECASE))
             is_aer = bool(re.search(r'aerial|satellite', m_type, re.IGNORECASE))
-            is_rent = not is_loc and not is_aer
+            is_loc = bool(re.search(r'location|comparable|sales\s*map', m_type, re.IGNORECASE)) and not is_rent and not is_aer
 
             if is_loc and process_location:
                 map_pages.append(mp)
@@ -1742,6 +1692,8 @@ class MapExtractor:
         maps_data = []
         all_pins = []
         for mp in map_pages:
+            m_type = mp.get("map_type", "")
+            is_rent = bool(re.search(r'rental', m_type, re.IGNORECASE))
             pins = self.process_map_page(mp["page_obj"], mp["page_number"], mp["map_type"], file_path)
             all_pins.extend(pins)
 
@@ -1799,7 +1751,7 @@ class MapExtractor:
                 "page_number": mp["page_number"],
                 "map_type": mp["map_type"],
                 "subject": sub,
-                "comparables": comps,
+                "comparables": rentals_only if is_rent else comps_only,
                 "rentals": rentals_only,
                 "comparables_only": comps_only,
                 "listings": listings_only,

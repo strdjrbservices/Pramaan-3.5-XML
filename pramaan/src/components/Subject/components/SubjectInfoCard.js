@@ -22,13 +22,15 @@ export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, 
     } else if (field === "Appraiser's Fee" || field === "Appraiser Fee" || field === "Appraisal Fee") {
       candidateKeys.push("Appraiser's Fee", "Appraiser Fee", "Appraisal Fee", "Total Fee", "Fee");
     } else if (field === '1004MC Addendum' || field === '1004MC Present' || field === '1004MC') {
-      candidateKeys.push('1004MC Addendum', '1004MC Present', '1004MC');
+      candidateKeys.push('1004MC Addendum', '1004MC Present', '1004MC', '1004mc_presence', 'has_1004mc');
     } else if (field === 'ANSI' || field === 'ANSI Comment' || field === 'ANSI Standards') {
       candidateKeys.push('ANSI', 'ANSI Comment', 'ANSI Standards');
     } else if (field === 'Exposure Comment' || field === 'Exposure comment') {
       candidateKeys.push('Exposure Comment', 'Exposure comment', 'Reasonable Exposure Time', 'exposure_comment');
     } else if (field === 'Prior Service Comment' || field === 'Prior service comment' || field === 'Prior Service') {
       candidateKeys.push('Prior Service Comment', 'Prior service comment', 'Prior Service', 'prior_service_comment');
+    } else if (field === 'USPAP / Appraisal and Report Identification' || field === 'Appraisal and Report Identification' || field === 'USPAP Addendum' || field === 'USPAP') {
+      candidateKeys.push('USPAP / Appraisal and Report Identification', 'Appraisal and Report Identification', 'USPAP Addendum', 'USPAP', 'has_uspap_identification', 'uspap_identification_presence');
     }
 
     for (const k of candidateKeys) {

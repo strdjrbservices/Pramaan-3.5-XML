@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './Subject.css';
 import { GlobalStyles } from '@mui/system';
 import {
@@ -42,11 +42,12 @@ import {
   Search as SearchIcon,
   FilterList as FilterListIcon,
   Clear as ClearIcon,
-  Map as MapIcon
+  Map as MapIcon,
+  AccessTime as AccessTimeIcon
 } from '@mui/icons-material';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import VisibilityTwoToneIcon from '@mui/icons-material/VisibilityTwoTone';
-import { Button, Stack, IconButton, Tooltip, Paper, Box, Typography, LinearProgress, Alert, Snackbar, Fade, CircularProgress, useTheme, CssBaseline, Dialog, DialogTitle, DialogContent, DialogActions, Grid, Fab, Autocomplete, TextField, Select, MenuItem, FormControl, InputLabel, InputAdornment, Chip } from '@mui/material';
+import { Button, Stack, IconButton, Tooltip, Paper, Box, Typography, LinearProgress, Alert, Snackbar, Fade, CircularProgress, useTheme, CssBaseline, Dialog, DialogTitle, DialogContent, DialogActions, Grid, Fab, Autocomplete, TextField, Select, MenuItem, FormControl, InputLabel, InputAdornment, Chip, Popover, Divider } from '@mui/material';
 import jsPDF from 'jspdf';
 import GetAppIcon from '@mui/icons-material/GetApp';
 import autoTable from 'jspdf-autotable';
@@ -361,7 +362,7 @@ const detectFormTypeFromXmlString = (xmlString) => {
     if (combined.includes('216')) {
       return '216';
     }
-    if (combined.includes('1004MC')) {
+    if (combined.includes('1004MC') || combined.includes('MARKET CONDITIONS ADDENDUM')) {
       return '1004MC';
     }
     return '1004';
@@ -665,6 +666,29 @@ function Subject({ defaultFormType }) {
   const [promptAnalysisError, setPromptAnalysisError] = useState('');
   const [submittedPrompt, setSubmittedPrompt] = useState('');
   const [fileUploadTimer, setFileUploadTimer] = useState(0);
+  const [activeTimedFileName, setActiveTimedFileName] = useState('');
+  const [fileReviewHistory, setFileReviewHistory] = useState(() => {
+    try {
+      const stored = localStorage.getItem('reviewer_file_timers_history');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        delete parsed['Active Document'];
+        delete parsed[''];
+        return parsed;
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  });
+  const [timerHistoryAnchor, setTimerHistoryAnchor] = useState(null);
+
+  // Tab-isolated timer refs (strictly private to this browser tab to prevent multi-tab interference)
+  const tabStartTimeRef = useRef(null);
+  const tabElapsedBaseRef = useRef(0);
+  const tabPausedRef = useRef(false);
+  const activeTimedFileRef = useRef('');
+  const fileReviewHistoryRef = useRef({});
   const [stateReqLoading, setStateReqLoading] = useState(false);
   const [stateReqResponse, setStateReqResponse] = useState(null);
   const [stateReqError, setStateReqError] = useState('');
@@ -2273,36 +2297,164 @@ function Subject({ defaultFormType }) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  useEffect(() => {
-    return () => {
-      localStorage.removeItem('fileUploadStartTime');
-      clearInterval(fileUploadTimerRef.current);
-    };
-  }, []);
+  const formatTimeHHMMSS = (totalSeconds = 0) => {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    const hrs = Math.floor(s / 3600).toString().padStart(2, '0');
+    const mins = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
+    const secs = (s % 60).toString().padStart(2, '0');
+    return `${hrs}:${mins}:${secs}`;
+  };
 
+  const fileUploadTimerValRef = useRef(0);
   useEffect(() => {
-    const startTime = localStorage.getItem('fileUploadStartTime');
-    if (startTime) {
-      const elapsedSeconds = Math.floor((Date.now() - parseInt(startTime, 10)) / 1000);
-      setFileUploadTimer(elapsedSeconds);
-      setIsTimerRunning(true);
+    fileUploadTimerValRef.current = fileUploadTimer;
+  }, [fileUploadTimer]);
+
+  const getCleanFileHistory = () => {
+    try {
+      const stored = localStorage.getItem('reviewer_file_timers_history');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        delete parsed['Active Document'];
+        delete parsed[''];
+        return parsed;
+      }
+    } catch {
+      // ignore
     }
+    return {};
+  };
+
+  const saveFileHistoryEntry = useCallback((fName, elapsed, status) => {
+    if (!fName || fName === 'Active Document') return;
+    const currentHist = getCleanFileHistory();
+    const currentUser = username || localStorage.getItem('username') || 'Reviewer';
+    currentHist[fName] = {
+      fileName: fName,
+      user: currentUser,
+      elapsedSeconds: elapsed,
+      formattedTime: formatTimeHHMMSS(elapsed),
+      lastUpdated: Date.now(),
+      status
+    };
+    try {
+      localStorage.setItem('reviewer_file_timers_history', JSON.stringify(currentHist));
+    } catch (e) {
+      console.warn('LocalStorage error:', e);
+    }
+    fileReviewHistoryRef.current = currentHist;
+    setFileReviewHistory(currentHist);
+  }, [username]);
+
+  // Starts or switches timer for this specific browser tab, fully isolated from other tabs
+  const startFileUploadTimer = useCallback((newFileOrName) => {
+    const rawName = typeof newFileOrName === 'string'
+      ? newFileOrName
+      : (newFileOrName?.name || selectedFile?.name || xmlFile?.name || '');
+    const newName = (rawName || '').trim();
+    if (!newName || newName === 'Active Document') return;
+
+    const prevName = activeTimedFileRef.current;
+
+    // 1. If this tab was already actively reviewing a different file, finalize previous file
+    if (prevName && prevName !== newName && prevName !== 'Active Document') {
+      const prevElapsed = fileUploadTimerValRef.current || 0;
+      saveFileHistoryEntry(prevName, prevElapsed, 'Completed');
+    }
+
+    // 2. Start the timer for this tab's new file (isolated to this tab's memory refs)
+    const now = Date.now();
+    activeTimedFileRef.current = newName;
+    setActiveTimedFileName(newName);
+    tabStartTimeRef.current = now;
+    tabElapsedBaseRef.current = 0;
+    tabPausedRef.current = false;
+
+    setFileUploadTimer(0);
+    setIsTimerRunning(true);
+
+    saveFileHistoryEntry(newName, 0, 'Reviewing');
+  }, [selectedFile, xmlFile, saveFileHistoryEntry]);
+
+  // Restore review history on component mount
+  useEffect(() => {
+    const hist = getCleanFileHistory();
+    setFileReviewHistory(hist);
+    fileReviewHistoryRef.current = hist;
   }, []);
 
+  // Ensure timer tracks whenever active file changes in this specific tab
   useEffect(() => {
+    const curFile = (selectedFile?.name || xmlFile?.name || '').trim();
+    if (curFile && curFile !== 'Active Document' && curFile !== activeTimedFileRef.current) {
+      startFileUploadTimer(curFile);
+    }
+  }, [selectedFile, xmlFile, startFileUploadTimer]);
+
+  // Main timer tick interval: updates every second based SOLELY on this tab's own refs
+  useEffect(() => {
+    if (fileUploadTimerRef.current) {
+      clearInterval(fileUploadTimerRef.current);
+    }
+
     if (isTimerRunning) {
       fileUploadTimerRef.current = setInterval(() => {
-        setFileUploadTimer(prev => prev + 1);
+        if (tabPausedRef.current || !tabStartTimeRef.current) return;
+
+        const activeName = activeTimedFileRef.current;
+        if (!activeName || activeName === 'Active Document') return;
+
+        const currentElapsed = tabElapsedBaseRef.current + Math.max(0, Math.floor((Date.now() - tabStartTimeRef.current) / 1000));
+        setFileUploadTimer(currentElapsed);
+
+        // Periodically sync review time to history every 5s so progress is preserved without excessive storage writes
+        if (currentElapsed > 0 && currentElapsed % 5 === 0) {
+          saveFileHistoryEntry(activeName, currentElapsed, 'Reviewing');
+        }
       }, 1000);
-    } else {
-      clearInterval(fileUploadTimerRef.current);
     }
 
-    return () => clearInterval(fileUploadTimerRef.current);
-  }, [isTimerRunning]);
+    return () => {
+      if (fileUploadTimerRef.current) {
+        clearInterval(fileUploadTimerRef.current);
+      }
+    };
+  }, [isTimerRunning, saveFileHistoryEntry]);
 
   const handleTimerToggle = () => {
-    setIsTimerRunning(prev => !prev);
+    setIsTimerRunning(prev => {
+      const next = !prev;
+      const now = Date.now();
+      if (!next) {
+        // Pausing in this tab
+        tabPausedRef.current = true;
+        const currentElapsed = tabElapsedBaseRef.current + (tabStartTimeRef.current ? Math.max(0, Math.floor((now - tabStartTimeRef.current) / 1000)) : 0);
+        tabElapsedBaseRef.current = currentElapsed;
+        tabStartTimeRef.current = null;
+        if (activeTimedFileRef.current) {
+          saveFileHistoryEntry(activeTimedFileRef.current, currentElapsed, 'Paused');
+        }
+      } else {
+        // Resuming in this tab
+        tabPausedRef.current = false;
+        tabStartTimeRef.current = now;
+        if (activeTimedFileRef.current) {
+          saveFileHistoryEntry(activeTimedFileRef.current, tabElapsedBaseRef.current, 'Reviewing');
+        }
+      }
+      return next;
+    });
+  };
+
+  const handleOpenTimerHistory = (e) => {
+    if (activeTimedFileRef.current && activeTimedFileRef.current !== 'Active Document') {
+      saveFileHistoryEntry(activeTimedFileRef.current, fileUploadTimerValRef.current || fileUploadTimer, isTimerRunning ? 'Reviewing' : 'Paused');
+    } else {
+      const hist = getCleanFileHistory();
+      setFileReviewHistory(hist);
+      fileReviewHistoryRef.current = hist;
+    }
+    setTimerHistoryAnchor(e.currentTarget);
   };
 
 
@@ -2328,6 +2480,7 @@ function Subject({ defaultFormType }) {
     'FHA Case #',
     'ADU File Check',
     '1004MC Addendum',
+    'USPAP / Appraisal and Report Identification',
     'ANSI',
     'Exposure Comment',
     'Prior Service Comment',
@@ -2374,7 +2527,16 @@ function Subject({ defaultFormType }) {
 
   const currentState = data?.State?.toUpperCase();
   const hasAppraiserFee = !!(data?.["Appraiser's Fee"] || data?.["Appraiser Fee"] || data?.Subject?.["Appraiser's Fee"] || data?.Subject?.["Appraiser Fee"] || data?.CERTIFICATION?.["Appraiser's Fee"] || data?.CERTIFICATION?.["Appraiser Fee"]);
-  const has1004mc = !!(data?.has_1004mc || data?.['1004MC Addendum'] === 'Present' || data?.['1004MC Present'] === 'Yes' || data?.Subject?.['1004MC Addendum'] === 'Present' || data?.Subject?.['1004MC Present'] === 'Yes');
+  const has1004mc = !!(
+    data?.has_1004mc ||
+    data?.['1004MC Addendum'] === 'Present' ||
+    data?.['1004MC Addendum']?.startsWith?.('Present') ||
+    data?.['1004MC Present'] === 'Yes' ||
+    data?.Subject?.['1004MC Addendum'] === 'Present' ||
+    data?.Subject?.['1004MC Addendum']?.startsWith?.('Present') ||
+    data?.Subject?.['1004MC Present'] === 'Yes' ||
+    data?.Subject?.has_1004mc
+  );
 
   if (has1004mc && !subjectFields.includes("1004MC Addendum")) {
     const reportDataSrcIdx = subjectFields.indexOf('Report data source(s) used, offering price(s), and date(s)');
@@ -2383,6 +2545,23 @@ function Subject({ defaultFormType }) {
     } else {
       subjectFields.push("1004MC Addendum");
     }
+  }
+
+  const hasUspapIdent = !!(
+    data?.has_uspap_identification ||
+    data?.['USPAP / Appraisal and Report Identification'] === 'Present' ||
+    data?.['USPAP / Appraisal and Report Identification']?.startsWith?.('Present') ||
+    data?.['Appraisal and Report Identification']?.startsWith?.('Present') ||
+    data?.Subject?.has_uspap_identification ||
+    data?.Subject?.['USPAP / Appraisal and Report Identification']?.startsWith?.('Present') ||
+    data?.Subject?.['Appraisal and Report Identification']?.startsWith?.('Present')
+  );
+
+  if (hasUspapIdent && !subjectFields.includes("USPAP / Appraisal and Report Identification")) {
+    const mcIdx = subjectFields.indexOf("1004MC Addendum");
+    const reportDataSrcIdx = subjectFields.indexOf('Report data source(s) used, offering price(s), and date(s)');
+    const insertIdx = mcIdx !== -1 ? mcIdx + 1 : (reportDataSrcIdx !== -1 ? reportDataSrcIdx + 1 : subjectFields.length);
+    subjectFields.splice(insertIdx, 0, "USPAP / Appraisal and Report Identification");
   }
 
   if (currentState || hasAppraiserFee) {
@@ -3389,6 +3568,28 @@ function Subject({ defaultFormType }) {
     if (contractFileInputRef.current) contractFileInputRef.current.value = '';
     if (engagementLetterFileInputRef.current) engagementLetterFileInputRef.current.value = '';
 
+    if (activeTimedFileRef.current && activeTimedFileRef.current !== 'Active Document' && fileUploadTimer > 0) {
+      saveFileHistoryEntry(activeTimedFileRef.current, fileUploadTimer, 'Completed');
+    }
+    setActiveTimedFileName('');
+    activeTimedFileRef.current = '';
+    tabStartTimeRef.current = null;
+    tabElapsedBaseRef.current = 0;
+    tabPausedRef.current = false;
+    setFileUploadTimer(0);
+    setIsTimerRunning(false);
+
+    try {
+      sessionStorage.removeItem('tab_active_file');
+      sessionStorage.removeItem('tab_start_time');
+      sessionStorage.removeItem('tab_elapsed_base');
+      sessionStorage.removeItem('tab_is_paused');
+      sessionStorage.removeItem('tab_saved_elapsed');
+    } catch {
+      // ignore
+    }
+    if (fileUploadTimerRef.current) clearInterval(fileUploadTimerRef.current);
+
     setNotification({ open: true, message: 'All files cleared.', severity: 'info' });
   };
 
@@ -3422,7 +3623,7 @@ function Subject({ defaultFormType }) {
       if (file.name.toLowerCase().endsWith('.xml')) {
         setXmlFile(file);
         setExtractionSource('xml');
-        localStorage.setItem('fileUploadStartTime', Date.now().toString());
+        startFileUploadTimer(file.name);
         try {
           const reader = new FileReader();
           reader.onload = (event) => {
@@ -3440,19 +3641,15 @@ function Subject({ defaultFormType }) {
         setNotification({
           open: true, message: `XML file '${file.name}' uploaded successfully. Extraction source set to XML.`, severity: 'success'
         });
-        setFileUploadTimer(0);
-        setIsTimerRunning(true);
         extractInitialSections(file, 'xml');
         return;
       }
       setSelectedFile(file);
       setExtractionSource('pdf');
-      localStorage.setItem('fileUploadStartTime', Date.now().toString());
+      startFileUploadTimer(file.name);
       setNotification({
         open: true, message: 'PDF file uploaded successfully.', severity: 'success'
       });
-      setFileUploadTimer(0);
-      setIsTimerRunning(true);
       extractInitialSections(file, 'pdf');
     }
   };
@@ -3473,6 +3670,7 @@ function Subject({ defaultFormType }) {
       setRawGemini('');
       setXmlFile(file);
       setExtractionSource('xml');
+      startFileUploadTimer(file.name);
       try {
         const reader = new FileReader();
         reader.onload = (event) => {
@@ -3789,23 +3987,25 @@ function Subject({ defaultFormType }) {
     }
 
     setRawGemini(result.raw || '');
-    const durationInMs = Date.now() - startTime;
-    const totalSeconds = Math.floor(durationInMs / 1000);
+    const durationInMs = Math.max(100, Date.now() - startTime);
+    const durationInSeconds = durationInMs / 1000;
+    const totalSeconds = Math.floor(durationInSeconds);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
 
     const sectionName = category ? `${category.replace(/_/g, ' ').toLowerCase()} section` : 'extraction';
     let durationMessage = '';
     if (minutes > 0) {
-      durationMessage += `${minutes}m `;
+      durationMessage += `${minutes}m ${seconds}s`;
+    } else {
+      durationMessage += `${durationInSeconds >= 1 ? durationInSeconds.toFixed(1) : durationInSeconds.toFixed(2)}s`;
     }
-    durationMessage += `${seconds}s`;
     setNotification({
       open: true,
       message: <>Extraction of <strong style={{ color: '#000000' }}>{sectionName}</strong> completed in {durationMessage}.</>,
       severity: 'success'
     });
-    setLastExtractionTime(totalSeconds.toFixed(1));
+    setLastExtractionTime(durationInSeconds.toFixed(1));
     setExtractionProgress(100);
   };
 
@@ -3887,6 +4087,7 @@ function Subject({ defaultFormType }) {
 
     for (const category of initialCategories) {
       try {
+        const categoryStartTime = Date.now();
         const formData = new FormData();
         formData.append('file', activeFile);
         formData.append('form_type', detectedFormType);
@@ -3904,7 +4105,7 @@ function Subject({ defaultFormType }) {
           const norm = normalizeExtractedFormType(result.form_type);
           if (norm) detectedFormType = norm;
         }
-        processExtractionResult(result, Date.now(), category, currentSource);
+        processExtractionResult(result, categoryStartTime, category, currentSource);
       } catch (error) {
         console.error(error);
       }
@@ -4408,6 +4609,9 @@ function Subject({ defaultFormType }) {
 
   useEffect(() => {
     const handleBeforeUnload = (event) => {
+      if (activeTimedFileRef.current && activeTimedFileRef.current !== 'Active Document' && (fileUploadTimerValRef.current || fileUploadTimer) > 0) {
+        saveFileHistoryEntry(activeTimedFileRef.current, fileUploadTimerValRef.current || fileUploadTimer, 'Completed');
+      }
       if (Object.keys(data).length > 0 || selectedFile) {
         event.preventDefault();
         event.returnValue = '';
@@ -4419,7 +4623,7 @@ function Subject({ defaultFormType }) {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [data, selectedFile]);
+  }, [data, selectedFile, fileUploadTimer, saveFileHistoryEntry]);
 
   const handleGeneratePdf = () => {
     if (Object.keys(data).length === 0) {
@@ -4454,9 +4658,9 @@ function Subject({ defaultFormType }) {
         yPos += 8;
         doc.setFontSize(10);
         doc.setFont(undefined, 'normal');
-        const totalTime = `${Math.floor(fileUploadTimer / 3600).toString().padStart(2, '0')}:${Math.floor((fileUploadTimer % 3600) / 60).toString().padStart(2, '0')}:${(fileUploadTimer % 60).toString().padStart(2, '0')}`;
+        const totalTime = formatTimeHHMMSS(fileUploadTimer);
         const detailsBody = [
-          ['File Name', selectedFile?.name || 'N/A'],
+          ['File Name', selectedFile?.name || activeTimedFileName || xmlFile?.name || 'N/A'],
           ['User', username],
           ['Total Time Taken', totalTime]
         ];
@@ -4706,7 +4910,7 @@ function Subject({ defaultFormType }) {
     setNotification({ open: true, message: 'Saving data to database...', severity: 'info' });
 
     try {
-      const totalTime = `${Math.floor(fileUploadTimer / 3600).toString().padStart(2, '0')}:${Math.floor((fileUploadTimer % 3600) / 60).toString().padStart(2, '0')}:${(fileUploadTimer % 60).toString().padStart(2, '0')}`;
+      const totalTime = formatTimeHHMMSS(fileUploadTimer);
 
       const cleanedData = JSON.parse(JSON.stringify(data));
 
@@ -4749,6 +4953,8 @@ function Subject({ defaultFormType }) {
 
       const orderedReportData = {
         totalTimeTaken: totalTime,
+        activeTimedFile: activeTimedFileName || selectedFile?.name || xmlFile?.name || '',
+        fileReviewSummary: getCleanFileHistory(),
         save_option: 'update'
       };
       sectionOrder.forEach(section => {
@@ -6504,8 +6710,8 @@ function Subject({ defaultFormType }) {
                             label="Form Type"
                             helperText={
                               xmlDetectedFormType && extractionSource === 'xml'
-                                ? `Present in XML: Form ${xmlDetectedFormType}${!String(xmlDetectedFormType).includes('1004MC') && (data?.has_1004mc || data?.['1004MC Addendum'] === 'Present' || data?.['1004MC Present'] === 'Yes' || data?.Subject?.['1004MC Addendum'] === 'Present') ? ' + 1004MC Addendum' : ''}`
-                                : (data?.has_1004mc || data?.['1004MC Addendum']?.startsWith('Present') || data?.['1004MC Present'] === 'Yes' ? '1004MC Addendum Present in Report' : undefined)
+                                ? `Present in XML: Form ${xmlDetectedFormType}${!String(xmlDetectedFormType).includes('1004MC') && (data?.has_1004mc || data?.['1004MC Addendum']?.startsWith?.('Present') || data?.['1004MC Present'] === 'Yes' || data?.Subject?.['1004MC Addendum']?.startsWith?.('Present')) ? ' + 1004MC Addendum' : ''}`
+                                : (data?.has_1004mc || data?.['1004MC Addendum']?.startsWith?.('Present') || data?.['1004MC Present'] === 'Yes' || data?.Subject?.['1004MC Addendum']?.startsWith?.('Present') ? '1004MC Addendum Present in Report' : undefined)
                             }
                             FormHelperTextProps={{
                               sx: { color: 'success.main', fontWeight: 600, mx: 0.5, mt: 0.5 }
@@ -6613,9 +6819,27 @@ function Subject({ defaultFormType }) {
                 </Grid>
               </Paper>
               <Paper elevation={3} sx={{ p: 2, position: 'sticky', top: 0, zIndex: 1100, mb: 3, borderRadius: 0, borderBottomLeftRadius: 2, borderBottomRightRadius: 2, backgroundColor: activeTheme.palette.background.paper, transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}>
-                {(selectedFile || xmlFile) ? (
+                {(selectedFile || xmlFile || (data && Object.keys(data).length > 0)) ? (
                   <Stack direction="row" spacing={3} alignItems="center" flexWrap="wrap" justifyContent="space-between">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                      {!selectedFile && !xmlFile && (
+                        <Box sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                          px: 1.25,
+                          py: 0.5,
+                          borderRadius: 2,
+                          bgcolor: 'action.hover',
+                          color: 'text.primary',
+                          border: '1px solid',
+                          borderColor: 'divider'
+                        }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            Report Active
+                          </Typography>
+                        </Box>
+                      )}
                       {selectedFile && (
                         <Box sx={{
                           display: 'flex',
@@ -6748,22 +6972,166 @@ function Subject({ defaultFormType }) {
                         </Box>
                       )}
 
-                      <Tooltip sx={{ ml: 8, m: 'auto' }} title={isTimerRunning ? "Timer Running" : "Timer Paused"}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 'bold', cursor: 'pointer', marginRight: 40, color: isTimerRunning ? 'text.primary' : 'text.secondary' }}
-                          onClick={handleTimerToggle}>
-                          Total: {Math.floor(fileUploadTimer / 3600).toString().padStart(2, '0')}:
-                          {Math.floor((fileUploadTimer % 3600) / 60).toString().padStart(2, '0')}:
-                          {(fileUploadTimer % 60).toString().padStart(2, '0')}
-                        </Typography>
-                      </Tooltip>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mr: 3 }}>
+                        <Tooltip title={isTimerRunning ? `Timer Running for ${activeTimedFileName || selectedFile?.name || xmlFile?.name || 'Current File'} (Click to Pause)` : "Timer Paused (Click to Resume)"}>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontWeight: 'bold',
+                              cursor: 'pointer',
+                              color: isTimerRunning ? '#16a34a' : '#d97706',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 0.75,
+                              transition: 'color 0.2s ease-in-out'
+                            }}
+                            onClick={handleTimerToggle}>
+                            <span style={{
+                              display: 'inline-block',
+                              width: 8,
+                              height: 8,
+                              borderRadius: '50%',
+                              backgroundColor: isTimerRunning ? '#22c55e' : '#f59e0b',
+                              boxShadow: isTimerRunning ? '0 0 6px rgba(34, 197, 94, 0.6)' : 'none'
+                            }} />
+                            Total: {formatTimeHHMMSS(fileUploadTimer)}
+                          </Typography>
+                        </Tooltip>
 
-                      {!loading && lastExtractionTime && (
+                        {Object.values(fileReviewHistory).filter(it => it && it.fileName && it.fileName !== 'Active Document').length > 0 && (
+                          <Tooltip title="Click to view reviewer time taken per file">
+                            <Chip
+                              size="small"
+                              icon={<AccessTimeIcon sx={{ fontSize: '13px !important' }} />}
+                              label={`${Object.values(fileReviewHistory).filter(it => it && it.fileName && it.fileName !== 'Active Document').length} File${Object.values(fileReviewHistory).filter(it => it && it.fileName && it.fileName !== 'Active Document').length > 1 ? 's' : ''} Tracked`}
+                              onClick={handleOpenTimerHistory}
+                              sx={{
+                                fontWeight: 700,
+                                fontSize: '0.72rem',
+                                bgcolor: '#f1f5f9',
+                                color: '#334155',
+                                border: '1px solid #cbd5e1',
+                                cursor: 'pointer',
+                                '&:hover': { bgcolor: '#e2e8f0' }
+                              }}
+                            />
+                          </Tooltip>
+                        )}
+                      </Box>
+
+                      <Popover
+                        open={Boolean(timerHistoryAnchor)}
+                        anchorEl={timerHistoryAnchor}
+                        onClose={() => setTimerHistoryAnchor(null)}
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+                        transformOrigin={{ vertical: 'top', horizontal: 'center' }}
+                        PaperProps={{ sx: { p: 2, minWidth: 340, maxWidth: 460, borderRadius: 2 } }}
+                      >
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                            ⏱️ Reviewer Time Taken Per File
+                          </Typography>
+                          <IconButton size="small" onClick={() => setTimerHistoryAnchor(null)}>
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                        <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 1.5 }}>
+                          Time taken from upload through testing and seeing the report. Separate for each file.
+                        </Typography>
+                        <Divider sx={{ mb: 1.5 }} />
+                        <Stack spacing={1}>
+                          {Object.values(fileReviewHistory)
+                            .filter(item => item && item.fileName && item.fileName !== 'Active Document')
+                            .map((item, idx) => {
+                              const isActiveInThisTab = (activeTimedFileName || selectedFile?.name || xmlFile?.name) === item.fileName;
+                              const displayTime = isActiveInThisTab
+                                ? formatTimeHHMMSS(fileUploadTimer)
+                                : (item.formattedTime || formatTimeHHMMSS(item.elapsedSeconds || 0));
+                              const reviewerUser = item.user || username || localStorage.getItem('username') || 'Reviewer';
+
+                              return (
+                                <Box key={item.fileName || idx} sx={{
+                                  p: 1.25,
+                                  borderRadius: 1.5,
+                                  bgcolor: isActiveInThisTab ? '#f0fdf4' : '#f8fafc',
+                                  border: '1px solid',
+                                  borderColor: isActiveInThisTab ? '#bbf7d0' : '#e2e8f0',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: 1
+                                }}>
+                                  <Box sx={{ maxWidth: '68%', overflow: 'hidden' }}>
+                                    <Typography variant="body2" sx={{ fontWeight: 700, color: isActiveInThisTab ? '#166534' : '#1e293b' }} noWrap>
+                                      {item.fileName}
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.3, flexWrap: 'wrap' }}>
+                                      <Chip
+                                        label={reviewerUser}
+                                        size="small"
+                                        sx={{
+                                          height: '18px',
+                                          fontSize: '0.65rem',
+                                          fontWeight: 600,
+                                          bgcolor: isActiveInThisTab ? '#dcfce7' : '#e2e8f0',
+                                          color: isActiveInThisTab ? '#15803d' : '#475569'
+                                        }}
+                                      />
+                                      <Typography variant="caption" sx={{ color: isActiveInThisTab ? '#15803d' : '#64748b', fontWeight: isActiveInThisTab ? 600 : 400 }}>
+                                        {isActiveInThisTab
+                                          ? '● Active in this tab'
+                                          : (item.status === 'Reviewing' ? '● Active in another tab' : '✓ Completed')}
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+                                  <Typography variant="body2" sx={{ fontWeight: 700, color: isActiveInThisTab ? '#16a34a' : '#0f172a', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                                    {displayTime}
+                                  </Typography>
+                                </Box>
+                              );
+                            })}
+                        </Stack>
+                        <Box sx={{ mt: 2, pt: 1.5, borderTop: '1px dashed #cbd5e1', display: 'flex', justifyContent: 'flex-end' }}>
+                          <Button
+                            size="small"
+                            sx={{ fontSize: '0.72rem', textTransform: 'none', color: '#dc2626' }}
+                            onClick={() => {
+                              localStorage.removeItem('reviewer_file_timers_history');
+                              const fresh = {};
+                              if (activeTimedFileName && activeTimedFileName !== 'Active Document') {
+                                const currentUser = username || localStorage.getItem('username') || 'Reviewer';
+                                fresh[activeTimedFileName] = {
+                                  fileName: activeTimedFileName,
+                                  user: currentUser,
+                                  elapsedSeconds: fileUploadTimer,
+                                  formattedTime: formatTimeHHMMSS(fileUploadTimer),
+                                  lastUpdated: Date.now(),
+                                  status: isTimerRunning ? 'Reviewing' : 'Paused'
+                                };
+                                try {
+                                  localStorage.setItem('reviewer_file_timers_history', JSON.stringify(fresh));
+                                } catch (e) {
+                                  console.warn(e);
+                                }
+                              }
+                              setFileReviewHistory(fresh);
+                              fileReviewHistoryRef.current = fresh;
+                            }}
+                          >
+                            Reset History
+                          </Button>
+                        </Box>
+                      </Popover>
+
+                      {!loading && lastExtractionTime != null && Number(lastExtractionTime) > 0 && (
                         <Typography variant="body2" color="success.main"
-                          sx={{ marginRight: 40 }}>
-                          Last: {lastExtractionTime >= 60 ? `${Math.floor(lastExtractionTime / 60)}m ` : ''}
-                          {`${(lastExtractionTime % 60).toFixed(1)}s`}
+                          sx={{ marginRight: '40px' }}>
+                          Last: {Number(lastExtractionTime) >= 60 ? `${Math.floor(Number(lastExtractionTime) / 60)}m ` : ''}
+                          {Number(lastExtractionTime) < 0.1
+                            ? '< 0.1s'
+                            : (Number(lastExtractionTime) < 1
+                                ? `${Number(lastExtractionTime).toFixed(2)}s`
+                                : `${(Number(lastExtractionTime) % 60).toFixed(1)}s`)}
                         </Typography>
                       )}
                     </Box>
@@ -6943,6 +7311,47 @@ function Subject({ defaultFormType }) {
                                 color="primary"
                               >
                                 <TrendingUpIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Paper>
+                        </Grid>
+                      )}
+
+                      {/* USPAP / Appraisal and Report Identification Check */}
+                      {(data['USPAP / Appraisal and Report Identification'] || data['Appraisal and Report Identification'] || data?.Subject?.['USPAP / Appraisal and Report Identification'] || data?.Subject?.['Appraisal and Report Identification'] || data?.has_uspap_identification !== undefined) && (
+                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              p: 1.5,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              height: '100%',
+                              borderColor: (data?.has_uspap_identification || data['USPAP / Appraisal and Report Identification']?.startsWith('Present') || data['Appraisal and Report Identification']?.startsWith('Present') || data?.Subject?.['USPAP / Appraisal and Report Identification']?.startsWith('Present')) ? 'success.main' : 'divider',
+                              bgcolor: (data?.has_uspap_identification || data['USPAP / Appraisal and Report Identification']?.startsWith('Present') || data['Appraisal and Report Identification']?.startsWith('Present') || data?.Subject?.['USPAP / Appraisal and Report Identification']?.startsWith('Present')) ? '#f0fdf4' : 'background.paper'
+                            }}
+                          >
+                            <Box sx={{ overflow: 'hidden' }}>
+                              <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>
+                                USPAP / Report Identification
+                              </Typography>
+                              <EditableField
+                                fieldPath={['USPAP / Appraisal and Report Identification']}
+                                value={data['USPAP / Appraisal and Report Identification'] || data['Appraisal and Report Identification'] || data?.Subject?.['USPAP / Appraisal and Report Identification'] || (data?.has_uspap_identification ? 'Present' : 'Not Present')}
+                                onDataChange={handleDataChange}
+                                editingField={editingField}
+                                setEditingField={setEditingField}
+                                isEditable={isEditable}
+                                allData={data}
+                              />
+                            </Box>
+                            <Tooltip title="USPAP & Appraisal Report Identification Page">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                              >
+                                <AssignmentIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           </Paper>

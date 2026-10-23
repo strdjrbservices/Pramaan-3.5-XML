@@ -20,6 +20,15 @@ except ImportError:
     except ImportError:
         fitz = None
 
+try:
+    from api.eo_extractor import extract_eo_insurance_from_doc
+except ImportError:
+    try:
+        from .eo_extractor import extract_eo_insurance_from_doc  # type: ignore
+    except Exception:
+        def extract_eo_insurance_from_doc(doc: Any) -> Dict[str, str]:  # type: ignore
+            return {"E&O Insurance": "", "Policy Period From": "", "Policy Period To": ""}
+
 def _clean_currency(val: Any) -> str:
     if val is None:
         return ""
@@ -215,6 +224,53 @@ def _detect_1004mc_presence(root: ET.Element, embedded_doc: Optional[ET.Element]
                     if "1004MC" in txt or "MARKET CONDITIONS ADDENDUM" in txt or ("INVENTORY ANALYSIS" in txt and ("PRIOR 7-12" in txt or "ABSORPTION RATE" in txt)):
                         pdf.close()
                         return True, f"Embedded PDF Page {page_num}"
+                pdf.close()
+        except Exception:
+            pass
+
+    return False, "Not Present"
+
+
+def _detect_uspap_identification_presence(root: ET.Element, embedded_doc: Optional[ET.Element] = None) -> Tuple[bool, str]:
+    """
+    Identifies whether USPAP or Appraisal and Report Identification page is present in MISMO XML or embedded PDF.
+    Checks:
+    1. <FORM> elements for USPAP / Appraisal and Report Identification
+    2. <FORM> AppraisalAddendumText attributes
+    3. Embedded PDF document pages
+    Returns (is_present: bool, reason: str)
+    """
+    for form in root.findall(".//FORM"):
+        name = f"{form.attrib.get('AppraisalReportContentName', '')} {form.attrib.get('AppraisalReportContentIdentifier', '')} {form.attrib.get('AppraisalReportContentType', '')}".upper()
+        if "APPRAISAL AND REPORT IDENTIFICATION" in name or "APPRAISAL & REPORT IDENTIFICATION" in name or "REPORT IDENTIFICATION" in name:
+            return True, f"FORM Tag: {form.attrib.get('AppraisalReportContentName', '') or form.attrib.get('AppraisalReportContentIdentifier', '')}"
+        if "USPAP" in name:
+            return True, f"FORM Tag (USPAP): {form.attrib.get('AppraisalReportContentName', '') or form.attrib.get('AppraisalReportContentIdentifier', '')}"
+
+        addendum_txt = (form.attrib.get("AppraisalAddendumText") or "").upper()
+        if "APPRAISAL AND REPORT IDENTIFICATION" in addendum_txt or "APPRAISAL & REPORT IDENTIFICATION" in addendum_txt or "COMMENTS ON APPRAISAL AND REPORT IDENTIFICATION" in addendum_txt:
+            return True, "FORM Addendum Text: Appraisal and Report Identification"
+        if "USPAP ADDENDUM" in addendum_txt or "USPAP COMPLIANCE" in addendum_txt or "USPAP IDENTIFICATION" in addendum_txt:
+            return True, "FORM Addendum Text: USPAP Addendum"
+
+    if embedded_doc is not None and embedded_doc.text:
+        try:
+            pdf_bytes = base64.b64decode(embedded_doc.text.strip())
+            if fitz is not None:
+                pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+                for page_num, page in enumerate(pdf, 1):
+                    txt = (page.get_text() or "").upper()
+                    if "APPRAISAL AND REPORT IDENTIFICATION" in txt or "APPRAISAL & REPORT IDENTIFICATION" in txt or "COMMENTS ON APPRAISAL AND REPORT IDENTIFICATION" in txt:
+                        pdf.close()
+                        return True, f"Embedded PDF Page {page_num} (Appraisal and Report Identification)"
+                    if (
+                        "USPAP ADDENDUM" in txt
+                        or "USPAP COMPLIANCE" in txt
+                        or "USPAP IDENTIFICATION" in txt
+                        or ("USPAP" in txt and ("STANDARDS RULE" in txt or "REASONABLE EXPOSURE TIME" in txt or "REPORTING OPTION" in txt))
+                    ):
+                        pdf.close()
+                        return True, f"Embedded PDF Page {page_num} (USPAP)"
                 pdf.close()
         except Exception:
             pass
@@ -702,7 +758,7 @@ def _detect_form_type_from_xml(root: ET.Element) -> str:
         return "216"
         
     # Check Market Conditions Addendum 1004MC
-    if "1004MC" in ct:
+    if "1004MC" in ct or "MARKET CONDITIONS ADDENDUM" in ct:
         return "1004MC"
         
     return "1004 + 1007" if has_1007 else "1004"
@@ -3077,11 +3133,19 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
     has_1004mc, mc_source = _detect_1004mc_presence(root, embedded_doc=embedded_doc)
     mc_present_str = "Present" if has_1004mc else "Not Present"
 
+    # USPAP / Appraisal and Report Identification Presence Detection
+    has_uspap_ident, uspap_source = _detect_uspap_identification_presence(root, embedded_doc=embedded_doc)
+    uspap_ident_str = "Present" if has_uspap_ident else "Not Present"
+
     # Build standard sections matching UI
     subject_section = {
         "1004MC Addendum": mc_present_str,
         "1004MC Present": "Yes" if has_1004mc else "No",
         "has_1004mc": has_1004mc,
+        "USPAP / Appraisal and Report Identification": uspap_ident_str,
+        "Appraisal and Report Identification": uspap_ident_str,
+        "USPAP Addendum": uspap_ident_str,
+        "has_uspap_identification": has_uspap_ident,
         "FHA Case No.": fha_case_no,
         "FHA Case #": fha_case_no,
         "FHA Case Number": fha_case_no,
@@ -3891,6 +3955,27 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "AMC Name": amc_name,
     }
 
+    # Extract E&O Insurance details from embedded PDF document if present
+    emb_doc_elem = root.find(".//DOCUMENT")
+    if emb_doc_elem is None:
+        emb_doc_elem = root.find(".//EMBEDDED_FILE/DOCUMENT")
+    if emb_doc_elem is None:
+        emb_doc_elem = root.find(".//EMBEDDED_FILE")
+
+    if emb_doc_elem is not None and emb_doc_elem.text and fitz is not None:
+        try:
+            pdf_bytes = base64.b64decode(emb_doc_elem.text.strip())
+            emb_pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+            eo_info = extract_eo_insurance_from_doc(emb_pdf)
+            if eo_info.get("E&O Insurance"):
+                certification_section["E&O Insurance"] = eo_info["E&O Insurance"]
+            if eo_info.get("Policy Period From"):
+                certification_section["Policy Period From"] = eo_info["Policy Period From"]
+            if eo_info.get("Policy Period To"):
+                certification_section["Policy Period To"] = eo_info["Policy Period To"]
+        except Exception as e:
+            pass
+
     # Market Conditions Addendum (Form 1004MC)
     market_elem = root.find(".//MARKET")
     mc_instructions = ""
@@ -4131,7 +4216,13 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
     clean_sales_grid = {}
     if "Subject" in sales_grid and isinstance(sales_grid["Subject"], dict):
         clean_sales_grid["Subject"] = subj_grid
-    for i in range(1, 10):
+    detected_comps = set()
+    for k in sales_grid.keys():
+        m_c = re.search(r'(?:Comparable\s*#?|COMPARABLE\s+SALE\s*#?)\s*(\d+)', k, re.I)
+        if m_c:
+            detected_comps.add(int(m_c.group(1)))
+    max_comp_num = max(detected_comps) if detected_comps else 9
+    for i in range(1, max_comp_num + 1):
         c_val = sales_grid.get(f"Comparable #{i}") or sales_grid.get(f"COMPARABLE SALE #{i}")
         if isinstance(c_val, dict):
             clean_sales_grid[f"Comparable Sale {i}"] = c_val
@@ -4496,6 +4587,10 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "1004MC Addendum": mc_present_str,
         "1004MC Present": "Yes" if has_1004mc else "No",
         "has_1004mc": has_1004mc,
+        "USPAP / Appraisal and Report Identification": uspap_ident_str,
+        "Appraisal and Report Identification": uspap_ident_str,
+        "USPAP Addendum": uspap_ident_str,
+        "has_uspap_identification": has_uspap_ident,
         "ANSI": ansi_comment,
         "ANSI Standards": ansi_comment,
         "ANSI Comment": ansi_comment,
@@ -4560,6 +4655,10 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "Form Type": form_type,
         "has_1004mc": has_1004mc,
         "1004MC Addendum": mc_present_str,
+        "has_uspap_identification": has_uspap_ident,
+        "USPAP / Appraisal and Report Identification": uspap_ident_str,
+        "Appraisal and Report Identification": uspap_ident_str,
+        "USPAP Addendum": uspap_ident_str,
         "Subject": clean_subject,
         "Contract": contract_section,
         "Neighborhood": neighborhood_section,
