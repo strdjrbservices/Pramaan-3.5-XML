@@ -785,7 +785,9 @@ def extract_pdf(request):
                 term in prompt_lower for term in [
                     "client requirement", "client-specific", "client specific", "lender/client",
                     "lenders/clients", "bpl mortgage", "visio lending", "ice lender", "equity wave",
-                    "homebridge"
+                    "homebridge", "foundation mortgage", "rain city", "rain city capital",
+                    "east coast capital", "east coast capital corp", "futures financial", "dart bank",
+                    "loanguys", "loan guys", "loanguys.com"
                 ]
             ):
                 return Response(evaluate_client_requirements(tmp_path, extracted_data=extracted_data_obj, custom_prompt=custom_prompt))

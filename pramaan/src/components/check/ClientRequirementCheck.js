@@ -66,14 +66,13 @@ Lender/Client List and their requirements:
   - Ice Lender - Refrigerator: The kitchen photo must show the refrigerator. If absent, request a revision or require the appraiser to explain its absence in the report.
   - Photographs: Include interior and exterior photos, all mechanical systems, the full kitchen and appliances, and the roof.
 - Equity Wave Lending, Inc:
-  - Intended Use/User Verbiage: Verify the report contains the specific "Intended User" and "Intended Use" statements.
-    - Intended User: "Equity Wave Lending, Inc. it's investors, assignees, and/or successors"
-    - Intended Use: "The making, arranging, or selling of a private money/hard money loan"
-    - If either is missing, status is "Not Fulfilled" with comment: "Please include the required Intended Use/User verbiage."
+  - The appraiser is required to include the following intended use verbiage in all reports for this client. If the appraisal does not include the following statements in the report, please reject as:
+    1. Intended User: Equity Wave Lending, Inc. it's investors, assignees, and/or successors
+    2. Intended Use: The making, arranging, or selling of a private money/hard money loan
 - Hometown equity:
   - Smoke/CO Detectors: Please confirm if smoke/co detectors are installed and ask for photos.
 - FOUNDATION MORTGAGE:
-  - Short Term Rental (STR) Form: If the product type includes "STR 1007", verify that the specific STR form is used, not a standard 1007 form.
+  - Short Term Rental (STR) Form: UPDATE: FOUNDATION MORTGAGE - They no longer accept Short Term Rentals on a 1007, so they provide this form for appraisers to complete with STRs. If the product type includes a "STR 1007", then this is the form that needs to be included, not a regular 1007. If a regular 1007 is used or the specific STR form is missing when STR 1007 is ordered, reject as: "UPDATE: FOUNDATION MORTGAGE - They no longer accept Short Term Rentals on a 1007, so they provide this form for appraisers to complete with STRs. If the product type includes a 'STR 1007', then this is the form that needs to be included, not a regular 1007."
 - BPL Mortgage, LLC:
   - Smoke/CO Detectors: Ensure comments address whether detectors are present and required by law. Missing detectors alone do not require Subject-To status for BPL. Reject as: "Please address if smoke/CO detectors were present and required by law."
   - Value Difference: If final value is over 10% higher than listing/purchase price, check comments; if missing, escalate. For As-Is with ARV, compare with As-Is value. Reject as: "Can the appraiser address any potential reasons from the contract why the purchase price is significantly lower than market value?"
@@ -93,17 +92,17 @@ Lender/Client List and their requirements:
   - BPL As-Is & Kitchen Photos: BPL requires As-Is reports; stop and escalate Subject-To reports. Kitchen photos must show the stove/appliances (separate photos acceptable); if no stove is visible, request confirmation or comments. Request cost-to-cure for applicable repairs in As-Is reports (no cost-to-cure required for two-value ARV/As-Is reports where the repair budget is included).
   - BPL & Coast2Coast Mortgage: Subject-To conditions permitted only for health and safety issues. Cosmetic repairs must be commented on, not made Subject-To. Escalate if unsure whether an item is cosmetic or health/safety related.
 - Rain City Capital:
-  - Report Type: Client requires conventional reports.
-  - Health and Safety: Any identified health and safety issues must make the report "subject to" that condition.
-  - Two-Value Reports: Must be completed "Subject to," and include an additional grid for the "As Is" value.
-  - Cost to Cure: Verify that no "cost to cure" is provided for cosmetic items. If a cost to cure for cosmetic items is found, status is "Not Fulfilled" with comment: "Please remove cost to cure for cosmetic items."
-  - 1004MC Form: The 1004MC form is not required.
-  - Payment Status: Verify the order is marked as PAID.
+  - Conventional reports: Client requires conventional reports.
+  - Health and safety: Health and safety issues must be a subject to condition. If health and safety issues exist and report is As-Is, reject as: "Health and safety issues must make the report Subject To."
+  - 2 value reports: 2 value reports must be completed 'Subject to,' with an additional grid for the 'As Is' value.
+  - Cost to cure: NO cost to cure for cosmetic items. If a cost to cure is included for cosmetic items, reject as: "Please remove cost to cure for cosmetic items."
+  - 1004MC Form: No 1004MC OK (1004MC form is not required).
+  - Payment Status: Must be PAID.
 - TheLender:
   - Smoke/CO Detectors: Ensure photos of smoke and CO detectors are included if they are present and required to be installed. If not, status is "Not Fulfilled" with comment: "Please confirm if smoke/CO detectors are present/required and include photos."
 
 - East Coast Capital Corp:
-  - Cost Approach Completion: Verify that the cost approach is completed. If not, status is "Not Fulfilled" with comment: "This client requires the cost approach to be completed, even if it is not relevant to the development of value."
+  - Cost Approach Completion: This client requires the cost approach to be completed, even if not weighted. If the cost approach is not completed, reject as: "This client requires the Cost Approach to be completed for their own internal lending purposes. Whether the appraiser chooses to weight this approach is solely up to the appraiser."
 - Plaza home mortage:
   - Invoice (NY State Only): If the property state is NY, verify that an invoice is NOT included in the report. If an invoice is found, the status is "Needs Review" with the comment: "Can the appraiser please remove the invoice from the report? This will be delivered to the client as a separate document. Please also ask the appraiser to upload the invoice to the Supporting Documents section."
   - Client Email Address: Verify that the client's email address is present in the report. If it is missing, the status is "Needs Review" with the comment: "The report can be completed, but advise the team that we could not email the report to the client because there is no email address."
@@ -135,7 +134,7 @@ Lender/Client List and their requirements:
   - General Instructions: For any required revisions, do not mention page numbers in the comments, especially for ENV files. Revisions should be posted on the internal group for review before sending to the appraiser.
 
 - Dart Bank:
-  - ENV File: An ENV file is required for now.
+  - ENV File: No ENV anymore. PDF is always ok.
   - Payment Status: Verify the order is marked as PAID.
 - The Loan Store:
   - 1004MC Form: Verify the 1004MC form is included and completed.
@@ -155,9 +154,9 @@ Lender/Client List and their requirements:
  
 - Futures Financial:
   - Reviewer Level: Only senior members should review these reports.
-  - Borrower "FRANCIS, Richel":
-    - If product type is "Desktop", verify the report is a desktop ARV and the reconciliation section is "subject-to plans and specs".
-    - If product type is "As-is with ARV", verify the report is "as-is" and includes two values.
+  - Product Type Requirements:
+    - If the product type is As-is with ARV, then an as-is report will be OK, just make sure 2 values are there (both 'As-Is' and 'ARV' values). If 2 values are not present, reject to provide both values.
+    - The report needs to be 'subject-to' only when product type says Desktop. If the product type is Desktop and the report is not completed 'Subject To', reject as: "Product type is 'Desktop'. Per Futures Financial requirements: The report needs to be 'subject-to' only when product type says Desktop. Please revise report to 'Subject To'."
 - Cardinal financial company:
   - No 1004MC is OK
 - Deephaven Mortgage LLC:
@@ -166,7 +165,7 @@ Lender/Client List and their requirements:
   - Smoke/CO Detectors: Verify the report comments on whether smoke/CO detectors were present. If not mentioned, status is "Not Fulfilled" with comment: "Please comment if smoke/CO detectors were or were not present."
   - Water Heater Strapping: Verify the report comments on whether the hot water heater is properly double strapped and if this is required by law. If not mentioned, status is "Not Fulfilled" with comment: "Please comment if the hot water heater is properly double strapped and if these are required by law."
 - Loanguys.com inc:
-  - Quality and Condition Ratings: Verify that all reports (including 1025 and 2090) use "Q" and "C" ratings for "Quality" and "Condition" for the subject and all comparables. If not, status is "Not Fulfilled" with comment: "Per client requirement, please include 'Q' and 'C' ratings for 'Quality' and 'Condition' for the subject and all comps."
+  - Quality and Condition Ratings: All reports must use the "Q" and "C" ratings for "Quality" and "Condition" for the subject and all comps. This is needed on 1025 and 2090 reports also. All reports! If missing, reject as: "Per client requirement, please include 'Q' and 'C' ratings for 'Quality' and 'Condition' for the subject and all comps."
 - Paramount Residential Mortgage Group:
   - Lender Name Formatting: Verify if the lender name "Paramount Residential Mortgage Group" includes "INC". If it does, the status should be "Needs Review" with the comment: "Lender name includes 'INC'. Per client, if this is the only revision needed, it can be disregarded and the report submitted."
 - Arc Home:

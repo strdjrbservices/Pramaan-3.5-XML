@@ -1427,9 +1427,11 @@ class MapExtractor:
 
     def extract_comp_photo_metadata(self, page, frame, body_blocks=None) -> Dict[str, Any]:
         """
-        Extracts structured metadata for a comparable photo frame on an appraisal photo page.
-        Extracts: title, comp_num, address, proximity, sale_price, gla, total_rooms, bedrooms,
-        bathrooms, location, view, site, quality, age, and raw metadata dictionary.
+        Extracts structured metadata for a comparable, rental, or subject photograph from photo addendum pages.
+        Handles TOTAL by a la mode, ACI, ClickFORMS, Bradford, SFREP, etc.
+        Extracts: title, comp_num, street, address, proximity, sale_price, monthly_rent, gla,
+        total_rooms, bedrooms, bathrooms, location, view, site, quality, age, and raw metadata dictionary.
+        Cross-references with document reference records for 100% address accuracy.
         """
         if body_blocks is None:
             blocks = page.get_text("blocks")
@@ -1440,36 +1442,104 @@ class MapExtractor:
             if b[0] >= frame.x1 - 35 and b[1] >= frame.y0 - 25 and b[3] <= frame.y1 + 45
         ]
 
+        def is_street_address_line(text: str) -> bool:
+            t = text.strip()
+            if not t:
+                return False
+            if not re.match(r'^\d{1,6}\s+[A-Za-z0-9#\.\'\-]', t):
+                return False
+            if re.match(r'^\$?[\d,]+(?:\.\d+)?$', t):
+                return False
+            t_lower = t.lower()
+            if any(w in t_lower for w in [
+                "mile", "sq ft", "sq.ft", "sf", "gla", "room", "bed", "bath",
+                "res;", "q1", "q2", "q3", "q4", "q5", "q6",
+                "c1", "c2", "c3", "c4", "c5", "c6", "total", "form", "alamode", "page"
+            ]):
+                return False
+            words = re.findall(r'[A-Za-z]{2,}', t)
+            return len(words) >= 1
+
+        def is_city_state_zip_line(text: str) -> bool:
+            t = text.strip()
+            return bool(re.search(r'^[A-Za-z\s\.\-]+,\s*[A-Z]{2}(?:\s*\d{5}(?:-\d{4})?)?$', t))
+
         title = ""
         comp_num = None
+        category = "General"
+        is_subject = False
+        is_rental = False
+        is_comp = False
+
         for b in right_blocks:
             txt = b[4].strip()
-            m_comp = re.search(r'^(?:COMPARABLE\s*(?:SALE|RENTAL)?|RENTAL|LISTING)?\s*#?\s*(\d+)$', txt, re.IGNORECASE)
-            if not m_comp:
-                m_comp = re.search(r'^(?:Comparable|Rental|Listing)\s*#?\s*(\d+)', txt, re.IGNORECASE)
-            if m_comp:
-                title = txt.split('\n')[0].strip()
-                comp_num = int(m_comp.group(1))
+            for line in txt.split('\n'):
+                line = line.strip()
+                m_sub = re.search(r'^(Subject\s+(?:Front|Rear|Street|Side|Garage|Exterior|Entry|Property))\b', line, re.I)
+                if m_sub:
+                    title = m_sub.group(1).title()
+                    category = "Subject"
+                    is_subject = True
+                    break
+                m_rent = re.search(r'^(?:Rental|Comparable\s+Rental)\s*#?\s*(\d+)', line, re.I)
+                if m_rent:
+                    comp_num = int(m_rent.group(1))
+                    title = f"Rental {comp_num}"
+                    category = "Rental"
+                    is_rental = True
+                    break
+                m_comp = re.search(r'^(?:Comparable(?:\s*Sale)?|Comp)\s*#?\s*(\d+)', line, re.I)
+                if m_comp:
+                    comp_num = int(m_comp.group(1))
+                    title = f"Comparable {comp_num}"
+                    category = "Comparable"
+                    is_comp = True
+                    break
+            if title:
                 break
 
+        page_header_sample = (page.get_text()[:400] or "").upper()
+        if not category or category == "General":
+            if any(k in page_header_sample for k in ["SUBJECT PROPERTY PHOTO", "SUBJECT PHOTO"]):
+                category = "Subject"
+                is_subject = True
+            elif any(k in page_header_sample for k in ["RENTAL PHOTO", "FORM DLSTRNT", "RENTALS PHOTO"]):
+                category = "Rental"
+                is_rental = True
+            elif any(k in page_header_sample for k in ["COMPARABLE PHOTO", "COMPARABLE PROPERTY", "FORM PICPIX.CR"]):
+                category = "Comparable"
+                is_comp = True
+
+        street = ""
+        city_state_zip = ""
+        all_lines = []
+        for b in right_blocks:
+            lines = [l.strip() for l in b[4].split('\n') if l.strip()]
+            all_lines.extend(lines)
+            for i, l in enumerate(lines):
+                if not street and is_street_address_line(l):
+                    street = l
+                    if i + 1 < len(lines) and is_city_state_zip_line(lines[i+1]):
+                        city_state_zip = lines[i+1]
+
         known_keys = [
-            "prox. to subject", "proximity", "sale price", "list price", "rental price", "monthly rent",
+            "prox. to subject", "proximity to subject", "proximity", "sale price", "sales price",
+            "list price", "rental price", "adj. monthly rent", "monthly rent",
             "gross living area", "gla", "total rooms", "total bedrooms", "total bathrooms",
-            "location", "view", "site", "quality", "age", "actual age", "condition"
+            "location", "view", "site", "quality", "age", "actual age", "condition", "age/year built"
         ]
 
         key_block = None
         val_block = None
         for b in right_blocks:
             b_lines = [l.strip() for l in b[4].split('\n') if l.strip()]
-            matched_keys = sum(1 for l in b_lines if l.lower() in known_keys or any(k in l.lower() for k in ["prox", "sale price", "living area", "bathrooms"]))
+            matched_keys = sum(1 for l in b_lines if l.lower() in known_keys or any(k in l.lower() for k in ["prox", "sale price", "living area", "bathrooms", "monthly rent"]))
             if matched_keys >= 3:
                 key_block = b_lines
             elif len(b_lines) >= 3 and not any(l.lower() in known_keys for l in b_lines[:3]):
                 val_block = b_lines
 
         meta_dict = {}
-        address = ""
         proximity = ""
         sale_price = ""
         gla = ""
@@ -1483,12 +1553,27 @@ class MapExtractor:
         age = ""
 
         if key_block and val_block:
-            address = val_block[0]
-            meta_dict["Address"] = address
+            offset = 0
+            if is_subject and any("sale price" in k.lower() for k in key_block[:2]) and len(val_block) < len(key_block):
+                sp_idx = next(i for i, k in enumerate(key_block) if "sale price" in k.lower())
+                key_block = key_block[sp_idx + 1:]
+                offset = 0
+            elif any(k.lower() in ["address", "property address"] for k in key_block[:2]):
+                offset = 0
+            else:
+                if len(val_block) > 0 and is_street_address_line(val_block[0]):
+                    offset += 1
+                    if not street:
+                        street = val_block[0]
+                if len(val_block) > 1 and is_city_state_zip_line(val_block[1]):
+                    offset += 1
+                    if not city_state_zip:
+                        city_state_zip = val_block[1]
+
             for idx, k in enumerate(key_block):
-                val_idx = idx + 1
+                val_idx = idx + offset
                 if val_idx < len(val_block):
-                    v = val_block[val_idx]
+                    v = val_block[val_idx].strip()
                     k_clean = k.strip()
                     meta_dict[k_clean] = v
                     k_lower = k_clean.lower()
@@ -1501,43 +1586,64 @@ class MapExtractor:
                     elif "location" in k_lower: location = v
                     elif "view" in k_lower: view = v
                     elif "site" in k_lower: site = v
-                    elif "quality" in k_lower: quality = v
+                    elif "quality" in k_lower or "condition" in k_lower: quality = v
                     elif "age" in k_lower: age = v
-        else:
-            for b in right_blocks:
-                lines = [l.strip() for l in b[4].split('\n') if l.strip()]
-                for line in lines:
-                    m_kv = re.match(r'^([^:\-]+)[:\-]\s*(.+)$', line)
-                    if m_kv:
-                        k, v = m_kv.group(1).strip(), m_kv.group(2).strip()
-                        meta_dict[k] = v
-                        k_lower = k.lower()
-                        if "prox" in k_lower: proximity = v
-                        elif "price" in k_lower: sale_price = v
-                        elif "gla" in k_lower or "living" in k_lower: gla = v
-                        elif "bed" in k_lower: bedrooms = v
-                        elif "bath" in k_lower: bathrooms = v
-                        elif "location" in k_lower: location = v
-                        elif "view" in k_lower: view = v
-                        elif "site" in k_lower: site = v
-                        elif "quality" in k_lower: quality = v
-                        elif "age" in k_lower: age = v
-                    elif not address and not any(k in line.lower() for k in ["comparable", "photo", "total", "alamode", "form", "page"]):
-                        if re.match(r'^\d+\s+[A-Za-z]', line):
-                            address = line
-                            meta_dict["Address"] = address
 
-        page_header_sample = (page.get_text()[:400] or "").upper()
-        is_rental = "RENTAL" in title.upper() or "RENTAL" in page_header_sample
+        if not proximity and not sale_price:
+            for line in all_lines:
+                m_kv = re.match(r'^([^:\-]+)[:\-]\s*(.+)$', line)
+                if m_kv:
+                    k, v = m_kv.group(1).strip(), m_kv.group(2).strip()
+                    meta_dict[k] = v
+                    k_lower = k.lower()
+                    if "prox" in k_lower and not proximity: proximity = v
+                    elif "price" in k_lower and not sale_price: sale_price = v
+                    elif "rent" in k_lower and not sale_price: sale_price = v
+                    elif ("living" in k_lower or "gla" in k_lower) and not gla: gla = v
+                    elif "bed" in k_lower and not bedrooms: bedrooms = v
+                    elif "bath" in k_lower and not bathrooms: bathrooms = v
+
+        full_address = f"{street}, {city_state_zip}".strip(", ") if (street and city_state_zip) else street
+
+        reference_records = getattr(self, "reference_records", None)
+        if reference_records:
+            if is_subject or category == "Subject":
+                sub_ref = reference_records.get("subject") or {}
+                if sub_ref:
+                    if not street:
+                        street = sub_ref.get("street") or ""
+                    if not full_address or full_address == street:
+                        full_address = sub_ref.get("address") or f"{street}, {sub_ref.get('city','')}, {sub_ref.get('state','')} {sub_ref.get('zipcode','')}".strip(", ")
+            elif is_comp and comp_num:
+                sc = next((c for c in reference_records.get("sales_comps", []) if c.get("comp_num") == comp_num), None)
+                if sc:
+                    if not street:
+                        street = sc.get("street") or ""
+                    if not full_address or full_address == street:
+                        full_address = sc.get("address") or f"{street}, {sc.get('city','')}, {sc.get('state','')} {sc.get('zipcode','')}".strip(", ")
+                    if not proximity: proximity = sc.get("proximity") or ""
+                    if not sale_price: sale_price = sc.get("sale_price") or ""
+            elif is_rental and comp_num:
+                rc = next((r for r in reference_records.get("rental_comps", []) if r.get("comp_num") == comp_num), None)
+                if rc:
+                    if not street:
+                        street = rc.get("street") or ""
+                    if not full_address or full_address == street:
+                        full_address = rc.get("address") or f"{street}, {rc.get('city','')}, {rc.get('state','')} {rc.get('zipcode','')}".strip(", ")
+                    if not proximity: proximity = rc.get("proximity") or ""
+                    if not sale_price: sale_price = rc.get("monthly_rent") or ""
 
         return {
-            "title": title or (f"{'Rental' if is_rental else 'Comparable'} {comp_num}" if comp_num else ("Rental" if is_rental else "Comparable")),
+            "title": title or (f"{category} {comp_num}" if comp_num else f"{category} Photo"),
             "comp_num": comp_num,
-            "category": "Rental" if is_rental else "Comparable",
+            "category": category,
             "is_rental": is_rental,
-            "address": address,
+            "street": street,
+            "address": full_address,
             "proximity": proximity,
-            "sale_price": sale_price,
+            "sale_price": sale_price if not is_subject else "",
+            "monthly_rent": sale_price if is_rental else "",
+            "rent_amount": sale_price if is_rental else "",
             "gla": gla,
             "total_rooms": total_rooms,
             "bedrooms": bedrooms,
@@ -1643,7 +1749,100 @@ class MapExtractor:
                 if dist_val in (cp.get("proximity") or ""):
                     return cp
 
-        return None
+    def extract_document_reference_records(self, doc, file_path: str) -> Dict[str, Any]:
+        """
+        Extracts verified reference records from XML or PDF text layers:
+        - Subject property address
+        - Sales Grid Comparables (1..N) with address, proximity, price
+        - Rental Schedule Comparables (1..N) with address, proximity, rent
+        """
+        refs = {"subject": None, "sales_comps": [], "rental_comps": []}
+        is_xml_file = file_path.lower().endswith(".xml")
+
+        # 1. Extract from XML clean_data / MISMO tags
+        if is_xml_file:
+            try:
+                try:
+                    from appraisal_review.api.xml_extractor import extract_fields_from_xml
+                except ImportError:
+                    api_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "appraisal_review", "api")
+                    if api_dir not in sys.path:
+                        sys.path.insert(0, api_dir)
+                    from xml_extractor import extract_fields_from_xml
+                xml_data = extract_fields_from_xml(file_path)
+                clean = xml_data.get("clean_data", {})
+                sub = clean.get("Subject", {})
+                if sub:
+                    refs["subject"] = {
+                        "street": sub.get("Property Address") or sub.get("Street Address") or "",
+                        "city": sub.get("City") or "",
+                        "state": sub.get("State") or "",
+                        "zipcode": sub.get("Zip Code") or "",
+                        "address": sub.get("Full Address") or sub.get("Address") or ""
+                    }
+                sgrid = clean.get("Sales Grid", {})
+                for k, v in sgrid.items():
+                    if k != "Subject" and isinstance(v, dict):
+                        m = re.search(r'\d+', k)
+                        cnum = int(m.group(0)) if m else len(refs["sales_comps"]) + 1
+                        st = v.get("Street Address") or v.get("Address") or ""
+                        addr = v.get("Address") or st
+                        refs["sales_comps"].append({
+                            "comp_num": cnum,
+                            "street": st,
+                            "address": addr,
+                            "proximity": v.get("Proximity to Subject") or "",
+                            "sale_price": v.get("Sale Price") or ""
+                        })
+                rgrid = clean.get("Comparable Rental Data", {}) or clean.get("Single Family Rent Schedule", {})
+                for k, v in rgrid.items():
+                    if isinstance(v, dict) and any(x in k.upper() for x in ["RENTAL", "COMPARABLE NO"]):
+                        m = re.search(r'\d+', k)
+                        cnum = int(m.group(0)) if m else len(refs["rental_comps"]) + 1
+                        if not any(r["comp_num"] == cnum for r in refs["rental_comps"]):
+                            addr = v.get("Address") or ""
+                            m_st = re.match(r'^([^,]+)', addr)
+                            st = m_st.group(1).strip() if m_st else addr
+                            refs["rental_comps"].append({
+                                "comp_num": cnum,
+                                "street": st,
+                                "address": addr,
+                                "proximity": v.get("Proximity to Subject") or v.get("Proximity") or "",
+                                "monthly_rent": v.get("Monthly Rental") or v.get("Adjusted Monthly Rent") or ""
+                            })
+            except Exception as e:
+                print(f"Notice: XML reference extraction: {e}")
+
+        # 2. Extract from PDF text if missing
+        if doc and (not refs["sales_comps"] or not refs["rental_comps"] or not refs["subject"]):
+            for pno in range(len(doc)):
+                page = doc[pno]
+                txt = page.get_text()
+
+                # Subject fallback
+                if not refs["subject"] and ("SUBJECT PROPERTY" in txt.upper() or "UNIFORM RESIDENTIAL" in txt.upper()):
+                    m_addr = re.search(r'Property\s+Address\s*[:\n]\s*([^\n]+)', txt, re.I)
+                    if m_addr:
+                        refs["subject"] = {"street": m_addr.group(1).strip(), "address": m_addr.group(1).strip()}
+
+                # Rental Photo Page (Form DLSTRNT)
+                if not refs["rental_comps"] and ("RENTAL PHOTO PAGE" in txt.upper() or "DLSTRNT" in txt.upper()):
+                    for m in re.finditer(r'Rental\s+(\d+)\s*\n(?:[^\n]*\n){1,15}?(\d+\s+[^\n]+)\s*\n([0-9.]+\s*miles?[^\n]*)', txt, re.I):
+                        r_num = int(m.group(1))
+                        r_addr = m.group(2).strip()
+                        r_prox = m.group(3).strip()
+                        if not any(r["comp_num"] == r_num for r in refs["rental_comps"]):
+                            refs["rental_comps"].append({
+                                "comp_num": r_num,
+                                "street": r_addr,
+                                "address": r_addr,
+                                "proximity": r_prox,
+                                "monthly_rent": ""
+                            })
+
+        refs["sales_comps"].sort(key=lambda x: x["comp_num"])
+        refs["rental_comps"].sort(key=lambda x: x["comp_num"])
+        return refs
 
     def extract_all_exhibits_data(self, file_path: str, exhibit_type: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -1661,12 +1860,18 @@ class MapExtractor:
         doc, is_xml_embedded = self.get_pdf_doc(file_path)
         ex_type = (exhibit_type or "").lower().strip()
 
+        # Load reference records (Sales Grid & Rental Schedule)
+        refs = self.extract_document_reference_records(doc, file_path)
+        self.reference_records = refs
+
         process_location = ex_type in ["", "all", "location", "location_map", "location_maps", "comps_map", "location_and_comps"]
         process_aerial = ex_type in ["", "all", "aerial", "aerial_map", "aerial_maps", "satellite"]
         process_sketches = ex_type in ["", "all", "sketch", "sketches", "building_sketch", "floor_plan", "building_sketch_floor_plan"]
         process_rentals = ex_type in ["", "all", "rental", "rentals", "rental_map", "rentals_map", "other_maps", "rentals_other_maps", "plat", "flood"]
 
         all_map_pages = self.detect_map_pages(doc) if (process_location or process_aerial or process_rentals) else []
+        dedicated_rental_maps = [mp for mp in all_map_pages if re.search(r'rental', mp.get("map_type", ""), re.IGNORECASE)]
+
         map_pages = []
         for mp in all_map_pages:
             m_type = mp.get("map_type", "")
@@ -1674,11 +1879,16 @@ class MapExtractor:
             is_aer = bool(re.search(r'aerial|satellite', m_type, re.IGNORECASE))
             is_loc = bool(re.search(r'location|comparable|sales\s*map', m_type, re.IGNORECASE)) and not is_rent and not is_aer
 
-            if is_loc and process_location:
-                map_pages.append(mp)
+            if is_loc:
+                # Include location map if processing location, OR if processing rentals and no dedicated rental map exists
+                if process_location or (process_rentals and not dedicated_rental_maps):
+                    map_pages.append(mp)
             elif is_aer and process_aerial:
                 map_pages.append(mp)
             elif is_rent and process_rentals:
+                map_pages.append(mp)
+            elif process_rentals and not is_aer and not is_loc and not is_rent:
+                # e.g. Plat or Flood maps when under rentals/other exhibits
                 map_pages.append(mp)
 
         sketch_pages = self.detect_sketch_pages(doc) if process_sketches else []
@@ -1704,24 +1914,55 @@ class MapExtractor:
             sub = next((p for p in pins if p.get("item_type") == "Subject"), None)
             comps = [p for p in pins if p.get("item_type") in ("Comparable", "Rental", "Listing")]
 
-            # Pair each comparable / rental pin with its matching Photo Addendum record
+            # Pair each comparable / rental pin with its matching Photo Addendum and Grid records
             for c in comps:
+                is_rental_pin = (c.get("item_type") == "Rental")
                 matched_photo = self.match_pin_to_comp_photo(c, comp_photos)
                 if matched_photo:
                     c["photo_data"] = matched_photo
                     cp_num = matched_photo.get("comp_num")
                     if cp_num:
-                        prefix = "Rental" if c.get("item_type") == "Rental" else ("Listing" if c.get("item_type") == "Listing" else "Comparable")
+                        prefix = "Rental" if is_rental_pin else ("Listing" if c.get("item_type") == "Listing" else "Comparable")
                         c["label"] = f"{prefix} #{cp_num}"
                     photo_addr = matched_photo.get("address") or ""
-                    # Only backfill address if pin had no street detected from OCR
-                    if photo_addr and not c.get("street"):
-                        c["street"] = photo_addr
+                    c["matched_photo_address"] = photo_addr
+                    # Backfill or correct partial OCR street name
+                    if photo_addr:
+                        if not c.get("street") or not re.search(r'\d', c.get("street", "")):
+                            c["street"] = photo_addr
+                        elif len(c.get("street", "")) < len(photo_addr) and photo_addr.lower().endswith(c.get("street", "").lower()[-8:]):
+                            c["street"] = photo_addr
                         if c.get("city") and c.get("state"):
-                            c["address"] = f"{photo_addr}, {c['city']}, {c['state']} {c.get('zipcode', '')}".strip()
+                            c["address"] = f"{c['street']}, {c['city']}, {c['state']} {c.get('zipcode', '')}".strip()
                         else:
-                            c["address"] = photo_addr
-                if c.get("item_type") == "Rental" and not c.get("label", "").lower().startswith("rental"):
+                            c["address"] = c["street"]
+
+                # Match with Reference Grid records
+                grid_candidates = refs["rental_comps"] if is_rental_pin else refs["sales_comps"]
+                matched_grid = None
+                c_st = (c.get("street") or c.get("address") or "").lower()
+                m_c_num = re.search(r'^\d+', c_st)
+                c_house_num = m_c_num.group(0) if m_c_num else ""
+
+                for gc in grid_candidates:
+                    gc_st = (gc.get("street") or gc.get("address") or "").lower()
+                    m_gc_num = re.search(r'^\d+', gc_st)
+                    if m_gc_num and c_house_num and m_gc_num.group(0) == c_house_num:
+                        matched_grid = gc
+                        break
+                if not matched_grid:
+                    m_lbl_n = re.search(r'#?(\d+)', c.get("label", ""))
+                    if m_lbl_n:
+                        lbl_num = int(m_lbl_n.group(1))
+                        matched_grid = next((gc for gc in grid_candidates if gc.get("comp_num") == lbl_num), None)
+
+                if matched_grid:
+                    c["grid_data"] = matched_grid
+                    if not c.get("street"):
+                        c["street"] = matched_grid.get("street", "")
+                        c["address"] = matched_grid.get("address", "")
+
+                if is_rental_pin and not c.get("label", "").lower().startswith("rental"):
                     m_d = re.search(r'\d+', c.get("label", ""))
                     c_num = m_d.group(0) if m_d else ""
                     c["label"] = f"Rental #{c_num}" if c_num else "Rental"
@@ -1756,6 +1997,8 @@ class MapExtractor:
                 "comparables_only": comps_only,
                 "listings": listings_only,
                 "pins": pins,
+                "has_rentals": len(rentals_only) > 0,
+                "has_comparables": len(comps_only) > 0,
                 "image_preview": f"data:image/jpeg;base64,{b64_str}"
             })
 
@@ -1774,7 +2017,8 @@ class MapExtractor:
             "maps": maps_data,
             "sketches": sketches_data,
             "comparable_photos": comp_photos,
-            "all_pins": all_pins
+            "all_pins": all_pins,
+            "reference_records": refs
         }
 
     def export_results(self, all_pins: List[Dict[str, Any]]):

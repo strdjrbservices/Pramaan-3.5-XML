@@ -1,7 +1,7 @@
 import React from 'react';
 import { checkContractFieldsMandatory, checkFinancialAssistanceInconsistency, checkContractAnalysisConsistency, checkYesNoOnly } from '../../../validations/contractValidation';
 import { checkTaxYear, checkRETaxes, checkSpecialAssessments, checkPUD, checkHOA, checkHOAFrequency, checkOfferedForSale, checkAnsi, checkFullAddressConsistency, checkPresence, checkAssignmentTypeConsistency, checkSubjectFieldsNotBlank, checkFhaCaseNo, checkOccupancy } from '../../../validations/subjectValidation';
-import { checkZoning, checkZoningDescription, checkSpecificZoningClassification, checkHighestAndBestUse, checkFemaInconsistency, checkFemaFieldsConsistency, checkSiteSectionBlank, checkArea, checkYesNoWithComment, checkUtilities } from '../../../validations/siteValidation';
+import { checkZoning, checkNonconformingComment, checkZoningDescription, checkSpecificZoningClassification, checkHighestAndBestUse, checkFemaInconsistency, checkFemaFieldsConsistency, checkSiteSectionBlank, checkArea, checkYesNoWithComment, checkUtilities } from '../../../validations/siteValidation';
 import { checkVersion1UtilitySubfields, checkZoningClassificationDescription, checkSiteSizesConsistency, checkVersion1EffectiveDatesConsistency, checkAboveGradeFinishedAreaConsistency, checkYearBuiltConsistency, checkAppraiserNameConsistency, checkVersion1ComparableListingStatusConsistency, checkVersion1ComparableTransferTermsConsistency, checkVersion1YearBuiltAdjustmentConsistency, checkVersion1ConstructionMethodAdjustmentConsistency, checkVersion1SiteSizeAdjustmentConsistency, checkVersion1LocationAdjustmentConsistency, checkVersion1AttachedDetachedAdjustmentConsistency, checkVersion1HeatingAdjustmentConsistency, checkVersion1AmenitiesAdjustmentConsistency, checkVersion1QualityConditionConsistency, checkVersion1AreaAdjustmentConsistency, checkVersion1OverallQualityConditionAdjustmentConsistency, checkVersion1VehicleStorageAdjustmentConsistency } from '../Version1/version1Validation';
 import { checkHousingPriceAndAge, checkNeighborhoodUsageConsistency, checkSingleChoiceFields, checkNeighborhoodBoundaries, checkNeighborhoodFieldsNotBlank, checkOtherLandUseComment, checkOtherLandUse, checkSearchCriteriaDescription, checkNeighborhoodListPricesConsistency, checkNeighborhoodSalePricesConsistency, checkLocation, checkBuiltUp, checkGrowth, checkPropertyValues, checkDemandSupply } from '../../../validations/neighborhoodValidation';
 import { checkUnits, checkAccessoryUnit, checkNumberOfStories, checkPropertyType, checkConstructionStatusAndReconciliation, checkDesignStyle, checkYearBuilt, checkEffectiveAge, checkAdditionalFeatures, checkPropertyConditionDescription, checkPhysicalDeficienciesImprovements, checkNeighborhoodConformity, checkFoundationType, checkBasementDetails, checkEvidenceOf, checkMaterialCondition, checkHeatingFuel, checkCarStorage, checkImprovementsFieldsNotBlank } from '../../../validations/improvementsValidation';
@@ -70,6 +70,10 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
   const validationRegistry = {
     // Site Validations
     'Zoning Compliance': [checkZoning],
+    'Legal Nonconforming (Grandfathered Use) comment': [checkNonconformingComment],
+    'Legal Nonconforming comment': [checkNonconformingComment],
+    'Nonconforming comment': [checkNonconformingComment],
+    'Zoning Compliance comment': [checkNonconformingComment],
     'Zoning Description': [checkZoningDescription],
     'Specific Zoning Classification': [checkSpecificZoningClassification],
     'Zoning Classification Description': [checkZoningClassificationDescription],
@@ -790,7 +794,7 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     } else if (showBlankValidation && !isValBlank) {
       style = { backgroundColor: '#91ff00ff', color: '#000000', padding: '2px 5px', borderRadius: '4px' };
       message = 'Value is present';
-    } else if (lookupField === 'Zoning Compliance' && text?.trim() === 'Legal Nonconforming (Grandfathered Use)') {
+    } else if (lookupField === 'Zoning Compliance' && String(text || '').toLowerCase().includes('nonconforming')) {
       style = { backgroundColor: '#ff9d0bff', color: '#ffffff', padding: '2px 5px', borderRadius: '4px' };
     }
 

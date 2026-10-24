@@ -7,16 +7,24 @@ export const checkZoning = (field, text, data) => {
         return { isError: true, message: "STOP REVIEW AND ESCALATE TO MANAGER/ CLIENT" };
     }
 
-    if (value === 'Legal') {
-        return { isMatch: true, message: "Zoning is Legal." };
-    } else if (value === 'Legal Nonconforming (Grandfathered Use)') {
-        const commentData = data?.SITE?.['Legal Nonconforming (Grandfathered Use) comment'];
+    if (value.toLowerCase().includes('nonconforming') || value.toLowerCase().includes('grandfathered')) {
+        const commentData = data?.SITE?.['Legal Nonconforming (Grandfathered Use) comment']
+            ?? data?.SITE?.['Legal Nonconforming comment']
+            ?? data?.SITE?.['Nonconforming comment']
+            ?? data?.SITE?.['Zoning Compliance comment']
+            ?? data?.['Legal Nonconforming (Grandfathered Use) comment']
+            ?? data?.['Legal Nonconforming comment']
+            ?? data?.['Nonconforming comment']
+            ?? data?.['Zoning Compliance comment'];
         const comment = typeof commentData === 'object' && commentData !== null ? (commentData.value !== undefined ? commentData.value : commentData.comment) : commentData;
         if (!comment || String(comment).trim() === '') {
-            return { isError: true, message: "A comment is required for 'Legal Nonconforming (Grandfathered Use)'." };
+            return { isError: true, message: "A comment is required for 'Legal Nonconforming (Grandfathered Use)' (rebuilt/rebuild/destroy/remould)." };
         }
-    } else if (value === 'No Zoning') {
-        const commentData = data?.SITE?.['No Zoning comment'];
+        return { isMatch: true, message: `Nonconforming comment found: ${String(comment).trim().slice(0, 100)}` };
+    } else if (value === 'Legal') {
+        return { isMatch: true, message: "Zoning is Legal." };
+    } else if (value === 'No Zoning' || value.toLowerCase().includes('no zoning')) {
+        const commentData = data?.SITE?.['No Zoning comment'] ?? data?.['No Zoning comment'];
         const comment = typeof commentData === 'object' && commentData !== null ? (commentData.value !== undefined ? commentData.value : commentData.comment) : commentData;
         if (!comment || String(comment).trim() === '') {
             return { isError: true, message: "A comment is required for 'No Zoning'." };
@@ -25,6 +33,19 @@ export const checkZoning = (field, text, data) => {
         return { isError: true, message: `Invalid Zoning Compliance value: '${value}'.` };
     }
     return { isMatch: true };
+};
+
+export const checkNonconformingComment = (field, text, data) => {
+    if (!field || (!field.toLowerCase().includes('nonconforming') && !field.toLowerCase().includes('zoning compliance comment'))) return null;
+    const value = String(text || '').trim();
+    if (!value) {
+        return { isError: true, message: "Comment required: please specify whether the improvements may be rebuilt if destroyed." };
+    }
+    const hasRebuildKeyword = /\b(re-?built|re-?build(?:ing)?|destroy(?:ed)?|destruct(?:ion)?|re-?mould(?:ed)?|re-?model(?:ed|ing)?|re-?construct(?:ed|ion)?)\b/i.test(value);
+    if (!hasRebuildKeyword) {
+        return { isError: true, message: "Comment should state whether subject can be rebuilt if destroyed." };
+    }
+    return { isMatch: true, message: "Rebuild commentary verified." };
 };
 
 export const checkZoningDescription = (field, text) => {

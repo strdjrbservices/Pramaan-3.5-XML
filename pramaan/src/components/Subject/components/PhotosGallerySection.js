@@ -401,9 +401,13 @@ export const PhotosGallerySection = ({
                         </Typography>
                       )}
 
-                      {(photo.sale_price || photo.proximity || photo.gla) && (
+                      {(photo.sale_price || photo.rent_amount || photo.monthly_rent || photo.proximity || photo.gla) && (
                         <Box sx={{ mt: 0.5, mb: 1, p: 0.75, borderRadius: 1, bgcolor: '#f8fafc', border: '1px solid #e2e8f0', fontSize: '0.72rem', color: '#334155', lineHeight: 1.4 }}>
-                          {photo.sale_price && <div><strong>Price:</strong> ${photo.sale_price}</div>}
+                          {(photo.sale_price || photo.rent_amount || photo.monthly_rent) && (
+                            <div>
+                              <strong>{photo.is_rental || photo.category === 'Rental' ? 'Rent:' : 'Price:'}</strong> ${photo.rent_amount || photo.monthly_rent || photo.sale_price}{photo.is_rental || photo.category === 'Rental' ? '/mo' : ''}
+                            </div>
+                          )}
                           {photo.proximity && <div><strong>Prox:</strong> {photo.proximity}</div>}
                           {(photo.gla || photo.bedrooms) && (
                             <div>
@@ -499,9 +503,10 @@ export const PhotosGallerySection = ({
                     <span style={{ color: '#94a3b8' }}>Prox. to Subject:</span> <strong style={{ color: '#fff' }}>{previewPhoto.proximity}</strong>
                   </Grid>
                 )}
-                {previewPhoto?.sale_price && (
+                {(previewPhoto?.sale_price || previewPhoto?.rent_amount || previewPhoto?.monthly_rent) && (
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <span style={{ color: '#94a3b8' }}>Sale Price:</span> <strong style={{ color: '#4ade80' }}>${previewPhoto.sale_price}</strong>
+                    <span style={{ color: '#94a3b8' }}>{previewPhoto.is_rental || previewPhoto.category === 'Rental' ? 'Monthly Rent:' : 'Sale Price:'}</span>{' '}
+                    <strong style={{ color: '#4ade80' }}>${previewPhoto.rent_amount || previewPhoto.monthly_rent || previewPhoto.sale_price}{previewPhoto.is_rental || previewPhoto.category === 'Rental' ? '/mo' : ''}</strong>
                   </Grid>
                 )}
                 {previewPhoto?.gla && (

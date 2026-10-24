@@ -27,16 +27,23 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
   };
 
   const getDynamicFields = () => {
-    if (id !== 'site-section' || !data) return fields;
+    if ((id !== 'site-section' && id !== 'project-site-section') || !data) return fields;
 
     let dynamicFields = [...fields];
-    const zoningComplianceValue = data?.['Zoning Compliance'];
+    const zoningComplianceRaw = data?.['Zoning Compliance']
+      ?? data?.SITE?.['Zoning Compliance']
+      ?? allData?.SITE?.['Zoning Compliance']
+      ?? allData?.['Zoning Compliance'];
+    const zoningComplianceValue = (typeof zoningComplianceRaw === 'object' && zoningComplianceRaw !== null
+      ? (zoningComplianceRaw.choice || zoningComplianceRaw.value || '')
+      : String(zoningComplianceRaw || '')).trim().toLowerCase();
     const complianceIndex = dynamicFields.indexOf('Zoning Compliance');
 
     if (complianceIndex !== -1) {
-      if (zoningComplianceValue === 'Legal Nonconforming (Grandfathered Use)' && !dynamicFields.includes('Legal Nonconforming (Grandfathered Use) comment')) {
+      const isNonconforming = zoningComplianceValue.includes('nonconforming') || zoningComplianceValue.includes('grandfathered');
+      if (isNonconforming && !dynamicFields.includes('Legal Nonconforming (Grandfathered Use) comment')) {
         dynamicFields.splice(complianceIndex + 1, 0, 'Legal Nonconforming (Grandfathered Use) comment');
-      } else if (zoningComplianceValue === 'No Zoning' && !dynamicFields.includes('No Zoning comment')) {
+      } else if (zoningComplianceValue.includes('no zoning') && !dynamicFields.includes('No Zoning comment')) {
         dynamicFields.splice(complianceIndex + 1, 0, 'No Zoning comment');
       }
     }
@@ -156,6 +163,30 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
         ?? allData?.SUBJECT?.["USPAP / Appraisal and Report Identification"]
         ?? (allData?.has_uspap_identification ? "Present" : "");
       if (uspapVal) return renderValue(uspapVal);
+    }
+    if (
+      field === 'Legal Nonconforming (Grandfathered Use) comment' ||
+      field === 'Legal Nonconforming comment' ||
+      field === 'Nonconforming comment' ||
+      field === 'Zoning Compliance comment'
+    ) {
+      const commentVal = data?.['Legal Nonconforming (Grandfathered Use) comment']
+        ?? data?.['Legal Nonconforming comment']
+        ?? data?.['Nonconforming comment']
+        ?? data?.['Zoning Compliance comment']
+        ?? data?.SITE?.['Legal Nonconforming (Grandfathered Use) comment']
+        ?? data?.SITE?.['Legal Nonconforming comment']
+        ?? data?.SITE?.['Nonconforming comment']
+        ?? data?.SITE?.['Zoning Compliance comment']
+        ?? allData?.SITE?.['Legal Nonconforming (Grandfathered Use) comment']
+        ?? allData?.SITE?.['Legal Nonconforming comment']
+        ?? allData?.SITE?.['Nonconforming comment']
+        ?? allData?.SITE?.['Zoning Compliance comment']
+        ?? allData?.['Legal Nonconforming (Grandfathered Use) comment']
+        ?? allData?.['Legal Nonconforming comment']
+        ?? allData?.['Nonconforming comment']
+        ?? allData?.['Zoning Compliance comment'];
+      if (commentVal) return renderValue(commentVal);
     }
     const val = data?.[field] 
       ?? data?.CONTRACT?.[field] 

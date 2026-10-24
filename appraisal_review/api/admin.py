@@ -8,7 +8,7 @@ class UploadedFileAdmin(admin.ModelAdmin):
     """
     Admin view for UploadedFile model.
     """
-    list_display = ('user', 'file', 'uploaded_at')
+    list_display = ('user', 'file', 'uploaded_at')  # pyrefly: ignore [inconsistent-override]
     list_filter = ('user', 'uploaded_at')
     search_fields = ('user__username', 'file')
     readonly_fields = ('uploaded_at',)
@@ -22,7 +22,7 @@ class AppraisalReportAdmin(admin.ModelAdmin):
     """
     Admin interface for viewing Appraisal Reports.
     """
-    list_display = ( 'user_name', 'file_name', 'created_at')
+    list_display = ('user_name', 'file_name', 'created_at')  # pyrefly: ignore [inconsistent-override]
     list_filter = ('created_at', 'user_name')
     search_fields = (
         'user_name',
@@ -73,6 +73,7 @@ class AppraisalReportAdmin(admin.ModelAdmin):
         else:
             return escape(str(data) if data is not None else "")
 
+    @admin.display(description='Report Data')
     def pretty_report_data(self, instance):
         """
         Formats the JSONField data into a readable HTML table.
@@ -80,8 +81,7 @@ class AppraisalReportAdmin(admin.ModelAdmin):
         table_html = self._json_to_table(instance.report_data)
         return mark_safe(f'<div style="max-height: 800px; overflow: auto;">{table_html}</div>')
 
-    pretty_report_data.short_description = 'Report Data'
-
+    @admin.display(description='Validation Log')
     def pretty_validation_log(self, instance):
         """
         Formats the validation_log JSON data into a readable HTML table.
@@ -91,14 +91,12 @@ class AppraisalReportAdmin(admin.ModelAdmin):
         table_html = self._json_to_table(instance.validation_log)
         return mark_safe(f'<div style="max-height: 600px; overflow: auto;">{table_html}</div>')
 
-    pretty_validation_log.short_description = 'Validation Log'
-
 @admin.register(ContactMessage)
 class ContactMessageAdmin(admin.ModelAdmin):
     """
     Admin view for ContactMessage model.
     """
-    list_display = ('name', 'email', 'subject', 'created_at', 'send_copy')
+    list_display = ('name', 'email', 'subject', 'created_at', 'send_copy')  # pyrefly: ignore [inconsistent-override]
     list_filter = ('created_at', 'send_copy')
     search_fields = ('name', 'email', 'subject', 'message')
     readonly_fields = ('created_at',)

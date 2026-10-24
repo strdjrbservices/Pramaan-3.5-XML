@@ -2278,9 +2278,19 @@ def extract_page_1_fields(page, full_doc_text="", fitz_page=None):
             zcomp_choice = "Illegal (describe)"
         elif re.search(r'(?:\[[Xx8]\]|[\u2611\u2612\u2713\u2714\u25a0\uf078\uf0fc\uf0fe]|[Xx8])\s*Legal\b', txt, re.IGNORECASE):
             zcomp_choice = "Legal"
-        else:
-            zcomp_choice = ""
-    site["Zoning Compliance"] = zcomp_choice
+    site["Zoning Compliance"] = zcomp_choice or ""
+    is_nc = "nonconforming" in (zcomp_choice or "").lower() or "grandfathered" in (zcomp_choice or "").lower()
+    if is_nc:
+        m_rebuild = re.search(
+            r'([^.?!;\n\r]{0,100}\b(?:rebuilt|rebuild|rebuilding|destroy(?:ed)?|destruct(?:ion)?|remould(?:ed)?|remodel(?:ed|ing)?|reconstruct(?:ed|ion)?)\b[^.?!;\n\r]{0,250}(?:[.?!]|$))',
+            txt,
+            re.IGNORECASE
+        )
+        nc_comment = m_rebuild.group(0).strip(" \t\r\n-•*\"'") if m_rebuild else ""
+        site["Legal Nonconforming (Grandfathered Use) comment"] = nc_comment
+        site["Legal Nonconforming comment"] = nc_comment
+        site["Nonconforming comment"] = nc_comment
+        site["Zoning Compliance comment"] = nc_comment
 
     # Highest & Best Use
     hbu_opts = [("Yes", ["Yes"], (405, 445)), ("No", ["No"], (445, 485))]

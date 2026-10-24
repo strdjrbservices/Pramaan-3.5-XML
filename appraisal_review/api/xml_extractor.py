@@ -195,6 +195,105 @@ def _extract_appraiser_fee(full_narrative: str = "", embedded_doc: Optional[ET.E
     return ""
 
 
+def _extract_nonconforming_rebuild_comment(
+    full_narrative: str = "",
+    dom_narratives: Optional[List[str]] = None,
+    root: Optional[ET.Element] = None
+) -> str:
+    """
+    If Zoning Compliance is nonconforming, finds and extracts commentary regarding
+    whether the subject property/improvements can be rebuilt, rebuild, destroyed, or remoulded.
+    Keywords: rebuilt, rebuild, destroy, remould.
+    """
+    search_texts = []
+    if full_narrative:
+        search_texts.append(full_narrative)
+    if dom_narratives:
+        search_texts.extend(dom_narratives)
+
+    if root is not None:
+        for elem in root.iter():
+            for k, v in elem.attrib.items():
+                if v and any(kw in v.lower() for kw in ["rebuilt", "rebuild", "destroy", "remould", "remodel", "reconstruct"]):
+                    search_texts.append(v)
+            if elem.text and any(kw in elem.text.lower() for kw in ["rebuilt", "rebuild", "destroy", "remould", "remodel", "reconstruct"]):
+                search_texts.append(elem.text)
+
+    combined_text = "\n\n".join(search_texts)
+    if not combined_text:
+        return ""
+
+    kw_pattern = re.compile(
+        r'\b(?:re-?built|re-?build(?:ing)?|destroy(?:ed)?|destruct(?:ion)?|re-?mould(?:ed)?|re-?model(?:ed|ing)?|re-?construct(?:ed|ion)?)\b',
+        re.IGNORECASE
+    )
+
+    candidates = []
+
+    # 1. Sentence-level and clean chunk checks
+    chunks = [c.strip(" \t\r\n-•*\"'") for c in re.split(r'(?<=[.?!;])\s+|[\r\n]+', combined_text) if c.strip(" \t\r\n-•*\"'")]
+    for idx, c_clean in enumerate(chunks):
+        if len(c_clean) < 10 or len(c_clean) > 800:
+            continue
+        if kw_pattern.search(c_clean):
+            score = 0
+            c_lower = c_clean.lower()
+            if any(term in c_lower for term in ["zoning", "nonconforming", "non-conforming", "grandfathered", "compliance"]):
+                score += 30
+            if "rebuilt" in c_lower or "rebuild" in c_lower:
+                score += 10
+            if "destroy" in c_lower or "destroyed" in c_lower:
+                score += 10
+            if "remould" in c_lower or "remodel" in c_lower:
+                score += 8
+            if any(term in c_lower for term in ["can be", "may be", "allowed", "permitted", "subject", "structure", "improvements"]):
+                score += 5
+
+            context_chunk = c_clean
+            if idx > 0 and any(term in chunks[idx - 1].lower() for term in ["zoning", "nonconforming", "non-conforming", "grandfathered"]):
+                context_chunk = f"{chunks[idx - 1]} {c_clean}"
+                score += 20
+            elif idx < len(chunks) - 1 and any(term in chunks[idx + 1].lower() for term in ["zoning", "nonconforming", "non-conforming", "grandfathered"]):
+                context_chunk = f"{c_clean} {chunks[idx + 1]}"
+                score += 20
+
+            candidates.append((score, context_chunk))
+
+    # 2. Paragraph-level checks fallback
+    paragraphs = [p.strip(" \t\r\n-•*\"'") for p in re.split(r'(?:[\r\n]\s*){2,}', combined_text) if p.strip(" \t\r\n-•*\"'")]
+    for p_clean in paragraphs:
+        if len(p_clean) < 10 or len(p_clean) > 1200:
+            continue
+        if kw_pattern.search(p_clean):
+            p_lower = p_clean.lower()
+            score = 0
+            if any(term in p_lower for term in ["zoning", "nonconforming", "non-conforming", "grandfathered", "compliance"]):
+                score += 20
+            if "rebuilt" in p_lower or "rebuild" in p_lower:
+                score += 8
+            if "destroy" in p_lower or "destroyed" in p_lower:
+                score += 8
+            if "remould" in p_lower or "remodel" in p_lower:
+                score += 6
+            if any(term in p_lower for term in ["can be", "may be", "allowed", "permitted", "subject", "structure", "improvements"]):
+                score += 4
+            candidates.append((score, p_clean))
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
+
+    m = re.search(
+        r'([^.?!;\n\r]{0,100}\b(?:rebuilt|rebuild|destroy(?:ed)?|remould)\b[^.?!;\n\r]{0,200}(?:[.?!]|$))',
+        combined_text,
+        re.IGNORECASE
+    )
+    if m:
+        return m.group(0).strip(" \t\r\n-•*\"'")
+
+    return ""
+
+
 def _detect_1004mc_presence(root: ET.Element, embedded_doc: Optional[ET.Element] = None) -> Tuple[bool, str]:
     """
     Identifies whether 1004MC (Market Conditions Addendum) is present in MISMO XML.
@@ -810,12 +909,18 @@ def _format_mat_cond(raw_val: Any, default_cond: str = "Average") -> str:
     return f"{val} / {default_cond}"
 
 
-def extract_comp_photo_metadata(page: Any, frame: Any, body_blocks: Optional[List[Any]] = None) -> Dict[str, Any]:
+def extract_comp_photo_metadata(
+    page: Any,
+    frame: Any,
+    body_blocks: Optional[List[Any]] = None,
+    reference_records: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
-    Extracts structured metadata for a comparable or rental photograph from photo addendum pages.
+    Extracts structured metadata for a comparable, rental, or subject photograph from photo addendum pages.
     Handles TOTAL by a la mode, ACI, ClickFORMS, Bradford, SFREP, etc.
-    Extracts: comp_num, address, proximity, sale_price, gla, total_rooms, bedrooms, bathrooms,
-             location, view, site, quality, age, and raw metadata dictionary.
+    Extracts: comp_num, street, address, proximity, sale_price, monthly_rent, gla,
+             total_rooms, bedrooms, bathrooms, location, view, site, quality, age, and raw metadata dictionary.
+    Cross-references with document reference records (Sales Grid, Rent Schedule, Subject) for 100% address accuracy.
     """
     if body_blocks is None:
         blocks = page.get_text("blocks")
@@ -827,36 +932,111 @@ def extract_comp_photo_metadata(page: Any, frame: Any, body_blocks: Optional[Lis
         if b[0] >= frame.x1 - 35 and b[1] >= frame.y0 - 25 and b[3] <= frame.y1 + 45
     ]
 
+    def is_street_address_line(text: str) -> bool:
+        t = text.strip()
+        if not t:
+            return False
+        if not re.match(r'^\d{1,6}\s+[A-Za-z0-9#\.\'\-]', t):
+            return False
+        if re.match(r'^\$?[\d,]+(?:\.\d+)?$', t):
+            return False
+        t_lower = t.lower()
+        if any(w in t_lower for w in [
+            "mile", "sq ft", "sq.ft", "sf", "gla", "room", "bed", "bath",
+            "res;", "q1", "q2", "q3", "q4", "q5", "q6",
+            "c1", "c2", "c3", "c4", "c5", "c6", "total", "form", "alamode", "page"
+        ]):
+            return False
+        words = re.findall(r'[A-Za-z]{2,}', t)
+        return len(words) >= 1
+
+    def is_city_state_zip_line(text: str) -> bool:
+        t = text.strip()
+        return bool(re.search(r'^[A-Za-z\s\.\-]+,\s*[A-Z]{2}(?:\s*\d{5}(?:-\d{4})?)?$', t))
+
     title = ""
     comp_num = None
+    category = "General"
+    is_subject = False
+    is_rental = False
+    is_comp = False
+
+    # Check title across all right blocks
     for b in right_blocks:
         txt = b[4].strip()
-        m_comp = re.search(r'^(?:COMPARABLE\s*(?:SALE|RENTAL)?|RENTAL|LISTING)?\s*#?\s*(\d+)$', txt, re.IGNORECASE)
-        if not m_comp:
-            m_comp = re.search(r'^(?:Comparable|Rental|Listing)\s*#?\s*(\d+)', txt, re.IGNORECASE)
-        if m_comp:
-            title = txt.split('\n')[0].strip()
-            comp_num = int(m_comp.group(1))
+        for line in txt.split('\n'):
+            line = line.strip()
+            m_sub = re.search(r'^(Subject\s+(?:Front|Rear|Street|Side|Garage|Exterior|Entry|Property))\b', line, re.I)
+            if m_sub:
+                title = m_sub.group(1).title()
+                category = "Subject"
+                is_subject = True
+                break
+            m_rent = re.search(r'^(?:Rental|Comparable\s+Rental)\s*#?\s*(\d+)', line, re.I)
+            if m_rent:
+                comp_num = int(m_rent.group(1))
+                title = f"Rental {comp_num}"
+                category = "Rental"
+                is_rental = True
+                break
+            m_comp = re.search(r'^(?:Comparable(?:\s*Sale)?|Comp)\s*#?\s*(\d+)', line, re.I)
+            if m_comp:
+                comp_num = int(m_comp.group(1))
+                title = f"Comparable {comp_num}"
+                category = "Comparable"
+                is_comp = True
+                break
+        if title:
             break
 
+    page_header_sample = ""
+    try:
+        page_header_sample = (page.get_text()[:400] or "").upper()
+    except Exception:
+        pass
+
+    if not category or category == "General":
+        if any(k in page_header_sample for k in ["SUBJECT PROPERTY PHOTO", "SUBJECT PHOTO"]):
+            category = "Subject"
+            is_subject = True
+        elif any(k in page_header_sample for k in ["RENTAL PHOTO", "FORM DLSTRNT", "RENTALS PHOTO"]):
+            category = "Rental"
+            is_rental = True
+        elif any(k in page_header_sample for k in ["COMPARABLE PHOTO", "COMPARABLE PROPERTY", "FORM PICPIX.CR"]):
+            category = "Comparable"
+            is_comp = True
+
+    # Identify street address lines
+    street = ""
+    city_state_zip = ""
+    all_lines = []
+    for b in right_blocks:
+        lines = [l.strip() for l in b[4].split('\n') if l.strip()]
+        all_lines.extend(lines)
+        for i, l in enumerate(lines):
+            if not street and is_street_address_line(l):
+                street = l
+                if i + 1 < len(lines) and is_city_state_zip_line(lines[i+1]):
+                    city_state_zip = lines[i+1]
+
     known_keys = [
-        "prox. to subject", "proximity", "sale price", "list price", "rental price", "monthly rent",
+        "prox. to subject", "proximity to subject", "proximity", "sale price", "sales price",
+        "list price", "rental price", "adj. monthly rent", "monthly rent",
         "gross living area", "gla", "total rooms", "total bedrooms", "total bathrooms",
-        "location", "view", "site", "quality", "age", "actual age", "condition"
+        "location", "view", "site", "quality", "age", "actual age", "condition", "age/year built"
     ]
 
     key_block = None
     val_block = None
     for b in right_blocks:
         b_lines = [l.strip() for l in b[4].split('\n') if l.strip()]
-        matched_keys = sum(1 for l in b_lines if l.lower() in known_keys or any(k in l.lower() for k in ["prox", "sale price", "living area", "bathrooms"]))
+        matched_keys = sum(1 for l in b_lines if l.lower() in known_keys or any(k in l.lower() for k in ["prox", "sale price", "living area", "bathrooms", "monthly rent"]))
         if matched_keys >= 3:
             key_block = b_lines
         elif len(b_lines) >= 3 and not any(l.lower() in known_keys for l in b_lines[:3]):
             val_block = b_lines
 
     meta_dict = {}
-    address = ""
     proximity = ""
     sale_price = ""
     gla = ""
@@ -870,12 +1050,29 @@ def extract_comp_photo_metadata(page: Any, frame: Any, body_blocks: Optional[Lis
     age = ""
 
     if key_block and val_block:
-        address = val_block[0]
-        meta_dict["Address"] = address
+        # Determine value offset
+        offset = 0
+        if is_subject and any("sale price" in k.lower() for k in key_block[:2]) and len(val_block) < len(key_block):
+            # In Subject photo cards, Sales Price is blank; values align starting at GLA
+            sp_idx = next(i for i, k in enumerate(key_block) if "sale price" in k.lower())
+            key_block = key_block[sp_idx + 1:]
+            offset = 0
+        elif any(k.lower() in ["address", "property address"] for k in key_block[:2]):
+            offset = 0
+        else:
+            if len(val_block) > 0 and is_street_address_line(val_block[0]):
+                offset += 1
+                if not street:
+                    street = val_block[0]
+            if len(val_block) > 1 and is_city_state_zip_line(val_block[1]):
+                offset += 1
+                if not city_state_zip:
+                    city_state_zip = val_block[1]
+
         for idx, k in enumerate(key_block):
-            val_idx = idx + 1
+            val_idx = idx + offset
             if val_idx < len(val_block):
-                v = val_block[val_idx]
+                v = val_block[val_idx].strip()
                 k_clean = k.strip()
                 meta_dict[k_clean] = v
                 k_lower = k_clean.lower()
@@ -888,39 +1085,66 @@ def extract_comp_photo_metadata(page: Any, frame: Any, body_blocks: Optional[Lis
                 elif "location" in k_lower: location = v
                 elif "view" in k_lower: view = v
                 elif "site" in k_lower: site = v
-                elif "quality" in k_lower: quality = v
+                elif "quality" in k_lower or "condition" in k_lower: quality = v
                 elif "age" in k_lower: age = v
-    else:
-        # Fallback for key: value format
-        for b in right_blocks:
-            lines = [l.strip() for l in b[4].split('\n') if l.strip()]
-            for line in lines:
-                m_kv = re.match(r'^([^:\-]+)[:\-]\s*(.+)$', line)
-                if m_kv:
-                    k, v = m_kv.group(1).strip(), m_kv.group(2).strip()
-                    meta_dict[k] = v
-                    k_lower = k.lower()
-                    if "prox" in k_lower: proximity = v
-                    elif "price" in k_lower: sale_price = v
-                    elif "gla" in k_lower or "living" in k_lower: gla = v
-                    elif "bed" in k_lower: bedrooms = v
-                    elif "bath" in k_lower: bathrooms = v
-                    elif "location" in k_lower: location = v
-                    elif "view" in k_lower: view = v
-                    elif "site" in k_lower: site = v
-                    elif "quality" in k_lower: quality = v
-                    elif "age" in k_lower: age = v
-                elif not address and not any(k in line.lower() for k in ["comparable", "photo", "total", "alamode", "form", "page"]):
-                    if re.match(r'^\d+\s+[A-Za-z]', line):
-                        address = line
-                        meta_dict["Address"] = address
+
+    # Fallback to key: value regex
+    if not proximity and not sale_price:
+        for line in all_lines:
+            m_kv = re.match(r'^([^:\-]+)[:\-]\s*(.+)$', line)
+            if m_kv:
+                k, v = m_kv.group(1).strip(), m_kv.group(2).strip()
+                meta_dict[k] = v
+                k_lower = k.lower()
+                if "prox" in k_lower and not proximity: proximity = v
+                elif "price" in k_lower and not sale_price: sale_price = v
+                elif "rent" in k_lower and not sale_price: sale_price = v
+                elif ("living" in k_lower or "gla" in k_lower) and not gla: gla = v
+                elif "bed" in k_lower and not bedrooms: bedrooms = v
+                elif "bath" in k_lower and not bathrooms: bathrooms = v
+
+    # Build full address
+    full_address = f"{street}, {city_state_zip}".strip(", ") if (street and city_state_zip) else street
+
+    # Cross-reference enrichment with Document Baseline Records
+    if reference_records:
+        if is_subject or category == "Subject":
+            sub_ref = reference_records.get("subject") or {}
+            if sub_ref:
+                if not street:
+                    street = sub_ref.get("street") or ""
+                if not full_address or full_address == street:
+                    full_address = sub_ref.get("address") or f"{street}, {sub_ref.get('city','')}, {sub_ref.get('state','')} {sub_ref.get('zipcode','')}".strip(", ")
+        elif is_comp and comp_num:
+            sc = next((c for c in reference_records.get("sales_comps", []) if c.get("comp_num") == comp_num), None)
+            if sc:
+                if not street:
+                    street = sc.get("street") or ""
+                if not full_address or full_address == street:
+                    full_address = sc.get("address") or f"{street}, {sc.get('city','')}, {sc.get('state','')} {sc.get('zipcode','')}".strip(", ")
+                if not proximity: proximity = sc.get("proximity") or ""
+                if not sale_price: sale_price = sc.get("sale_price") or ""
+        elif is_rental and comp_num:
+            rc = next((r for r in reference_records.get("rental_comps", []) if r.get("comp_num") == comp_num), None)
+            if rc:
+                if not street:
+                    street = rc.get("street") or ""
+                if not full_address or full_address == street:
+                    full_address = rc.get("address") or f"{street}, {rc.get('city','')}, {rc.get('state','')} {rc.get('zipcode','')}".strip(", ")
+                if not proximity: proximity = rc.get("proximity") or ""
+                if not sale_price: sale_price = rc.get("monthly_rent") or ""
 
     return {
-        "title": title or (f"Comparable {comp_num}" if comp_num else "Comparable"),
+        "title": title or (f"{category} {comp_num}" if comp_num else f"{category} Photo"),
         "comp_num": comp_num,
-        "address": address,
+        "category": category,
+        "is_rental": is_rental,
+        "street": street,
+        "address": full_address,
         "proximity": proximity,
-        "sale_price": sale_price,
+        "sale_price": sale_price if not is_subject else "",
+        "monthly_rent": sale_price if is_rental else "",
+        "rent_amount": sale_price if is_rental else "",
         "gla": gla,
         "total_rooms": total_rooms,
         "bedrooms": bedrooms,
@@ -934,11 +1158,13 @@ def extract_comp_photo_metadata(page: Any, frame: Any, body_blocks: Optional[Lis
     }
 
 
+
 def extract_photos_from_xml(
     xml_path_or_bytes: Any,
     max_photos: int = 100,
     dpi: int = 72,
-    include_images: bool = True
+    include_images: bool = True,
+    reference_records: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
     """
     Dynamically extracts all photos and their labels/captions from any MISMO 2.6 XML file.
@@ -989,6 +1215,44 @@ def extract_photos_from_xml(
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
         return []
+
+    if reference_records is None:
+        reference_records = {"subject": None, "sales_comps": [], "rental_comps": []}
+        try:
+            # 1. Subject from XML tags
+            m_prop = re.search(r'<(?:_|PROPERTY_)?StreetAddress>([^<]+)', xml_text, re.I)
+            if not m_prop:
+                m_prop = re.search(r'StreetAddress=["\']([^"\']+)["\']', xml_text, re.I)
+            m_city = re.search(r'<(?:_|PROPERTY_)?City>([^<]+)', xml_text, re.I) or re.search(r'City=["\']([^"\']+)["\']', xml_text, re.I)
+            m_state = re.search(r'<(?:_|PROPERTY_)?State>([^<]+)', xml_text, re.I) or re.search(r'State=["\']([^"\']+)["\']', xml_text, re.I)
+            m_zip = re.search(r'<(?:_|PROPERTY_)?PostalCode>([^<]+)', xml_text, re.I) or re.search(r'PostalCode=["\']([^"\']+)["\']', xml_text, re.I)
+            if m_prop:
+                st = m_prop.group(1).strip()
+                city = m_city.group(1).strip() if m_city else ""
+                state = m_state.group(1).strip() if m_state else ""
+                zipc = m_zip.group(1).strip() if m_zip else ""
+                full = f"{st}, {city}, {state} {zipc}".strip(", ")
+                reference_records["subject"] = {"street": st, "city": city, "state": state, "zipcode": zipc, "address": full}
+
+            # 2. Extract from PDF text if doc is available
+            if doc:
+                for pno in range(len(doc)):
+                    txt = doc[pno].get_text()
+                    if not reference_records["subject"] and any(k in txt.upper() for k in ["SUBJECT PROPERTY", "UNIFORM RESIDENTIAL"]):
+                        m_addr = re.search(r'Property\s+Address\s*[:\n]\s*([^\n]+)', txt, re.I)
+                        if m_addr:
+                            reference_records["subject"] = {"street": m_addr.group(1).strip(), "address": m_addr.group(1).strip()}
+                    if ("RENTAL PHOTO PAGE" in txt.upper() or "DLSTRNT" in txt.upper()):
+                        for m in re.finditer(r'Rental\s+(\d+)\s*\n(?:[^\n]*\n){1,15}?(\d+\s+[^\n]+)\s*\n([0-9.]+\s*miles?[^\n]*)', txt, re.I):
+                            r_num = int(m.group(1))
+                            r_addr = m.group(2).strip()
+                            r_prox = m.group(3).strip()
+                            if not any(r["comp_num"] == r_num for r in reference_records["rental_comps"]):
+                                reference_records["rental_comps"].append({
+                                    "comp_num": r_num, "street": r_addr, "address": r_addr, "proximity": r_prox, "monthly_rent": ""
+                                })
+        except Exception:
+            pass
 
     photos = []
     photo_count = 0
@@ -1050,7 +1314,9 @@ def extract_photos_from_xml(
         for r in rects:
             merged = False
             for c in clusters:
-                if abs(c.x0 - r.x0) < 18 and abs(c.x1 - r.x1) < 18 and (r.y0 <= c.y1 + 12):
+                is_slice = (c.height < 60 or r.height < 60)
+                overlaps = (r.y0 < c.y1 - 5)
+                if abs(c.x0 - r.x0) < 18 and abs(c.x1 - r.x1) < 18 and (overlaps or (is_slice and r.y0 <= c.y1 + 12)):
                     c.y1 = max(c.y1, r.y1)
                     merged = True
                     break
@@ -1193,14 +1459,18 @@ def extract_photos_from_xml(
                 except Exception:
                     pass
 
-            # Extract comparable metadata if on comparable/rental photo pages
+            # Extract photo metadata (Subject, Comparable, Rental)
             comp_meta = {}
-            if category in ["Comparable", "Rental"] or any(k in raw_upper for k in ["COMPARABLE PHOTO", "COMPARABLE PROPERTY", "FORM PICPIX"]):
-                comp_meta = extract_comp_photo_metadata(page, frame, body_blocks)
-                if comp_meta.get("comp_num"):
-                    category = "Comparable"
-                    if not best_label or "Photo" in best_label:
-                        best_label = comp_meta["title"]
+            if category in ["Comparable", "Rental", "Subject"] or any(k in raw_upper for k in [
+                "COMPARABLE PHOTO", "COMPARABLE PROPERTY", "FORM PICPIX",
+                "RENTAL PHOTO", "FORM DLSTRNT", "RENTALS PHOTO",
+                "SUBJECT PROPERTY PHOTO", "SUBJECT PHOTO"
+            ]):
+                comp_meta = extract_comp_photo_metadata(page, frame, body_blocks, reference_records=reference_records)
+                if comp_meta.get("category") and comp_meta.get("category") != "General":
+                    category = comp_meta["category"]
+                if comp_meta.get("title"):
+                    best_label = comp_meta["title"]
 
             photo_count += 1
             photo_item = {
@@ -1221,12 +1491,18 @@ def extract_photos_from_xml(
                 }
             }
 
-            if comp_meta and (comp_meta.get("address") or comp_meta.get("comp_num")):
+            if comp_meta:
+                is_rent = (category == "Rental") or comp_meta.get("is_rental", False)
                 photo_item.update({
+                    "is_rental": is_rent,
                     "comp_number": comp_meta.get("comp_num"),
+                    "comp_num": comp_meta.get("comp_num"),
+                    "street": comp_meta.get("street", ""),
                     "address": comp_meta.get("address", ""),
                     "proximity": comp_meta.get("proximity", ""),
-                    "sale_price": comp_meta.get("sale_price", ""),
+                    "sale_price": comp_meta.get("sale_price", "") if not (category == "Subject") else "",
+                    "rent_amount": comp_meta.get("rent_amount", "") or (comp_meta.get("sale_price", "") if is_rent else ""),
+                    "monthly_rent": comp_meta.get("monthly_rent", "") or (comp_meta.get("sale_price", "") if is_rent else ""),
                     "gla": comp_meta.get("gla", ""),
                     "total_rooms": comp_meta.get("total_rooms", ""),
                     "bedrooms": comp_meta.get("bedrooms", ""),
@@ -1238,10 +1514,23 @@ def extract_photos_from_xml(
                     "age": comp_meta.get("age", ""),
                     "metadata": comp_meta.get("metadata", {})
                 })
-                if comp_meta.get("address"):
-                    photo_item["caption"] = f"{best_label} - {comp_meta['address']}"
+                display_addr = comp_meta.get("street") or comp_meta.get("address")
+                if display_addr and not any(display_addr in best_label for _ in [1]):
+                    photo_item["caption"] = f"{best_label} - {display_addr}"
 
             photos.append(photo_item)
+
+    # Final pass to ensure all Subject and Interior photos have the verified Subject property address
+    sub_ref = (reference_records.get("subject") or {}) if reference_records else {}
+    sub_addr = sub_ref.get("address") or f"{sub_ref.get('street', '')}, {sub_ref.get('city', '')}, {sub_ref.get('state', '')} {sub_ref.get('zipcode', '')}".strip(", ")
+    sub_st = sub_ref.get("street") or ""
+    if sub_addr or sub_st:
+        for p in photos:
+            if p.get("category") in ["Subject", "Interior"]:
+                if not p.get("address"):
+                    p["address"] = sub_addr
+                if not p.get("street"):
+                    p["street"] = sub_st
 
     return photos
 
@@ -1574,7 +1863,18 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         site_area = site_elem.attrib.get("_AreaDescription", "")
         zoning_class = site_elem.attrib.get("_ZoningClassificationIdentifier", "")
         zoning_desc = site_elem.attrib.get("_ZoningClassificationDescription", "")
-        zoning_comp = site_elem.attrib.get("_ZoningComplianceType", "")
+        zcomp_raw = site_elem.attrib.get("_ZoningComplianceType", "")
+        if "nonconforming" in zcomp_raw.lower() or "grandfathered" in zcomp_raw.lower():
+            zoning_comp = "Legal Nonconforming (Grandfathered Use)"
+        elif "no zoning" in zcomp_raw.lower() or zcomp_raw.lower() == "nozoning":
+            zoning_comp = "No Zoning"
+        elif "illegal" in zcomp_raw.lower():
+            zoning_comp = "Illegal (describe)"
+        elif zcomp_raw.lower() == "legal":
+            zoning_comp = "Legal"
+        else:
+            zoning_comp = zcomp_raw
+
         hbu_ind = site_elem.attrib.get("HighestBestUseIndicator", "")
         if hbu_ind.upper() == "Y":
             hbu = "Yes"
@@ -1615,6 +1915,21 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
                     util_dict[utype] = uval
                 if uval:
                     utilities_list.append(f"{utype}: {uval}")
+
+    if not zoning_comp:
+        z_elem = root.find(".//*[@_ZoningComplianceType]")
+        if z_elem is not None:
+            zcomp_raw = z_elem.attrib.get("_ZoningComplianceType", "")
+            if "nonconforming" in zcomp_raw.lower() or "grandfathered" in zcomp_raw.lower():
+                zoning_comp = "Legal Nonconforming (Grandfathered Use)"
+            elif "no zoning" in zcomp_raw.lower() or zcomp_raw.lower() == "nozoning":
+                zoning_comp = "No Zoning"
+            elif "illegal" in zcomp_raw.lower():
+                zoning_comp = "Illegal (describe)"
+            elif zcomp_raw.lower() == "legal":
+                zoning_comp = "Legal"
+            else:
+                zoning_comp = zcomp_raw
 
     utilities_str = ", ".join(utilities_list)
 
@@ -2924,7 +3239,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
             except Exception:
                 pass
 
-    full_narrative = (addendum_text + " " + " ".join(dom_narratives) + " " + pdf_text).strip()
+    full_narrative = "\n\n".join(t for t in [addendum_text] + dom_narratives + [pdf_text] if t).strip()
 
     # ANSI (compulsory field)
     ansi_comment = "Not Present"
@@ -3243,6 +3558,15 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "Market Conditions:": nb_mkt,
     }
 
+    nonconforming_comment = ""
+    is_nonconforming = "nonconforming" in (zoning_comp or "").lower() or "grandfathered" in (zoning_comp or "").lower()
+    if is_nonconforming:
+        nonconforming_comment = _extract_nonconforming_rebuild_comment(
+            full_narrative=full_narrative,
+            dom_narratives=dom_narratives,
+            root=root
+        )
+
     site_section = {
         "Dimensions": site_dim,
         "Area": site_area,
@@ -3251,6 +3575,10 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "Specific Zoning Classification": zoning_class,
         "Zoning Description": zoning_desc,
         "Zoning Compliance": zoning_comp,
+        "Legal Nonconforming (Grandfathered Use) comment": nonconforming_comment,
+        "Legal Nonconforming comment": nonconforming_comment,
+        "Nonconforming comment": nonconforming_comment,
+        "Zoning Compliance comment": nonconforming_comment,
         "Is the highest and best use of subject property as improved (or as proposed per plans and specifications) the present use?": hbu,
         "Highest & Best Use": hbu,
         "Electricity": util_dict.get("Electricity", ""),
@@ -4230,10 +4558,53 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
     # 10. Extract Photo Exhibits & Visual Addenda
     extracted_photos = []
     try:
-        extracted_photos = extract_photos_from_xml(xml_path_or_bytes, max_photos=100, dpi=72, include_images=extract_images)
-        for ph in extracted_photos:
-            if ph.get("category") in ["Subject", "Interior"] and not ph.get("address"):
-                ph["address"] = full_addr or prop_addr
+        refs_for_photos = {
+            "subject": {
+                "street": clean_subject.get("Property Address") or prop_addr or "",
+                "city": clean_subject.get("City") or prop_city or "",
+                "state": clean_subject.get("State") or prop_state or "",
+                "zipcode": clean_subject.get("Zip Code") or prop_zip or "",
+                "address": clean_subject.get("Full Address") or full_addr or prop_addr or ""
+            },
+            "sales_comps": [],
+            "rental_comps": []
+        }
+        for k, v in clean_sales_grid.items():
+            if k != "Subject" and isinstance(v, dict):
+                m = re.search(r'\d+', k)
+                cnum = int(m.group(0)) if m else len(refs_for_photos["sales_comps"]) + 1
+                st = v.get("Street Address") or v.get("Address") or ""
+                refs_for_photos["sales_comps"].append({
+                    "comp_num": cnum,
+                    "street": st,
+                    "address": v.get("Address") or st,
+                    "proximity": v.get("Proximity to Subject") or "",
+                    "sale_price": v.get("Sale Price") or ""
+                })
+        rgrid = comparable_rental_data or single_family_rent_schedule or {}
+        for k, v in rgrid.items():
+            if isinstance(v, dict) and any(x in k.upper() for x in ["RENTAL", "COMPARABLE NO"]):
+                m = re.search(r'\d+', k)
+                cnum = int(m.group(0)) if m else len(refs_for_photos["rental_comps"]) + 1
+                if not any(r["comp_num"] == cnum for r in refs_for_photos["rental_comps"]):
+                    addr = v.get("Address") or ""
+                    m_st = re.match(r'^([^,]+)', addr)
+                    st = m_st.group(1).strip() if m_st else addr
+                    refs_for_photos["rental_comps"].append({
+                        "comp_num": cnum,
+                        "street": st,
+                        "address": addr,
+                        "proximity": v.get("Proximity to Subject") or v.get("Proximity") or "",
+                        "monthly_rent": v.get("Monthly Rental") or v.get("Adjusted Monthly Rent") or ""
+                    })
+
+        extracted_photos = extract_photos_from_xml(
+            xml_path_or_bytes,
+            max_photos=100,
+            dpi=72,
+            include_images=extract_images,
+            reference_records=refs_for_photos
+        )
     except Exception:
         pass
 
@@ -4604,7 +4975,13 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "SUBJECT": clean_subject,
         "CONTRACT": contract_section,
         "NEIGHBORHOOD": neighborhood_section,
+        "Legal Nonconforming (Grandfathered Use) comment": nonconforming_comment,
+        "Legal Nonconforming comment": nonconforming_comment,
+        "Nonconforming comment": nonconforming_comment,
+        "Zoning Compliance comment": nonconforming_comment,
         "SITE": site_section,
+        "PROJECT_SITE": site_section,
+        "Project Site": site_section,
         "IMPROVEMENTS": improvements_section,
         "SALES_GRID": sales_grid,
         "Sales Grid": clean_sales_grid,

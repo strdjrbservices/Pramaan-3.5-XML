@@ -25,6 +25,7 @@ def _extract_full_text_with_pages(pdf_path: str):
         return pages_text
 
     if pdf_path.lower().endswith(".xml"):
+        root = None
         # 1. Check if XML contains embedded base64 PDF stream
         try:
             import xml.etree.ElementTree as ET
@@ -42,12 +43,33 @@ def _extract_full_text_with_pages(pdf_path: str):
                 for idx, page in enumerate(doc):
                     text = page.get_text() or ""
                     pages_text.append({"page_no": idx + 1, "text": text})
-                if pages_text:
-                    return pages_text
         except Exception:
             pass
 
-        # 2. Extract full text from XML tags / comments in chunks
+        # 2. Extract full text from XML DOM tags, comments, and attributes
+        try:
+            if root is None:
+                import xml.etree.ElementTree as ET
+                tree = ET.parse(pdf_path)
+                root = tree.getroot()
+            dom_texts = []
+            for elem in root.iter():
+                for k, v in elem.attrib.items():
+                    if v and not v.startswith("JVBERi") and len(v.strip()) > 1:
+                        dom_texts.append(v.strip())
+                if elem.text and not elem.text.startswith("JVBERi"):
+                    t = elem.text.strip()
+                    if len(t) > 3 and not t.startswith("<?xml"):
+                        dom_texts.append(t)
+            if dom_texts:
+                pages_text.append({"page_no": "XML Data", "text": "\n".join(dom_texts)})
+        except Exception:
+            pass
+
+        if pages_text:
+            return pages_text
+
+        # 3. Fallback to raw text from XML
         try:
             with open(pdf_path, "r", encoding="utf-8", errors="ignore") as f:
                 xml_raw = f.read()
@@ -657,9 +679,33 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         lender_name = lender_obj
 
     if not lender_name:
-        m = re.search(r"LENDER/CLIENT\s*[:\-]?\s*([^\n\r]+)", full_text, re.IGNORECASE)
+        for k in ["Lender/Client", "Lender/Client Name", "LENDER/CLIENT Name", "Lender/Client Company Name", "Lender Name"]:
+            val = _get_field_val(data, "Subject", k) or data.get(k)
+            if isinstance(val, dict):
+                val = val.get("value", "")
+            if val and isinstance(val, str) and val.strip():
+                lender_name = val.strip()
+                break
+
+    if not lender_name:
+        m = re.search(r"(?:LENDER/CLIENT|LENDER|CLIENT)\s*[:\-]?\s*([^\n\r<]+)", full_text, re.IGNORECASE)
         if m:
             lender_name = m.group(1).strip()
+
+    if not lender_name and "equity wave" in full_text.lower():
+        lender_name = "Equity Wave Lending, Inc"
+    elif not lender_name and "foundation mortgage" in full_text.lower():
+        lender_name = "Foundation Mortgage"
+    elif not lender_name and "rain city" in full_text.lower():
+        lender_name = "Rain City Capital"
+    elif not lender_name and "east coast capital" in full_text.lower():
+        lender_name = "East Coast Capital Corp"
+    elif not lender_name and "futures financial" in full_text.lower():
+        lender_name = "Futures Financial"
+    elif not lender_name and "dart bank" in full_text.lower():
+        lender_name = "Dart Bank"
+    elif not lender_name and ("loanguys" in full_text.lower() or "loan guys" in full_text.lower()):
+        lender_name = "Loanguys.com inc"
 
     # Check custom_prompt for specific client focus if lender_name is generic or not matched
     if custom_prompt and isinstance(custom_prompt, str):
@@ -669,6 +715,20 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
             matched_client = m_client.group(1).strip()
             if matched_client and len(matched_client) > 2 and "requirement" not in matched_client.lower():
                 lender_name = matched_client
+        elif "equity wave" in cp_lower and ("paramount residential" not in cp_lower and "visio" not in cp_lower):
+            lender_name = "Equity Wave Lending, Inc"
+        elif "foundation mortgage" in cp_lower and ("visio" not in cp_lower and "ice lender" not in cp_lower):
+            lender_name = "Foundation Mortgage"
+        elif "rain city" in cp_lower and ("visio" not in cp_lower and "ice lender" not in cp_lower):
+            lender_name = "Rain City Capital"
+        elif "east coast capital" in cp_lower and ("visio" not in cp_lower and "ice lender" not in cp_lower):
+            lender_name = "East Coast Capital Corp"
+        elif "futures financial" in cp_lower and ("visio" not in cp_lower and "ice lender" not in cp_lower):
+            lender_name = "Futures Financial"
+        elif "dart bank" in cp_lower and ("visio" not in cp_lower and "ice lender" not in cp_lower):
+            lender_name = "Dart Bank"
+        elif ("loanguys" in cp_lower or "loan guys" in cp_lower) and ("visio" not in cp_lower and "ice lender" not in cp_lower):
+            lender_name = "Loanguys.com inc"
         elif "homebridge" in cp_lower and ("paramount residential" not in cp_lower or "new american" not in cp_lower):
             lender_name = "Homebridge Financial Services"
 
@@ -1228,18 +1288,45 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
 
     # 4. Equity Wave Lending, Inc
     elif "EQUITY WAVE" in lender_upper:
-        user_page, _ = _find_keyword_in_pages(pages_text, [r"Equity\s*Wave\s*Lending,\s*Inc\.?\s*it'?s\s*investors", r"Equity\s*Wave\s*Lending"])
-        details.append({
-            "requirement": "Intended User Verbiage",
-            "status": "Fulfilled" if user_page else "Not Fulfilled",
-            "value_or_comment": f"Intended User verbiage verified on Page {user_page}." if user_page else "Please include the required Intended Use/User verbiage: 'Equity Wave Lending, Inc. it's investors, assignees, and/or successors'."
-        })
-        use_page, _ = _find_keyword_in_pages(pages_text, [r"making,\s*arranging,\s*or\s*selling\s*of\s*a\s*private\s*money", r"private\s*money/hard\s*money\s*loan"])
-        details.append({
-            "requirement": "Intended Use Verbiage",
-            "status": "Fulfilled" if use_page else "Not Fulfilled",
-            "value_or_comment": f"Intended Use verbiage verified on Page {use_page}." if use_page else "Please include the required Intended Use/User verbiage: 'The making, arranging, or selling of a private money/hard money loan'."
-        })
+        user_page, user_snip = _find_keyword_in_pages(pages_text, [
+            r"equity\s+wave\s+lending(?:\s*,\s*inc\.?)?[\s,;]+(?:it['’`]?s|its)\s+investors[\s,;]+assignees[\s,;]+(?:and\s*/?\s*or|and|or)\s+successors",
+            r"(?:intended\s+user\s*[:\-]?\s*)?equity\s+wave\s+lending(?:\s*,\s*inc\.?)?[\s,;]+(?:it['’`]?s|its)\s+investors.*?assignees.*?successors",
+            r"(?:it['’`]?s|its)\s+investors[\s,;]+assignees[\s,;]+(?:and\s*/?\s*or|and|or)\s+successors"
+        ])
+        user_loc = f"Page {user_page}" if isinstance(user_page, int) else (f"{user_page}" if user_page else "")
+        if user_page:
+            details.append({
+                "requirement": "1. Intended User: Equity Wave Lending, Inc. it's investors, assignees, and/or successors",
+                "status": "Fulfilled",
+                "value_or_comment": f"Intended User verbiage verified on {user_loc}: \"{user_snip}\"."
+            })
+        else:
+            details.append({
+                "requirement": "1. Intended User: Equity Wave Lending, Inc. it's investors, assignees, and/or successors",
+                "status": "Not Fulfilled",
+                "value_or_comment": "The appraiser is required to include the following intended use verbiage in all reports for this client. If the appraisal does not include the following statements in the report, please reject as: Intended User: Equity Wave Lending, Inc. it's investors, assignees, and/or successors"
+            })
+
+        use_page, use_snip = _find_keyword_in_pages(pages_text, [
+            r"(?:the\s+)?making[\s,]+arranging[\s,]+(?:or|and\s*/?\s*or)\s+selling\s+of\s+a\s+private\s+money\s*(?:/|\s+or\s+)\s*hard\s+money\s+loan",
+            r"making[\s,]+arranging[\s,]+(?:or|and\s*/?\s*or)\s+selling.*?private\s+money.*?hard\s+money\s+loan",
+            r"private\s+money\s*/\s*hard\s+money\s+loan",
+            r"private\s+money\s+or\s+hard\s+money\s+loan",
+            r"making,\s*arranging,\s*or\s*selling\s+of\s+a\s+private\s+money"
+        ])
+        use_loc = f"Page {use_page}" if isinstance(use_page, int) else (f"{use_page}" if use_page else "")
+        if use_page:
+            details.append({
+                "requirement": "2. Intended Use: The making, arranging, or selling of a private money/hard money loan",
+                "status": "Fulfilled",
+                "value_or_comment": f"Intended Use verbiage verified on {use_loc}: \"{use_snip}\"."
+            })
+        else:
+            details.append({
+                "requirement": "2. Intended Use: The making, arranging, or selling of a private money/hard money loan",
+                "status": "Not Fulfilled",
+                "value_or_comment": "The appraiser is required to include the following intended use verbiage in all reports for this client. If the appraisal does not include the following statements in the report, please reject as: Intended Use: The making, arranging, or selling of a private money/hard money loan"
+            })
 
     # 5. Hometown Equity
     elif "HOMETOWN EQUITY" in lender_upper:
@@ -1252,12 +1339,79 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
 
     # 6. Foundation Mortgage
     elif "FOUNDATION MORTGAGE" in lender_upper:
-        str_page, _ = _find_keyword_in_pages(pages_text, [r"STR\s*1007", r"Short\s*Term\s*Rental", r"STR\s*Form"])
-        details.append({
-            "requirement": "Short Term Rental (STR) Form",
-            "status": "Fulfilled" if str_page else "Not Applicable",
-            "value_or_comment": f"STR Form requirement verified on Page {str_page}." if str_page else "If product type includes 'STR 1007', verify specific STR form is used, not standard 1007 form."
-        })
+        # UPDATE: FOUNDATION MORTGAGE - They no longer accept Short Term Rentals on a 1007,
+        # so they provide this form for appraisers to complete with STRs.
+        # If the product type includes a "STR 1007", then this is the form that needs to be included, not a regular 1007.
+        prod_val = str(
+            _get_field_val(data, "Subject", "Product Type") or
+            _get_field_val(data, "Subject", "Product") or
+            _get_field_val(data, "Subject", "Assignment Type") or
+            _get_field_val(data, "Subject", "Form Type") or
+            data.get("Product Type") or
+            data.get("Assignment Type") or
+            ""
+        ).strip()
+        cp_str = str(custom_prompt or "")
+
+        is_str_ordered = (
+            ("STR 1007" in prod_val.upper()) or
+            ("STR" in prod_val.upper() and "1007" in prod_val.upper()) or
+            ("STR 1007" in cp_str.upper()) or
+            bool(re.search(r"\bSTR\s*1007\b|short[\s-]term\s+rental\s+1007|1007\s+STR\b", full_text, re.I))
+        )
+
+        # Check for specific STR Form (Foundation Mortgage STR form)
+        str_form_page, str_form_snip = _find_keyword_in_pages(pages_text, [
+            r"Foundation\s+Mortgage\s+STR",
+            r"Short[-\s]Term\s+Rental\s+(?:Schedule|Analysis|Addendum|Form|Report|Comparable|Worksheet)",
+            r"\bSTR\s+(?:Schedule|Analysis|Addendum|Form|Report|Worksheet)\b",
+            r"\bSTR\s*1007\s+Form\b",
+            r"Short[-\s]Term\s+Rental\s+Market\s+Analysis",
+            r"Average\s+Daily\s+Rate\s*\(?ADR\)?",
+            r"\bRevPAR\b",
+            r"AirDNA|VRBO|Airbnb\s+rental\s+data"
+        ])
+        str_loc = f"Page {str_form_page}" if isinstance(str_form_page, int) else (f"{str_form_page}" if str_form_page else "")
+
+        has_standard_1007 = (
+            ("1007" in full_text) or
+            ("Single Family Rent Schedule" in full_text) or
+            bool(data.get("COMPARABLE_RENTAL_DATA")) or
+            bool(data.get("SUBJECT_RENT_SCHEDULE"))
+        )
+        has_str_comps = bool(re.search(r"\b(?:short[-\s]term\s+rentals?|str|airbnb|vrbo|daily\s+rate|nightly\s+rate)\b", full_text, re.I))
+
+        if is_str_ordered:
+            if str_form_page:
+                details.append({
+                    "requirement": "Short Term Rental (STR) Form: Specific Form Required for STR 1007",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"Specific STR form verified on {str_loc}: \"{str_form_snip or 'Foundation Mortgage STR form'}\". Specific STR form is included as required for STR 1007 orders."
+                })
+            else:
+                details.append({
+                    "requirement": "Short Term Rental (STR) Form: Specific Form Required for STR 1007",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": "UPDATE: FOUNDATION MORTGAGE - They no longer accept Short Term Rentals on a 1007, so they provide this form for appraisers to complete with STRs. If the product type includes a \"STR 1007\", then this is the form that needs to be included, not a regular 1007."
+                })
+        elif has_standard_1007 and has_str_comps and not str_form_page:
+            details.append({
+                "requirement": "Short Term Rental (STR) Form: Specific Form Required for STRs",
+                "status": "Not Fulfilled",
+                "value_or_comment": "Short Term Rental comparables detected on standard 1007. UPDATE: FOUNDATION MORTGAGE - They no longer accept Short Term Rentals on a 1007, so they provide this form for appraisers to complete with STRs. If the product type includes a \"STR 1007\" or STRs are utilized, then this specific STR form needs to be included, not a regular 1007."
+            })
+        elif str_form_page:
+            details.append({
+                "requirement": "Short Term Rental (STR) Form",
+                "status": "Fulfilled",
+                "value_or_comment": f"Specific STR form verified on {str_loc}."
+            })
+        else:
+            details.append({
+                "requirement": "Short Term Rental (STR) Form",
+                "status": "Not Applicable",
+                "value_or_comment": "Product type does not include 'STR 1007'. Note: Foundation Mortgage no longer accepts Short Term Rentals on a 1007. If product type includes 'STR 1007', the specific STR form is required, not a regular 1007."
+            })
 
     # 7. BPL Mortgage, LLC
     elif "BPL MORTGAGE" in lender_upper:
@@ -1791,22 +1945,177 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
 
     # 8. Rain City Capital
     elif "RAIN CITY" in lender_upper:
+        # 1. Conventional reports
+        loan_type_val = str(
+            _get_field_val(data, "Subject", "Assignment Type") or
+            _get_field_val(data, "Subject", "Loan Type") or
+            _get_field_val(data, "Subject", "Type of Financing") or
+            ""
+        ).upper()
+        fha_case_val = str(_get_field_val(data, "Subject", "FHA/VA Case No") or "").strip()
+        is_fha_or_va = ("FHA" in loan_type_val) or ("VA" in loan_type_val) or bool(fha_case_val) or bool(re.search(r"\bFHA\s+Case\s*#?\s*[:\-]?\s*\d{3}-\d{7}\b", full_text, re.I))
+
+        if is_fha_or_va:
+            details.append({
+                "requirement": "Conventional reports",
+                "status": "Not Fulfilled",
+                "value_or_comment": "Report indicates FHA/VA loan type. Rain City Capital requires conventional reports."
+            })
+        else:
+            details.append({
+                "requirement": "Conventional reports",
+                "status": "Fulfilled",
+                "value_or_comment": "Report verified as Conventional appraisal report."
+            })
+
+        # 2. Health and safety issues must be a subject to condition
+        as_is_page, _ = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']as is[\"']",
+            r"\[X\]\s*\"?as\s+is\"?",
+            r"\bas\s*-\s*is\b",
+            r"\bas\s+is\b"
+        ])
+        subj_to_page, subj_to_snip = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']subject to",
+            r"\[X\]\s*subject to",
+            r"\bsubject to completion per plans",
+            r"\bsubject to the following repairs",
+            r"\bsubject to a required inspection"
+        ])
+        recon_cond = str(_get_field_val(data, "Reconciliation", "Appraisal Made") or "").lower()
+        is_subject_to = bool(subj_to_page) or ("subject to" in recon_cond)
+
+        hs_page, hs_snip = _find_keyword_in_pages(pages_text, [
+            r"health\s*(?:and|&|/)?\s*safety\s*(?:issue|hazard|concern|condition|defect|item|repair)",
+            r"safety\s*(?:hazard|issue|concern|risk)",
+            r"hazardous\s*condition",
+            r"security\s*hazard",
+            r"structural\s*(?:defect|hazard|damage)"
+        ])
+
+        if hs_page:
+            if is_subject_to:
+                details.append({
+                    "requirement": "Health and safety issues must be a subject to condition",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"Health and safety issue identified on Page {hs_page} (\"{hs_snip}\"), and report is correctly made 'Subject To' on Page {subj_to_page or 1}."
+                })
+            else:
+                details.append({
+                    "requirement": "Health and safety issues must be a subject to condition",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": f"Health and safety issue identified on Page {hs_page} (\"{hs_snip}\"), but report is marked 'As-Is'. Per Rain City Capital requirements: Health and safety issues must make the report 'Subject To'."
+                })
+        else:
+            details.append({
+                "requirement": "Health and safety issues must be a subject to condition",
+                "status": "Fulfilled",
+                "value_or_comment": "No adverse health and safety hazards noted in report commentary."
+            })
+
+        # 3. 2 value reports must be completed 'Subject to,' with an additional grid for the 'As Is' value
+        has_two_values = any(k in full_text.lower() for k in [
+            "as-repaired", "as repaired", "arv", "after repair value", "as-complete", "as completed", "two values", "2-value", "2 value"
+        ]) or bool(re.search(r"as[-\s]is\s+value.*?as[-\s]repaired|as[-\s]repaired.*?as[-\s]is\s+value", full_text, re.I))
+
+        if has_two_values:
+            has_as_is_grid = any(k in full_text.lower() for k in [
+                "as-is grid", "as is grid", "as-is sales grid", "as is comparable", "comps 4-6", "comparable 4", "comp 4", "comparable sale #4"
+            ]) or (len(data.get("SALES_GRID", {})) > 4)
+
+            if is_subject_to and has_as_is_grid:
+                details.append({
+                    "requirement": "2 value reports must be completed 'Subject to,' with an additional grid for the 'As Is' value",
+                    "status": "Fulfilled",
+                    "value_or_comment": "Two-value report correctly completed 'Subject To' with an additional sales grid included for the 'As Is' value."
+                })
+            elif not is_subject_to:
+                details.append({
+                    "requirement": "2 value reports must be completed 'Subject to,' with an additional grid for the 'As Is' value",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": "Per Rain City Capital requirements: 2-value reports must be completed 'Subject To' with an additional grid for the 'As Is' value. Report is currently not completed 'Subject To'."
+                })
+            else:
+                details.append({
+                    "requirement": "2 value reports must be completed 'Subject to,' with an additional grid for the 'As Is' value",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": "Two-value report completed 'Subject To', but additional sales grid for the 'As Is' value was not detected. Please include an additional grid for the 'As Is' value."
+                })
+        else:
+            details.append({
+                "requirement": "2 value reports must be completed 'Subject to,' with an additional grid for the 'As Is' value",
+                "status": "Not Applicable",
+                "value_or_comment": "Single-value appraisal report. (2-value report guidelines apply only when two values are provided)."
+            })
+
+        # 4. NO cost to cure for cosmetic items. If a cost to cure is included, need to reject to remove it for "Cosmetic Items."
+        ctc_page, ctc_snip = _find_keyword_in_pages(pages_text, [
+            r"cost\s*to\s*cure",
+            r"cure\s*cost",
+            r"repair\s*cost\s*estimate",
+            r"estimated\s*cost\s*of\s*repairs?"
+        ])
+        cosmetic_ctc_page, cosmetic_ctc_snip = _find_keyword_in_pages(pages_text, [
+            r"cost\s*to\s*cure\s*[:$]?\s*\$?[0-9,]+.*(?:cosmetic|paint|carpet|decor|cleaning|wear\s*(?:and|&)\s*tear)",
+            r"(?:cosmetic|paint|carpet|decor|cleaning).*cost\s*to\s*cure",
+            r"cost\s*to\s*cure.*cosmetic",
+            r"cosmetic\s*(?:item|repair|defect|issue|renovation).*cost\s*to\s*cure"
+        ])
+
+        if cosmetic_ctc_page:
+            details.append({
+                "requirement": "NO cost to cure for cosmetic items",
+                "status": "Not Fulfilled",
+                "value_or_comment": f"Cost to cure for cosmetic items identified on Page {cosmetic_ctc_page} (\"{cosmetic_ctc_snip}\"). Reject as: Please remove cost to cure for cosmetic items. Per Rain City Capital requirements: NO cost to cure for cosmetic items."
+            })
+        elif ctc_page:
+            if any(w in (ctc_snip or "").lower() for w in ["cosmetic", "paint", "carpet", "decor", "flooring", "wear"]):
+                details.append({
+                    "requirement": "NO cost to cure for cosmetic items",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": f"Cost to cure identified on Page {ctc_page} (\"{ctc_snip}\"). Reject as: Please remove cost to cure for cosmetic items. Per Rain City Capital requirements: NO cost to cure for cosmetic items."
+                })
+            else:
+                details.append({
+                    "requirement": "NO cost to cure for cosmetic items",
+                    "status": "Needs Review",
+                    "value_or_comment": f"Cost to cure listed on Page {ctc_page} (\"{ctc_snip}\"). Verify that this cost to cure is for structural/health/safety items and NOT for cosmetic items. If cosmetic, please reject to remove it for 'Cosmetic Items.'"
+                })
+        else:
+            details.append({
+                "requirement": "NO cost to cure for cosmetic items",
+                "status": "Fulfilled",
+                "value_or_comment": "No cost to cure for cosmetic items listed in report (compliant with Rain City Capital requirements)."
+            })
+
+        # 5. No 1004MC OK
         details.append({
-            "requirement": "Report Type: Conventional",
+            "requirement": "No 1004MC OK",
             "status": "Fulfilled",
-            "value_or_comment": "Client requires conventional reports."
+            "value_or_comment": "Reviewer Note: The 1004MC form is not required for Rain City Capital (No 1004MC OK)."
         })
-        paid_page, _ = _find_keyword_in_pages(pages_text, [r"\bPAID\b", r"Invoice\s*Status\s*[:\-]?\s*PAID", r"Fee\s*Paid"])
-        details.append({
-            "requirement": "Payment Status: PAID",
-            "status": "Fulfilled" if paid_page else "Needs Review",
-            "value_or_comment": f"Order payment marked as PAID on Page {paid_page}." if paid_page else "Verify order is marked as PAID."
-        })
-        details.append({
-            "requirement": "1004MC Form Waiver",
-            "status": "Fulfilled",
-            "value_or_comment": "The 1004MC form is not required for Rain City Capital."
-        })
+
+        # 6. Must be PAID
+        paid_page, paid_snip = _find_keyword_in_pages(pages_text, [
+            r"\bPAID\b",
+            r"Invoice\s*Status\s*[:\-]?\s*PAID",
+            r"Fee\s*Status\s*[:\-]?\s*PAID",
+            r"Payment\s*Status\s*[:\-]?\s*PAID",
+            r"Order\s*Status\s*[:\-]?\s*PAID",
+            r"Fee\s*Paid"
+        ])
+        if paid_page:
+            details.append({
+                "requirement": "Must be PAID",
+                "status": "Fulfilled",
+                "value_or_comment": f"Order payment verified as PAID on Page {paid_page}."
+            })
+        else:
+            details.append({
+                "requirement": "Must be PAID",
+                "status": "Needs Review",
+                "value_or_comment": "Order must be marked as PAID per Rain City Capital requirements. Please verify payment status."
+            })
 
     # 9. TheLender
     elif "THELENDER" in lender_upper or "THE LENDER" in lender_upper:
@@ -1819,12 +2128,43 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
 
     # 10. East Coast Capital Corp
     elif "EAST COAST CAPITAL" in lender_upper:
-        cost_page, _ = _find_keyword_in_pages(pages_text, [r"COST\s*APPROACH", r"Opinion\s*of\s*Site\s*Value"])
-        details.append({
-            "requirement": "Cost Approach Completion",
-            "status": "Fulfilled" if cost_page else "Not Fulfilled",
-            "value_or_comment": f"Cost approach completed on Page {cost_page}." if cost_page else "This client requires the cost approach to be completed, even if it is not relevant to the development of value."
-        })
+        # This client requires the cost approach to be completed, even if not weighted.
+        # Reject as: "This client requires the Cost Approach to be completed for their own internal lending purposes. Whether the appraiser chooses to weight this approach is solely up to the appraiser."
+        cost_val = _num(_get_field_val(data, "Cost Approach", "Indicated Value by Cost Approach") or _get_field_val(data, "COST_APPROACH", "Indicated Value by Cost Approach"))
+        site_val = _num(_get_field_val(data, "Cost Approach", "Opinion of Site Value") or _get_field_val(data, "COST_APPROACH", "Opinion of Site Value"))
+
+        if not cost_val:
+            m_cost = re.search(r"Indicated\s+Value\s+by\s+Cost\s+Approach\s*[:$]?\s*\$?\s*([0-9,]+)", full_text, re.I)
+            if m_cost:
+                cost_val = _num(m_cost.group(1))
+
+        if not site_val:
+            m_site = re.search(r"Opinion\s+of\s+Site\s+Value\s*[:$]?\s*\$?\s*([0-9,]+)", full_text, re.I)
+            if m_site:
+                site_val = _num(m_site.group(1))
+
+        not_developed = bool(re.search(r"Cost\s+Approach\s+(?:is\s+|was\s+)?not\s+(?:developed|applicable|required|performed|completed|utilized)", full_text, re.I))
+        has_cost_approach_completed = bool(cost_val or site_val) and not (not_developed and not cost_val)
+
+        cost_page, _ = _find_keyword_in_pages(pages_text, [
+            r"Indicated\s+Value\s+by\s+Cost\s+Approach",
+            r"Opinion\s+of\s+Site\s+Value",
+            r"Cost\s+Approach\s+to\s+Value"
+        ])
+        cost_loc = f"Page {cost_page}" if isinstance(cost_page, int) else (f"{cost_page}" if cost_page else "")
+
+        if has_cost_approach_completed:
+            details.append({
+                "requirement": "Cost Approach Completion",
+                "status": "Fulfilled",
+                "value_or_comment": f"Cost approach verified as completed in report (Indicated Value: ${cost_val:,.0f})." if cost_val else f"Cost approach verified as completed on {cost_loc or 'Cost Approach section'}."
+            })
+        else:
+            details.append({
+                "requirement": "Cost Approach Completion",
+                "status": "Not Fulfilled",
+                "value_or_comment": "This client requires the Cost Approach to be completed for their own internal lending purposes. Whether the appraiser chooses to weight this approach is solely up to the appraiser."
+            })
 
     # 11. Plaza Home Mortgage
     elif "PLAZA HOME" in lender_upper:
@@ -2095,16 +2435,24 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
 
     # 20. Dart Bank
     elif "DART BANK" in lender_upper:
-        paid_page, _ = _find_keyword_in_pages(pages_text, [r"\bPAID\b", r"Invoice\s*Status\s*[:\-]?\s*PAID", r"Fee\s*Paid"])
+        paid_val = str(_get_field_val(data, "Subject", "Invoice Status") or _get_field_val(data, "Subject", "Payment Status") or data.get("Invoice Status") or data.get("Payment Status") or "").upper()
+        paid_page, _ = _find_keyword_in_pages(pages_text, [
+            r"\bPAID\b",
+            r"Invoice\s*Status\s*[:\-]?\s*PAID",
+            r"Fee\s*Status\s*[:\-]?\s*PAID",
+            r"Payment\s*Status\s*[:\-]?\s*PAID",
+            r"Fee\s*Paid"
+        ])
+        is_paid = (paid_val == "PAID") or bool(paid_page)
         details.append({
             "requirement": "Payment Status: PAID",
-            "status": "Fulfilled" if paid_page else "Needs Review",
-            "value_or_comment": f"Order marked as PAID on Page {paid_page}." if paid_page else "Verify order is marked as PAID."
+            "status": "Fulfilled" if is_paid else "Needs Review",
+            "value_or_comment": f"Order payment verified as PAID" + (f" on Page {paid_page}." if paid_page else ".") if is_paid else "Verify order is marked as PAID."
         })
         details.append({
-            "requirement": "ENV File Required",
+            "requirement": "ENV File Waiver / Format Acceptance",
             "status": "Fulfilled",
-            "value_or_comment": "An ENV file is required for Dart Bank orders."
+            "value_or_comment": "Dart Bank requirement updated: No ENV anymore. PDF is always ok."
         })
 
     # 21. The Loan Store
@@ -2144,11 +2492,183 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
 
     # 24. Futures Financial
     elif "FUTURES FINANCIAL" in lender_upper:
+        # Rule 1: Senior Reviewer Level
         details.append({
-            "requirement": "Senior Reviewer Level & Product Specs",
+            "requirement": "Senior Reviewer Level",
             "status": "Fulfilled",
-            "value_or_comment": "Futures Financial guidelines: Senior review required; Desktop ARV subject-to plans and specs."
+            "value_or_comment": "Futures Financial guidelines: Only senior members should review these reports (Senior Reviewer Level required)."
         })
+
+        # Determine Product Type from custom_prompt, structured data, or document text
+        product_type = ""
+        if custom_prompt and isinstance(custom_prompt, str):
+            m_pt = re.search(r"(?:product\s*type|product|order\s*type|assignment\s*type)\s*[:\-]\s*([^\n\r,;]+)", custom_prompt, re.IGNORECASE)
+            if m_pt:
+                pt_cand = m_pt.group(1).strip()
+                if pt_cand and not any(kw in pt_cand.lower() for kw in ["if the", "says", "requirement", "guideline"]):
+                    product_type = pt_cand
+
+        if not product_type:
+            for sec, fld in [
+                ("Subject", "Product Type"),
+                ("Subject", "Product"),
+                ("Subject", "Assignment Type"),
+                ("Subject", "Form Type"),
+                ("Subject", "Order Type"),
+                ("Subject", "Appraisal Type")
+            ]:
+                v = _get_field_val(data, sec, fld)
+                if v and isinstance(v, str) and len(v.strip()) > 1:
+                    product_type = v.strip()
+                    break
+
+        if not product_type:
+            for top_k in ["Product Type", "Product", "Assignment Type", "Form Type", "Order Type"]:
+                v = data.get(top_k)
+                if v and isinstance(v, str) and len(v.strip()) > 1:
+                    product_type = v.strip()
+                    break
+
+        if not product_type:
+            m_xml_pt = re.search(r'_(?:ProductType|Product|AssignmentType|OrderType)="([^"]+)"', full_text, re.I)
+            if m_xml_pt:
+                product_type = m_xml_pt.group(1).strip()
+
+        if not product_type:
+            m_text_pt = re.search(r'(?:Product\s*Type|Order\s*Type|Assignment\s*Type)\s*[:\-]\s*([A-Za-z0-9\s\-_/]+)', full_text, re.I)
+            if m_text_pt:
+                cand = m_text_pt.group(1).strip()
+                if len(cand) > 2 and len(cand) < 50 and not any(kw in cand.lower() for kw in ["if the", "says", "requirement"]):
+                    product_type = cand
+
+        pt_lower = product_type.lower()
+
+        # Classify product type: Desktop vs As-is with ARV vs Other
+        is_desktop = (
+            "desktop" in pt_lower or
+            bool(re.search(r"\bdesktop\s*(?:arv|appraisal|product|report|order)\b", full_text, re.I)) or
+            bool(re.search(r"\b(?:product\s*(?:type)?|order\s*(?:type)?)\s*[:\-]?\s*desktop\b", full_text, re.I))
+        )
+
+        is_as_is_arv = (
+            ("as-is with arv" in pt_lower or "as is with arv" in pt_lower or "as-is arv" in pt_lower or "as is arv" in pt_lower or ("as-is" in pt_lower and "arv" in pt_lower) or ("as is" in pt_lower and "arv" in pt_lower)) or
+            bool(re.search(r"\b(?:product\s*(?:type)?|order\s*(?:type)?)\s*[:\-]?\s*as[-\s]is\s+with\s+arv\b", full_text, re.I)) or
+            bool(re.search(r"\b(?:product\s*(?:type)?|order\s*(?:type)?)\s*[:\-]?\s*as[-\s]is\s+arv\b", full_text, re.I))
+        )
+
+        # Detect Report Condition: "Subject To" vs "As Is"
+        subj_to_page, subj_to_snip = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']subject to",
+            r"\[X\]\s*subject to",
+            r"\bsubject to completion per plans",
+            r"\bsubject to the following repairs",
+            r"\bsubject to a required inspection"
+        ])
+        as_is_page, as_is_snip = _find_keyword_in_pages(pages_text, [
+            r"This appraisal is made [\"']as is[\"']",
+            r"\[X\]\s*\"?as\s+is\"?",
+            r"\bas\s*-\s*is\b",
+            r"\bas\s+is\b"
+        ])
+        recon_status = str(_get_field_val(data, "Reconciliation", "Reconciliation Status") or _get_field_val(data, "Reconciliation", "Appraisal Made") or data.get("Reconciliation Status") or "").lower()
+        is_subject_to = ("subject" in recon_status) or bool(subj_to_page)
+        is_as_is = ("as is" in recon_status or "as-is" in recon_status) or (bool(as_is_page) and not is_subject_to)
+
+        # Detect Two Values (As-Is Value and ARV)
+        as_is_val = _get_field_val(data, "Reconciliation", "As-Is Value") or _get_field_val(data, "Reconciliation", "As Is Value") or _get_field_val(data, "Subject", "As-Is Value")
+        arv_val = _get_field_val(data, "Reconciliation", "ARV") or _get_field_val(data, "Reconciliation", "After Repair Value") or _get_field_val(data, "Reconciliation", "As-Repaired Value") or _get_field_val(data, "Subject", "ARV")
+
+        has_two_values = False
+        val_matches = []
+
+        if _num(as_is_val) > 0 and _num(arv_val) > 0:
+            has_two_values = True
+            val_matches.append(f"As-Is: ${as_is_val}")
+            val_matches.append(f"ARV: ${arv_val}")
+
+        if not has_two_values:
+            m_as_is = re.search(r"(?:as[-\s]is\s+value|current\s+value|as[-\s]is\s+market\s+value)[^$0-9\n]{0,35}\$?\s*([0-9,]{4,12})", full_text, re.I)
+            m_arv = re.search(r"(?:arv|after\s+repair\s+value|as[-\s]repaired(?:\s+value)?|as[-\s]completed(?:\s+value)?|prospective\s+value)[^$0-9\n]{0,35}\$?\s*([0-9,]{4,12})", full_text, re.I)
+            if m_as_is and m_arv:
+                has_two_values = True
+                val_matches.append(f"As-Is: ${m_as_is.group(1)}")
+                val_matches.append(f"ARV: ${m_arv.group(1)}")
+
+        if not has_two_values:
+            if any(k in full_text.lower() for k in ["two values", "2 values", "dual value", "as-is and arv", "both as-is and arv", "2-value report"]):
+                has_two_values = True
+            elif len(data.get("SALES_GRID", {})) > 4 or any(k in full_text.lower() for k in ["as-is grid", "as is grid", "as-is sales grid"]):
+                has_two_values = True
+
+        # Rule 2: Product Type & Condition Requirements
+        # Branch 1: Product Type says "Desktop"
+        # "The report needs to be 'subject-to' only when product type says Desktop."
+        if is_desktop:
+            if is_subject_to:
+                details.append({
+                    "requirement": "Product Type 'Desktop': Report Condition 'Subject-To'",
+                    "status": "Fulfilled",
+                    "value_or_comment": "Product type is 'Desktop'. Per Futures Financial requirements: Report is correctly completed 'Subject To'."
+                })
+            else:
+                details.append({
+                    "requirement": "Product Type 'Desktop': Report Condition 'Subject-To'",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": "Product type is 'Desktop'. Per Futures Financial requirements: The report needs to be 'subject-to' only when product type says Desktop. Please revise report to 'Subject To'."
+                })
+
+        # Branch 2: Product Type is "As-is with ARV"
+        # "If the product type is As-is with ARV then as-is report will be OK just make sure 2 values are there."
+        elif is_as_is_arv:
+            if not is_subject_to:
+                details.append({
+                    "requirement": "Product Type 'As-is with ARV': 'As-Is' Report Status",
+                    "status": "Fulfilled",
+                    "value_or_comment": "Product type is 'As-is with ARV'. Per Futures Financial requirements: An 'As-Is' report is OK (Subject-To is only required when product type is Desktop)."
+                })
+            else:
+                details.append({
+                    "requirement": "Product Type 'As-is with ARV': 'As-Is' Report Status",
+                    "status": "Needs Review",
+                    "value_or_comment": "Product type is 'As-is with ARV'. Per Futures Financial requirements: An as-is report is OK; the report needs to be 'subject-to' only when product type says Desktop. Report is currently marked 'Subject-To'. Please verify if Subject-To condition is required."
+                })
+
+            if has_two_values:
+                val_info = f" ({', '.join(val_matches)})" if val_matches else ""
+                details.append({
+                    "requirement": "Product Type 'As-is with ARV': Two Values Present",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"Product type is 'As-is with ARV'. Verified 2 values are present in report{val_info}."
+                })
+            else:
+                details.append({
+                    "requirement": "Product Type 'As-is with ARV': Two Values Present",
+                    "status": "Not Fulfilled",
+                    "value_or_comment": "Product type is 'As-is with ARV'. Per Futures Financial requirements: If the product type is As-is with ARV then as-is report will be OK just make sure 2 values are there. Only 1 value was detected in the report. Please ensure both 'As-Is' and 'ARV' values are provided."
+                })
+
+        # Branch 3: Other Product Type / Unspecified
+        else:
+            if is_subject_to:
+                details.append({
+                    "requirement": "Report Condition: 'Subject-To' Only for Desktop",
+                    "status": "Needs Review",
+                    "value_or_comment": f"Report is completed 'Subject-To', but product type '{product_type or 'Standard'}' is not 'Desktop'. Per Futures Financial requirements: The report needs to be 'subject-to' only when product type says Desktop. Please verify if Subject-To condition is required."
+                })
+            else:
+                details.append({
+                    "requirement": "Report Condition: 'Subject-To' Only for Desktop",
+                    "status": "Fulfilled",
+                    "value_or_comment": "Report is completed 'As-Is'. Compliant with Futures Financial requirements: The report needs to be 'subject-to' only when product type says Desktop."
+                })
+
+            if has_two_values:
+                val_info = f" ({', '.join(val_matches)})" if val_matches else ""
+                details.append({
+                    "requirement": "Two Values Presence",
+                    "status": "Fulfilled",
+                    "value_or_comment": f"Two values verified in report{val_info}."
+                })
 
     # 25. Cardinal Financial Company
     elif "CARDINAL FINANCIAL" in lender_upper:
@@ -2183,13 +2703,98 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         })
 
     # 28. Loanguys.com inc
-    elif "LOANGUYS" in lender_upper:
-        qc_page, _ = _find_keyword_in_pages(pages_text, [r"\b[QC][1-6]\b", r"Quality.*Condition"])
-        details.append({
-            "requirement": "Quality & Condition (Q & C) Ratings",
-            "status": "Fulfilled" if qc_page else "Not Fulfilled",
-            "value_or_comment": f"Q and C ratings confirmed on Page {qc_page}." if qc_page else "Per client requirement, please include 'Q' and 'C' ratings for 'Quality' and 'Condition' for the subject and all comps."
-        })
+    elif "LOANGUYS" in lender_upper or "LOAN GUYS" in lender_upper:
+        grid = data.get("SALES_GRID") or data.get("Sales Grid") or {}
+        comp_dict = {}
+        s_q = ""
+        s_c = ""
+
+        # 1. Check structured grid data
+        if grid:
+            subj_data = grid.get("Subject") or grid.get("SUBJECT") or {}
+            s_q = str(subj_data.get("Quality of Construction") or subj_data.get("Quality") or _get_field_val(data, "Improvements", "Quality of Construction") or _get_field_val(data, "Subject", "Quality of Construction") or "").strip()
+            s_c = str(subj_data.get("Condition") or subj_data.get("Condition of Property") or _get_field_val(data, "Improvements", "Condition") or _get_field_val(data, "Subject", "Condition") or "").strip()
+
+            for k, v in grid.items():
+                if not isinstance(v, dict):
+                    continue
+                m_seq = re.search(r"(?:comparable(?:\s+sale)?\s*#?)\s*(\d+)", k, re.I)
+                if m_seq:
+                    c_num = int(m_seq.group(1))
+                    if c_num not in comp_dict:
+                        comp_dict[c_num] = v
+
+        # 2. Check XML element fallbacks if grid was empty
+        if not s_q and not comp_dict and pdf_path and pdf_path.lower().endswith(".xml"):
+            try:
+                import xml.etree.ElementTree as ET
+                tree = ET.parse(pdf_path)
+                root = tree.getroot()
+                comps_xml = root.findall(".//COMPARABLE_SALE")
+                for comp_el in comps_xml:
+                    seq = comp_el.attrib.get("_SequenceIdentifier", "")
+                    q_adj = comp_el.find(".//SALE_PRICE_ADJUSTMENT[@_Type='Quality']")
+                    c_adj = comp_el.find(".//SALE_PRICE_ADJUSTMENT[@_Type='Condition']")
+                    q_desc = q_adj.attrib.get("_Description", "") if q_adj is not None else ""
+                    c_desc = c_adj.attrib.get("_Description", "") if c_adj is not None else ""
+                    if seq == "0":
+                        s_q = q_desc
+                        s_c = c_desc
+                    else:
+                        c_num = int(seq) if seq.isdigit() else len(comp_dict) + 1
+                        comp_dict[c_num] = {
+                            "Quality of Construction": q_desc,
+                            "Condition": c_desc
+                        }
+            except Exception:
+                pass
+
+        # 3. Check validity of Q & C ratings
+        has_subj_q = bool(s_q and re.search(r"\bQ[1-6]\b", s_q.upper()))
+        has_subj_c = bool(s_c and re.search(r"\bC[1-6]\b", s_c.upper()))
+
+        missing_items = []
+        if not has_subj_q:
+            missing_items.append("Subject Quality ('Q' rating)")
+        if not has_subj_c:
+            missing_items.append("Subject Condition ('C' rating)")
+
+        comp_ratings_summary = []
+        for c_num in sorted(comp_dict.keys()):
+            c_data = comp_dict[c_num]
+            c_q = str(c_data.get("Quality of Construction") or c_data.get("Quality") or "").strip()
+            c_c = str(c_data.get("Condition") or c_data.get("Condition of Property") or "").strip()
+            c_has_q = bool(c_q and re.search(r"\bQ[1-6]\b", c_q.upper()))
+            c_has_c = bool(c_c and re.search(r"\bC[1-6]\b", c_c.upper()))
+
+            if not c_has_q:
+                missing_items.append(f"Comp #{c_num} Quality ('Q' rating)")
+            if not c_has_c:
+                missing_items.append(f"Comp #{c_num} Condition ('C' rating)")
+            comp_ratings_summary.append(f"Comp #{c_num}: {c_q or 'None'}/{c_c or 'None'}")
+
+        # 4. Fallback for PDF text when grid is not structured
+        if not grid and not comp_dict:
+            q_matches = re.findall(r"\bQ[1-6]\b", full_text.upper())
+            c_matches = re.findall(r"\bC[1-6]\b", full_text.upper())
+            if len(q_matches) >= 3 and len(c_matches) >= 3:
+                missing_items = []
+            else:
+                missing_items.append("Subject/Comps 'Q' and 'C' ratings")
+
+        if missing_items:
+            details.append({
+                "requirement": "Quality & Condition ('Q' and 'C') Ratings",
+                "status": "Not Fulfilled",
+                "value_or_comment": f"Missing 'Q'/'C' ratings for: {', '.join(missing_items)}. Reject as: Per client requirement, please include \"Q\" and \"C\" ratings for \"Quality\" and \"Condition\" for the subject and all comps."
+            })
+        else:
+            summary_str = f" (Subject: {s_q}/{s_c}" + (f", {', '.join(comp_ratings_summary)})" if comp_ratings_summary else ")")
+            details.append({
+                "requirement": "Quality & Condition ('Q' and 'C') Ratings",
+                "status": "Fulfilled",
+                "value_or_comment": f"All reports requirement verified: 'Q' (Q1-Q6) and 'C' (C1-C6) ratings confirmed for subject and all comparables{summary_str}."
+            })
 
     # 29. Paramount Residential Mortgage Group (PRMG)
     elif "PARAMOUNT RESIDENTIAL" in lender_upper or "PRMG" in lender_upper:

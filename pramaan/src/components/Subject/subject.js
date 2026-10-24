@@ -866,6 +866,10 @@ function Subject({ defaultFormType }) {
 
       // Site Validations
       'Zoning Compliance': [siteValidation.checkZoning],
+      'Legal Nonconforming (Grandfathered Use) comment': [siteValidation.checkNonconformingComment],
+      'Legal Nonconforming comment': [siteValidation.checkNonconformingComment],
+      'Nonconforming comment': [siteValidation.checkNonconformingComment],
+      'Zoning Compliance comment': [siteValidation.checkNonconformingComment],
       'Zoning Description': [siteValidation.checkZoningDescription],
       'Specific Zoning Classification': [siteValidation.checkSpecificZoningClassification, neighborhoodValidation.checkSpecificZoningClassification],
       'Zoning Classification Description': [version1Validation.checkZoningClassificationDescription],
@@ -2718,15 +2722,27 @@ function Subject({ defaultFormType }) {
     "Are there any adverse site conditions or external factors (easements, encroachments, environmental conditions, land uses, etc.)? If Yes, describe"
   ];
 
-  const zoningComplianceValue = data?.SITE?.['Zoning Compliance'];
-  if (zoningComplianceValue === 'Legal Nonconforming (Grandfathered Use)') {
+  const zoningComplianceValue = data?.SITE?.['Zoning Compliance'] ?? data?.['Zoning Compliance'];
+  const zoningCompStr = (typeof zoningComplianceValue === 'object' && zoningComplianceValue !== null
+    ? (zoningComplianceValue.choice || zoningComplianceValue.value || '')
+    : String(zoningComplianceValue || '')).trim().toLowerCase();
+
+  const isNonconforming = zoningCompStr.includes('nonconforming') || zoningCompStr.includes('grandfathered');
+
+  if (isNonconforming) {
     if (!siteFields.includes('Legal Nonconforming (Grandfathered Use) comment')) {
-      siteFields.splice(siteFields.indexOf('Zoning Compliance') + 1, 0, 'Legal Nonconforming (Grandfathered Use) comment');
+      const zIndex = siteFields.indexOf('Zoning Compliance');
+      if (zIndex !== -1) {
+        siteFields.splice(zIndex + 1, 0, 'Legal Nonconforming (Grandfathered Use) comment');
+      }
     }
   }
-  if (zoningComplianceValue === 'No Zoning') {
+  if (zoningCompStr.includes('no zoning')) {
     if (!siteFields.includes('No Zoning comment')) {
-      siteFields.splice(siteFields.indexOf('Zoning Compliance') + 1, 0, 'No Zoning comment');
+      const zIndex = siteFields.indexOf('Zoning Compliance');
+      if (zIndex !== -1) {
+        siteFields.splice(zIndex + 1, 0, 'No Zoning comment');
+      }
     }
   }
 
@@ -3028,6 +3044,23 @@ function Subject({ defaultFormType }) {
     "Are there any adverse site conditions or external factors (easements, encroachments, environmental conditions, land uses, etc.)?",
     "Are there any adverse site conditions or external factors (easements, encroachments, environmental conditions, land uses, etc.)? If Yes, describe",
   ];
+
+  if (isNonconforming) {
+    if (!projectSiteFields.includes('Legal Nonconforming (Grandfathered Use) comment')) {
+      const pIndex = projectSiteFields.indexOf('Zoning Compliance');
+      if (pIndex !== -1) {
+        projectSiteFields.splice(pIndex + 1, 0, 'Legal Nonconforming (Grandfathered Use) comment');
+      }
+    }
+  }
+  if (zoningCompStr.includes('no zoning')) {
+    if (!projectSiteFields.includes('No Zoning comment')) {
+      const pIndex = projectSiteFields.indexOf('Zoning Compliance');
+      if (pIndex !== -1) {
+        projectSiteFields.splice(pIndex + 1, 0, 'No Zoning comment');
+      }
+    }
+  }
   const projectInfoFields = [
     "Data source(s) for project information", "Project Description", "# of Stories",
     "# of Elevators", "Existing/Proposed/Under Const.", "Year Built",

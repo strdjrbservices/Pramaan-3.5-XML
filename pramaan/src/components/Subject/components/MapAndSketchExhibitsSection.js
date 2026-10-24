@@ -376,11 +376,12 @@ const getComparablePhotoData = (compInfo, compIndex, scanResult, allData, data) 
                    /rental/i.test(compInfo?.label || '') ||
                    compInfo?.isRental;
   const compPhotosList = scanResult?.comparable_photos || [];
-  const allPhotos = allData?.EXTRACTED_PHOTOS || data?.EXTRACTED_PHOTOS || allData?.extracted_photos || data?.extracted_photos || [];
+  const allPhotos = allData?.EXTRACTED_PHOTOS || data?.EXTRACTED_PHOTOS || allData?.extracted_photos || data?.extracted_photos ||
+                    allData?.clean_data?.EXTRACTED_PHOTOS || data?.clean_data?.EXTRACTED_PHOTOS || [];
   
   const allCandidatePhotos = [
     ...(compPhotosList || []).filter(Boolean),
-    ...allPhotos.filter(p => p && (p.category === 'Comparable' || p.category === 'Rental' || (p.comp_number && p.address) || p.sale_price))
+    ...allPhotos.filter(p => p && (p.category === 'Comparable' || p.category === 'Rental' || (p.comp_number && p.address) || p.sale_price || p.rent_amount || p.monthly_rent))
   ];
 
   const compPhotos = allCandidatePhotos.filter(p => {
@@ -867,10 +868,15 @@ const evaluateRoomMatch = (sketchVal, impVal, gridVal, isBath = false, isGLA = f
   };
 };
 
-const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) => {
+const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, scanResult) => {
   const root = { ...(allData || {}), ...(data || {}) };
-  const sGrid = root.SALES_GRID || root['Sales Grid'] || {};
-  const rGrid = root.RENTAL_GRID || root['Rental Grid'] || root.RENTALS || root['Rentals'] || {};
+  const sGrid = root.SALES_GRID || root['Sales Grid'] || root.sales_grid ||
+                root.clean_data?.['Sales Grid'] || root.fields?.['Sales Grid'] ||
+                root.clean_data?.SALES_GRID || root.fields?.SALES_GRID || {};
+  const rGrid = root.RENTAL_GRID || root['Rental Grid'] || root.RENTALS || root['Rentals'] ||
+                root['Comparable Rental Data'] || root['Single Family Rent Schedule'] ||
+                root.clean_data?.['Comparable Rental Data'] || root.clean_data?.['Single Family Rent Schedule'] ||
+                root.fields?.['Comparable Rental Data'] || root.fields?.['Single Family Rent Schedule'] || {};
 
   const explicitNum = extractCompNumberFromLabel(compLabel);
   const isRentalLabel = /rental/i.test(compLabel || '');
@@ -885,7 +891,7 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) 
     const addr = obj['Address'] || obj['Comparable Property Address'] || obj['Property Address'] || obj['Physical Address'] || '';
     const prox = obj['Proximity to Subject'] || obj['Proximity'] || '';
     const sale_price = isRental
-      ? (obj['Gross Monthly Rent'] || obj['Monthly Rent'] || obj['Rental Price'] || obj['Adjusted Monthly Rent'] || obj['Actual Rent'] || obj['Rent'] || obj['Sale Price'] || '')
+      ? (obj['Monthly Rental'] || obj['Gross Monthly Rent'] || obj['Rental Price'] || obj['Adjusted Monthly Rent'] || obj['Current Monthly Rent'] || obj['Actual Rent'] || obj['Rent'] || obj['Sale Price'] || '')
       : (obj['Sale Price'] || obj['Sales Price'] || obj['Settlement Price'] || '');
     const gla = obj['Gross Living Area'] || obj['GLA'] || '';
     const beds = obj['Total Bedrooms'] || obj['Bedrooms'] || '';
@@ -908,6 +914,11 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) 
     const m = k.match(/(?:COMPARABLE(?:\s+SALE)?|COMP)[_\s]+#?([0-9]+)/i);
     if (m) salesCompNums.add(parseInt(m[1], 10));
   });
+  if (scanResult?.reference_records?.sales_comps) {
+    scanResult.reference_records.sales_comps.forEach(sc => {
+      if (sc.comp_num) salesCompNums.add(sc.comp_num);
+    });
+  }
   const sortedSalesNums = Array.from(salesCompNums).sort((a, b) => a - b);
   const salesNumsToCheck = sortedSalesNums.length > 0 ? sortedSalesNums : [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
@@ -920,14 +931,32 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) 
       `Comparable #${i} Address`,
       `COMP_SALE_${i}`
     ];
+    let found = false;
     for (const k of candidateKeys) {
       const item = root[k] || sGrid[k];
       if (item) {
         const compData = extractFromCompObj(item);
         if (compData.address) {
           salesComps.push({ num: i, label: `Comp #${i}`, ...compData });
+          found = true;
           break;
         }
+      }
+    }
+    if (!found && scanResult?.reference_records?.sales_comps) {
+      const refComp = scanResult.reference_records.sales_comps.find(s => s.comp_num === i);
+      if (refComp && refComp.address) {
+        salesComps.push({
+          num: i,
+          label: `Comp #${i}`,
+          address: refComp.address,
+          proximity: refComp.proximity || '',
+          sale_price: refComp.sale_price || '',
+          gla: '',
+          bed_bath: '',
+          site: '',
+          quality_age: ''
+        });
       }
     }
   }
@@ -937,28 +966,55 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData) 
   const allRentalKeys = new Set([...Object.keys(root || {}), ...Object.keys(rGrid || {})]);
   const rentalCompNums = new Set();
   allRentalKeys.forEach(k => {
-    const m = k.match(/RENTAL(?:_COMPARABLE)?[_\s]+#?([0-9]+)/i);
+    const m = k.match(/(?:RENTAL(?:_COMPARABLE)?|COMPARABLE\s+NO\.|COMPARABLE\s+RENTAL)[_\s]+#?([0-9]+)/i);
     if (m) rentalCompNums.add(parseInt(m[1], 10));
   });
+  if (scanResult?.reference_records?.rental_comps) {
+    scanResult.reference_records.rental_comps.forEach(rc => {
+      if (rc.comp_num) rentalCompNums.add(rc.comp_num);
+    });
+  }
   const sortedRentalNums = Array.from(rentalCompNums).sort((a, b) => a - b);
   const rentalNumsToCheck = sortedRentalNums.length > 0 ? sortedRentalNums : [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
   for (const i of rentalNumsToCheck) {
     const candidateKeys = [
-      `RENTAL #${i}`,
-      `Rental #${i}`,
-      `RENTAL_${i}`,
       `Rental ${i}`,
+      `Rental #${i}`,
+      `RENTAL #${i}`,
+      `RENTAL_${i}`,
+      `COMPARABLE NO. ${i}`,
+      `Comparable Rental #${i}`,
+      `COMPARABLE RENTAL #${i}`,
+      `Comparable Rental No #${i}`,
       `RENTAL_COMPARABLE_${i}`
     ];
+    let found = false;
     for (const k of candidateKeys) {
       const item = root[k] || rGrid[k];
       if (item) {
         const compData = extractFromCompObj(item, true);
         if (compData.address) {
           rentalComps.push({ num: i, label: `Rental #${i}`, ...compData });
+          found = true;
           break;
         }
+      }
+    }
+    if (!found && scanResult?.reference_records?.rental_comps) {
+      const refRent = scanResult.reference_records.rental_comps.find(r => r.comp_num === i);
+      if (refRent && refRent.address) {
+        rentalComps.push({
+          num: i,
+          label: `Rental #${i}`,
+          address: refRent.address,
+          proximity: refRent.proximity || '',
+          sale_price: refRent.monthly_rent || '',
+          gla: '',
+          bed_bath: '',
+          site: '',
+          quality_age: ''
+        });
       }
     }
   }
@@ -1126,7 +1182,7 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
       ? (pinInfo.label?.toLowerCase()?.includes('rental') ? pinInfo.label : `Rental ${pinInfo.label || `#${idx + 1}`}`)
       : pinInfo.label;
 
-    const gridComp = getGridComparableData(idx, compLabel, pinInfo.street, data, allData);
+    const gridComp = getGridComparableData(idx, compLabel, pinInfo.street, data, allData, scanResult);
     const photoComp = getComparablePhotoData({ ...pinInfo, gridComp, isRental }, idx, scanResult, allData, data);
 
     let num = null;
@@ -1520,7 +1576,7 @@ export const MapAndSketchExhibitsSection = ({
     }
   }, [effectiveFile, effectiveFilePath, scanResult, loading, handleScanExhibits]);
 
-  // Extracted Location / Comp Maps (strictly non-rental)
+  // Extracted Location / Comp Maps (maps that show location / comps)
   const locationMaps = useMemo(() => {
     if (!scanResult?.maps) return [];
     return scanResult.maps.filter(m =>
@@ -1535,11 +1591,12 @@ export const MapAndSketchExhibitsSection = ({
     return scanResult.maps.filter(m => /aerial|satellite/i.test(m.map_type || ''));
   }, [scanResult]);
 
-  // Extracted Rentals & Other Maps (strictly rentals, plat, flood, parcel)
+  // Extracted Rentals & Other Maps (dedicated rental maps OR location maps with rental pins)
   const rentalMaps = useMemo(() => {
     if (!scanResult?.maps) return [];
     return scanResult.maps.filter(m =>
       /rental/i.test(m.map_type || '') ||
+      (m.rentals && m.rentals.length > 0) ||
       /plat|flood|parcel|hazard/i.test(m.map_type || '') ||
       (!/location|comparable|sales\s*map/i.test(m.map_type || '') && !/aerial|satellite/i.test(m.map_type || ''))
     );
@@ -2242,6 +2299,233 @@ export const MapAndSketchExhibitsSection = ({
                         </TableBody>
                       </Table>
                     </TableContainer>
+
+                    {/* Rental Comparables detected on this Map */}
+                    {mapItem.rentals && mapItem.rentals.length > 0 && (() => {
+                      const { sortedRows: rentalRows, rentalsCount } = buildProcessedExhibitsRows(
+                        mapItem.rentals,
+                        mapItem,
+                        scanResult,
+                        data,
+                        allData,
+                        true
+                      );
+                      if (rentalRows.length === 0) return null;
+
+                      return (
+                        <Box sx={{ mt: 3, pt: 2, borderTop: '2px dashed #cbd5e1' }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <span>🟢</span> Rental Comparables on this Map ({rentalsCount})
+                            </Typography>
+                            <Chip
+                              label={`${rentalsCount} Rentals Cross-Referenced`}
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                              sx={{ fontWeight: 600, color: '#16a34a', borderColor: '#bbf7d0', bgcolor: '#f0fdf4' }}
+                            />
+                          </Stack>
+
+                          <TableContainer>
+                            <Table size="small">
+                              <TableHead sx={{ bgcolor: '#f0fdf4' }}>
+                                <TableRow>
+                                  <TableCell sx={{ fontWeight: 700, width: '10%' }}>Item</TableCell>
+                                  <TableCell sx={{ fontWeight: 700, width: '22%', color: '#047857' }}>Rental Schedule / Grid</TableCell>
+                                  <TableCell sx={{ fontWeight: 700, width: '22%', color: '#0369a1' }}>Map Pin Address</TableCell>
+                                  <TableCell sx={{ fontWeight: 700, width: '24%', color: '#4338ca' }}>Photo Addendum Data</TableCell>
+                                  <TableCell sx={{ fontWeight: 700, width: '11%' }}>Miles / Prox</TableCell>
+                                  <TableCell sx={{ fontWeight: 700, width: '11%' }}>Match Status</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {rentalRows.map((rowItem, rIdx) => {
+                                  const { pinInfo, photoComp, gridComp, displayStreet, badgeLabel } = rowItem;
+                                  const compInfo = pinInfo || {};
+                                  const safeGridComp = gridComp || {
+                                    gridCompNum: null,
+                                    gridCompLabel: '—',
+                                    address: '—',
+                                    proximity: '—',
+                                    sale_price: '—',
+                                    gla: '—',
+                                    bed_bath: '—',
+                                    site: '—',
+                                    quality_age: '—',
+                                    isRental: true,
+                                    matchStatus: 'missing',
+                                    matchLabel: 'Not in Grid'
+                                  };
+
+                                  const mapStreet = (compInfo.street && compInfo.street !== '(Address pin)') ? compInfo.street : (compInfo.address !== '(Address pin)' ? compInfo.address : '');
+                                  const photoStreet = photoComp?.address || '';
+                                  const gridStreet = safeGridComp.address || '';
+
+                                  const mapMatchesPhoto = photoStreet ? compareAddresses(mapStreet, photoStreet).status === 'match' : false;
+                                  const mapMatchesGrid = safeGridComp.matchStatus === 'match';
+                                  const photoMatchesGrid = (photoStreet && gridStreet && gridStreet !== '—') ? compareAddresses(photoStreet, gridStreet).status === 'match' : false;
+
+                                  return (
+                                    <TableRow key={rIdx} hover>
+                                      <TableCell sx={{ verticalAlign: 'middle' }}>
+                                        <Box sx={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: 0.5,
+                                          px: 1,
+                                          py: 0.25,
+                                          borderRadius: 1,
+                                          bgcolor: '#f0fdf4',
+                                          color: '#166534',
+                                          border: '1px solid #bbf7d0',
+                                          fontWeight: 700,
+                                          fontSize: '0.75rem'
+                                        }}>
+                                          🟢 {badgeLabel}
+                                        </Box>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Typography variant="body2" sx={{ fontWeight: 700, color: safeGridComp.address !== '—' ? '#0f172a' : '#94a3b8' }}>
+                                          {safeGridComp.address}
+                                        </Typography>
+                                        {safeGridComp.gridCompLabel !== '—' && (
+                                          <Typography variant="caption" sx={{ color: '#047857', fontWeight: 600 }}>
+                                            Rental Grid {safeGridComp.gridCompLabel} {safeGridComp.sale_price && safeGridComp.sale_price !== '—' ? `• $${safeGridComp.sale_price}` : ''}
+                                          </Typography>
+                                        )}
+                                      </TableCell>
+                                      <TableCell>
+                                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#0f172a' }}>
+                                          {displayStreet}
+                                        </Typography>
+                                        <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                          {compInfo.city ? `${compInfo.city}, ${compInfo.state} ${compInfo.zipcode}` : (gridComp?.city ? `${gridComp.city}, ${gridComp.state} ${gridComp.zipcode}` : '—')}
+                                        </Typography>
+                                      </TableCell>
+                                      <TableCell>
+                                        {photoComp ? (
+                                          <Stack direction="row" spacing={1} alignItems="center">
+                                            {(photoComp.thumbnail || photoComp.base64_preview) && (
+                                              <Tooltip title="Click to view photo & detailed cross-reference" arrow>
+                                                <Box
+                                                  onClick={() => setSelectedCompPhotoModal({ compInfo, photoComp, gridComp })}
+                                                  sx={{
+                                                    width: 44,
+                                                    height: 34,
+                                                    borderRadius: 1,
+                                                    overflow: 'hidden',
+                                                    bgcolor: '#0f172a',
+                                                    cursor: 'pointer',
+                                                    flexShrink: 0,
+                                                    boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                                    transition: 'transform 0.15s',
+                                                    '&:hover': { transform: 'scale(1.08)' }
+                                                  }}
+                                                >
+                                                  <img
+                                                    src={photoComp.thumbnail || photoComp.base64_preview}
+                                                    alt={photoComp.title || 'Rental Photo'}
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                  />
+                                                </Box>
+                                              </Tooltip>
+                                            )}
+                                            <Box>
+                                              <Typography
+                                                variant="body2"
+                                                onClick={() => setSelectedCompPhotoModal({ compInfo, photoComp, gridComp })}
+                                                sx={{ fontWeight: 700, color: '#0f172a', cursor: 'pointer', '&:hover': { color: '#0284c7' } }}
+                                              >
+                                                {photoComp.address || photoComp.title}
+                                              </Typography>
+                                              <Typography variant="caption" sx={{ color: '#0369a1', fontWeight: 600, display: 'block' }}>
+                                                Page {photoComp.page} {photoComp.rent_amount || photoComp.sale_price ? `• $${photoComp.rent_amount || photoComp.sale_price}/mo` : ''} {photoComp.gla ? `• ${photoComp.gla} sf` : ''}
+                                              </Typography>
+                                              {photoComp.proximity && (
+                                                <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                                  Prox: <strong>{photoComp.proximity}</strong>
+                                                </Typography>
+                                              )}
+                                            </Box>
+                                          </Stack>
+                                        ) : (
+                                          <span style={{ color: '#94a3b8' }}>—</span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell>
+                                        {safeGridComp.proximity && safeGridComp.proximity !== '—' && (
+                                          <Typography variant="caption" sx={{ color: '#047857', display: 'block', mb: 0.25, fontWeight: 600 }}>
+                                            Grid: {safeGridComp.proximity}
+                                          </Typography>
+                                        )}
+                                        {compInfo.proximity ? (
+                                          <Chip
+                                            label={`Map: ${compInfo.proximity}`}
+                                            size="small"
+                                            sx={{ fontWeight: 700, bgcolor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontSize: '0.72rem' }}
+                                          />
+                                        ) : (
+                                          <span style={{ color: '#94a3b8' }}>—</span>
+                                        )}
+                                        {photoComp?.proximity && (
+                                          <Typography variant="caption" sx={{ color: '#4338ca', display: 'block', mt: 0.25, fontWeight: 600 }}>
+                                            Photo: {photoComp.proximity}
+                                          </Typography>
+                                        )}
+                                      </TableCell>
+                                      <TableCell>
+                                        {(mapMatchesPhoto && (mapMatchesGrid || photoMatchesGrid)) || (mapMatchesGrid && photoMatchesGrid) ? (
+                                          <Chip
+                                            label="3-Way Match"
+                                            size="small"
+                                            icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
+                                            sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                          />
+                                        ) : mapMatchesGrid ? (
+                                          <Chip
+                                            label="Grid ↔ Map"
+                                            size="small"
+                                            icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#16a34a !important' }} />}
+                                            sx={{ bgcolor: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0', fontSize: '0.72rem' }}
+                                          />
+                                        ) : photoMatchesGrid ? (
+                                          <Chip
+                                            label="Grid ↔ Photo"
+                                            size="small"
+                                            icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#4338ca !important' }} />}
+                                            sx={{ bgcolor: '#e0e7ff', color: '#3730a3', fontWeight: 700, border: '1px solid #c7d2fe', fontSize: '0.72rem' }}
+                                          />
+                                        ) : mapMatchesPhoto ? (
+                                          <Chip
+                                            label="Map ↔ Photo"
+                                            size="small"
+                                            icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#0284c7 !important' }} />}
+                                            sx={{ bgcolor: '#e0f2fe', color: '#0369a1', fontWeight: 700, border: '1px solid #bae6fd', fontSize: '0.72rem' }}
+                                          />
+                                        ) : safeGridComp.matchStatus === 'partial' ? (
+                                          <Chip
+                                            label="Near Match"
+                                            size="small"
+                                            sx={{ bgcolor: '#fef9c3', color: '#a16207', fontWeight: 700, border: '1px solid #fde047', fontSize: '0.72rem' }}
+                                          />
+                                        ) : (
+                                          <Chip
+                                            label={safeGridComp.matchLabel || 'Not in Grid'}
+                                            size="small"
+                                            sx={{ bgcolor: '#fee2e2', color: '#b91c1c', fontWeight: 700, border: '1px solid #fecaca', fontSize: '0.72rem' }}
+                                          />
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </Box>
+                      );
+                    })()}
                   </Paper>
                 </Grid>
 
