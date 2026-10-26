@@ -116,6 +116,19 @@ export const checkRentProximityToSubject = (field, text, allData, path, saleName
     return { isMatch: true };
 };
 
+export const isNA = (val) => {
+    if (val === undefined || val === null) return false;
+    const str = String(typeof val === 'object' && val !== null ? (val.value ?? '') : val).trim().toLowerCase();
+    return ['n/a', 'na', 'n / a', 'none', 'not applicable', '-', '--'].includes(str);
+};
+
+export const isBlankOrNA = (val) => {
+    if (val === undefined || val === null) return true;
+    const str = String(typeof val === 'object' && val !== null ? (val.value ?? '') : val).trim();
+    if (str === '') return true;
+    return isNA(str);
+};
+
 export const checkLeaseDates = (field, text, allData, path, saleName) => {
     if (field !== 'Date Lease Begins' && field !== 'Date Lease Expires') {
         return null;
@@ -145,21 +158,24 @@ export const checkLeaseDates = (field, text, allData, path, saleName) => {
         const leaseExpiresStr = (field === 'Date Lease Expires') ? currentVal : storedExpires;
         const thisDateStr = (field === 'Date Lease Begins') ? leaseBeginsStr : leaseExpiresStr;
 
-        // If Occupant is Owner or Vacant, lease dates MUST be blank
+        // If Occupant is Owner or Vacant, lease dates MUST be blank or N/A
         if (occupant === 'Owner' || occupant === 'Vacant') {
-            if (thisDateStr !== '') {
+            if (!isBlankOrNA(thisDateStr)) {
                 return {
                     isError: true,
                     skipBlankFilter: true,
-                    message: `For Subject, '${field}' must be blank when Occupant is ${occupant}.`
+                    message: `For Subject, '${field}' must be blank or N/A when Occupant is ${occupant}.`
                 };
+            }
+            if (isNA(thisDateStr)) {
+                return { isMatch: true };
             }
             return null;
         }
 
         // If Occupant is Tenant, lease dates MUST be present and valid
         if (occupant === 'Tenant') {
-            if (!thisDateStr) {
+            if (!thisDateStr || isNA(thisDateStr)) {
                 return {
                     isError: true,
                     skipBlankFilter: true,
@@ -223,12 +239,15 @@ export const checkLeaseDates = (field, text, allData, path, saleName) => {
         }
 
         // If Occupant is not specified, but user entered lease dates
-        if (!occupant && thisDateStr !== '') {
+        if (!occupant && !isBlankOrNA(thisDateStr)) {
             return {
                 isError: true,
                 skipBlankFilter: true,
                 message: `When lease dates are present in Rental Grid, 'Occupant' in Subject section must be 'Tenant'.`
             };
+        }
+        if (!occupant && isNA(thisDateStr)) {
+            return { isMatch: true };
         }
 
         return null;
@@ -245,7 +264,10 @@ export const checkLeaseDates = (field, text, allData, path, saleName) => {
     const leaseBeginsStr = (field === 'Date Lease Begins') ? currentVal : storedBegins;
     const leaseExpiresStr = (field === 'Date Lease Expires') ? currentVal : storedExpires;
 
-    if (!leaseBeginsStr || !leaseExpiresStr) {
+    if (!leaseBeginsStr || !leaseExpiresStr || isNA(leaseBeginsStr) || isNA(leaseExpiresStr)) {
+        if (isNA(currentVal)) {
+            return { isMatch: true };
+        }
         return null;
     }
 

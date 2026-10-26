@@ -8,7 +8,9 @@ import {
     parseRentalAmount,
     getSubjectRentFieldVal,
     getSubjectOccupant,
-    is1007Active
+    is1007Active,
+    isNA,
+    isBlankOrNA
 } from './rentScheduleValidation';
 import { checkOccupancy } from './subjectValidation';
 
@@ -58,7 +60,7 @@ describe('1007 Rental Grid & Occupant Validation Tests', () => {
 
     describe('Form Type 1004 + 1007', () => {
         describe('Occupant is Owner or Vacant', () => {
-            test('Date Lease Begins and Expires should be blank when Occupant is Owner', () => {
+            test('Date Lease Begins and Expires should be blank or N/A when Occupant is Owner', () => {
                 const allData = {
                     formType: '1004 + 1007',
                     Occupant: 'Owner',
@@ -70,18 +72,18 @@ describe('1007 Rental Grid & Occupant Validation Tests', () => {
 
                 const resBegins = checkLeaseDates('Date Lease Begins', '08/01/2026', allData, ['Subject', 'Date Lease Begins'], 'Subject');
                 expect(resBegins.isError).toBe(true);
-                expect(resBegins.message).toContain("must be blank when Occupant is Owner");
+                expect(resBegins.message).toContain("must be blank or N/A when Occupant is Owner");
 
                 const resExpires = checkLeaseDates('Date Lease Expires', '08/01/2027', allData, ['Subject', 'Date Lease Expires'], 'Subject');
                 expect(resExpires.isError).toBe(true);
-                expect(resExpires.message).toContain("must be blank when Occupant is Owner");
+                expect(resExpires.message).toContain("must be blank or N/A when Occupant is Owner");
 
                 const resOcc = checkOccupancy('Occupant', 'Owner', allData);
                 expect(resOcc.isError).toBe(true);
                 expect(resOcc.message).toContain("lease dates are present in Rental Grid. Lease start and end dates must be blank");
             });
 
-            test('Date Lease Begins and Expires should be blank when Occupant is Vacant', () => {
+            test('Date Lease Begins and Expires should be blank or N/A when Occupant is Vacant', () => {
                 const allData = {
                     formType: '1004 + 1007',
                     Occupant: 'Vacant',
@@ -92,7 +94,7 @@ describe('1007 Rental Grid & Occupant Validation Tests', () => {
 
                 const resBegins = checkLeaseDates('Date Lease Begins', '05/01/2026', allData, ['Subject', 'Date Lease Begins'], 'Subject');
                 expect(resBegins.isError).toBe(true);
-                expect(resBegins.message).toContain("must be blank when Occupant is Vacant");
+                expect(resBegins.message).toContain("must be blank or N/A when Occupant is Vacant");
 
                 const resOcc = checkOccupancy('Occupant', 'Vacant', allData);
                 expect(resOcc.isError).toBe(true);
@@ -116,6 +118,46 @@ describe('1007 Rental Grid & Occupant Validation Tests', () => {
                 expect(resExpires).toBeNull();
 
                 const resOcc = checkOccupancy('Occupant', 'Owner', allData);
+                expect(resOcc.isMatch).toBe(true);
+            });
+
+            test('Passes when Occupant is Owner and lease dates are N/A', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    Occupant: 'Owner',
+                    'Single Family Rent Schedule': {
+                        'Date Lease Begins': 'N/A',
+                        'Date Lease Expires': 'N/A'
+                    }
+                };
+
+                const resBegins = checkLeaseDates('Date Lease Begins', 'N/A', allData, ['Subject', 'Date Lease Begins'], 'Subject');
+                expect(resBegins.isMatch).toBe(true);
+
+                const resExpires = checkLeaseDates('Date Lease Expires', 'N/A', allData, ['Subject', 'Date Lease Expires'], 'Subject');
+                expect(resExpires.isMatch).toBe(true);
+
+                const resOcc = checkOccupancy('Occupant', 'Owner', allData);
+                expect(resOcc.isMatch).toBe(true);
+            });
+
+            test('Passes when Occupant is Vacant and lease dates are N/A (lowercase n/a / na)', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    Occupant: 'Vacant',
+                    'Single Family Rent Schedule': {
+                        'Date Lease Begins': 'N/A',
+                        'Date Lease Expires': 'n/a'
+                    }
+                };
+
+                const resBegins = checkLeaseDates('Date Lease Begins', 'N/A', allData, ['Subject', 'Date Lease Begins'], 'Subject');
+                expect(resBegins.isMatch).toBe(true);
+
+                const resExpires = checkLeaseDates('Date Lease Expires', 'n/a', allData, ['Subject', 'Date Lease Expires'], 'Subject');
+                expect(resExpires.isMatch).toBe(true);
+
+                const resOcc = checkOccupancy('Occupant', 'Vacant', allData);
                 expect(resOcc.isMatch).toBe(true);
             });
         });

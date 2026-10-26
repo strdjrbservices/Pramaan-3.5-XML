@@ -1,5 +1,5 @@
 const checkFormIsV1 = (data) => {
-    if (!data) return false;
+    if (!data) return true;
     const ft = String(data.formType || data.form_type || data.selected_form_type || data.selectedFormType || '').trim();
     if (!ft) return true;
     return ft === 'Appraisal Version #1' || ft === 'Version 1' || ft === 'Version1';

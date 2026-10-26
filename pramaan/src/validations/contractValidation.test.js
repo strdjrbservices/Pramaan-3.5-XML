@@ -17,7 +17,7 @@ describe('Contract & Assignment Type Validation Tests', () => {
             const data = { 'Assignment Type': 'Purchase Transaction', CONTRACT: {} };
             const res = checkContractFieldsMandatory(fields[0], '', data, ['CONTRACT', fields[0]]);
             expect(res.isError).toBe(true);
-            expect(res.message).toContain("This field is required when Assignment Type is 'Purchase Transaction'");
+            expect(res.message).toContain("This field is required and must not be blank when Assignment Type is 'Purchase Transaction'");
         });
 
         test('Passes when contract fields are filled', () => {
@@ -59,7 +59,7 @@ describe('Contract & Assignment Type Validation Tests', () => {
             const data = { 'Assignment Type': 'Refinance Transaction', CONTRACT: { [fields[1]]: '500000' } };
             const res = checkContractFieldsMandatory(fields[1], '500000', data, ['CONTRACT', fields[1]]);
             expect(res.isError).toBe(true);
-            expect(res.message).toContain("This field should be blank when Assignment Type is 'Refinance Transaction'");
+            expect(res.message).toContain("This field should be blank, 'No', 'N/A', or 'Did not' when Assignment Type is 'Refinance Transaction'");
         });
 
         test('checkAssignmentTypeConsistency fails when contract fields have values for Refinance', () => {

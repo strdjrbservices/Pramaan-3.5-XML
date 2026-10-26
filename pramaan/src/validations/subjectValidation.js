@@ -1,4 +1,4 @@
-import { getSubjectRentFieldVal, parseMMDDYYYY, is1007Active } from './rentScheduleValidation';
+import { getSubjectRentFieldVal, parseMMDDYYYY, is1007Active, isBlankOrNA, isNA } from './rentScheduleValidation';
 
 const checkNotBlank = (field, text, fieldName) => {
     if (field === fieldName) {
@@ -281,18 +281,18 @@ export const checkOccupancy = (field, text, allData) => {
         const leaseBegins = getSubjectRentFieldVal(allData, 'Date Lease Begins');
         const leaseExpires = getSubjectRentFieldVal(allData, 'Date Lease Expires');
 
-        // If occupant is owner or vacant, lease dates must be blank and vice versa
+        // If occupant is owner or vacant, lease dates must be blank or N/A and vice versa
         if (matchedOption === 'owner' || matchedOption === 'vacant') {
-            if (leaseBegins || leaseExpires) {
+            if (!isBlankOrNA(leaseBegins) || !isBlankOrNA(leaseExpires)) {
                 return {
                     isError: true,
                     skipBlankFilter: true,
-                    message: `Occupant is '${value}', but lease dates are present in Rental Grid. Lease start and end dates must be blank.`
+                    message: `Occupant is '${value}', but lease dates are present in Rental Grid. Lease start and end dates must be blank or N/A.`
                 };
             }
         } else if (matchedOption === 'tenant') {
             // If occupant is tenant, start and end date must be present and valid
-            if (!leaseBegins || !leaseExpires) {
+            if (!leaseBegins || !leaseExpires || isNA(leaseBegins) || isNA(leaseExpires)) {
                 return {
                     isError: true,
                     skipBlankFilter: true,
