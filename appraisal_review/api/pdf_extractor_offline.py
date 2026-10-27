@@ -1396,6 +1396,114 @@ def extract_prior_service_comment_from_doc(doc=None, full_doc_text=""):
     return "Not Present"
 
 
+def extract_uspap_reporting_option_and_comment(doc=None, uspap_page_idx=None, full_doc_text=""):
+    """
+    Scans the PDF document for the USPAP Reporting Option on the Appraisal and Report Identification / USPAP Addendum page:
+    - 'Appraisal Report (A written report prepared under Standards Rule 2-2(a))'
+    - 'Restricted Appraisal Report (A written report prepared under Standards Rule 2-2(b))'
+    Also extracts any explanation comment under Comments on Appraisal and Report Identification or Additional Comments.
+    Returns (reporting_option: str, comment: str)
+    """
+    reporting_option = "Appraisal Report"
+    comment = ""
+
+    candidate_pages = []
+    if doc is not None:
+        if uspap_page_idx is not None and 0 <= uspap_page_idx < len(doc):
+            candidate_pages.append((uspap_page_idx, doc[uspap_page_idx]))
+        for idx, page in enumerate(doc):
+            if uspap_page_idx is not None and idx == uspap_page_idx:
+                continue
+            t = (page.get_text() or "").upper()
+            if "USPAP REPORTING OPTION" in t or "STANDARDS RULE 2-2" in t or "APPRAISAL AND REPORT IDENTIFICATION" in t or "USPAP ADDENDUM" in t:
+                candidate_pages.append((idx, page))
+
+    found_option = False
+    for page_idx, page in candidate_pages:
+        blocks = page.get_text("blocks")
+        words = page.get_text("words")
+
+        rep_appr_bbox = None
+        rep_restr_bbox = None
+        for b in blocks:
+            bt = " ".join(b[4].split()).strip().lower()
+            if "standards rule 2-2(a)" in bt or ("appraisal report" in bt and "restricted" not in bt and ("written report" in bt or "prepared under" in bt or "standards rule" in bt)):
+                rep_appr_bbox = b[:4]
+            elif "standards rule 2-2(b)" in bt or "restricted appraisal report" in bt:
+                rep_restr_bbox = b[:4]
+
+        if rep_appr_bbox or rep_restr_bbox:
+            for w in words:
+                wt = w[4].strip().upper()
+                if wt in ["X", "[X]", "8", "[8]", "☒", "☑", "✓"] and w[0] < 60:
+                    if rep_appr_bbox and abs(w[1] - rep_appr_bbox[1]) < 30:
+                        reporting_option = "Appraisal Report"
+                        found_option = True
+                        break
+                    elif rep_restr_bbox and abs(w[1] - rep_restr_bbox[1]) < 30:
+                        reporting_option = "Restricted Appraisal Report"
+                        found_option = True
+                        break
+
+            # Vector checkbox fallback
+            if not found_option and fitz is not None:
+                try:
+                    for b_box, b_label in [(rep_appr_bbox, "Appraisal Report"), (rep_restr_bbox, "Restricted Appraisal Report")]:
+                        if b_box:
+                            r_chk = find_physical_checkbox_rect(page, b_box[0] - 12.0, (b_box[1] + b_box[3]) / 2.0, search_radius=15.0)
+                            if r_chk:
+                                is_chk = (
+                                    check_box_pixel_density(page, r_chk.x0, r_chk.y0, r_chk.x1, r_chk.y1, min_dark_ratio=0.12, min_dark_pixels=6) or
+                                    check_box_font_rawdict(page, r_chk.x0, r_chk.y0, r_chk.x1, r_chk.y1) or
+                                    bool(check_box_acroform_widget(page, r_chk.x0, r_chk.y0, r_chk.x1, r_chk.y1))
+                                )
+                                if is_chk:
+                                    reporting_option = b_label
+                                    found_option = True
+                                    break
+                except Exception:
+                    pass
+
+        # Also extract comment on the USPAP page if present
+        comments_start_y = None
+        appraiser_sig_y = None
+        for b in blocks:
+            bt = " ".join(b[4].split()).strip().lower()
+            if "additional comments" in bt or "comments on appraisal and report identification" in bt or "comments on standards rule" in bt:
+                comments_start_y = b[3]
+            if "appraiser:" in bt or "supervisory appraiser" in bt:
+                if appraiser_sig_y is None or b[1] < appraiser_sig_y:
+                    appraiser_sig_y = b[1]
+
+        if comments_start_y:
+            limit_y = appraiser_sig_y if appraiser_sig_y and appraiser_sig_y > comments_start_y else (comments_start_y + 200.0)
+            c_words = [w for w in words if comments_start_y <= w[1] <= limit_y and w[0] >= 20 and w[2] <= 580]
+            c_words = [w for w in c_words if w[4].lower() not in ["additional", "comments", "appraiser:", "supervisory", "produced", "using", "aci", "software", "uspap_14"]]
+            if c_words:
+                c_words.sort(key=lambda w: (round(w[1] / 5.0) * 5.0, w[0]))
+                extracted_c = " ".join(w[4] for w in c_words).strip()
+                if len(extracted_c) > 5:
+                    comment = extracted_c
+
+        if found_option:
+            break
+
+    # If comment not yet found, check document narrative for Restricted Appraisal Report comments
+    if not comment and full_doc_text:
+        m_comm = re.search(
+            r'(?:Comments\s+on\s+Appraisal\s+and\s+Report\s+Identification|Restricted\s+Appraisal\s+Report(?:\s+Comments)?)\s*[:\n]\s*([^\n]+(?:\n[^\n]+){1,8})',
+            full_doc_text,
+            re.IGNORECASE
+        )
+        if m_comm:
+            c_cand = m_comm.group(1).strip()
+            c_cand = re.split(r'(?:\n\s*(?:APPRAISER|SUPERVISORY|SIGNATURE|CERTIFICATION|Produce)|\Z)', c_cand, flags=re.IGNORECASE)[0].strip()
+            if len(c_cand) > 5:
+                comment = c_cand
+
+    return reporting_option, comment
+
+
 def extract_appraiser_fee_from_doc(doc=None, full_doc_text=""):
     """
     Extracts the Appraiser's Fee across all pages of the document
@@ -6412,26 +6520,52 @@ def extract_fields_from_pdf_offline(pdf_path):
                 data["Subject"]["1004MC Present"] = "Yes" if has_1004mc_pdf else "No"
                 data["Subject"]["has_1004mc"] = has_1004mc_pdf
 
-            # USPAP / Appraisal and Report Identification Presence Detection in PDF
+            # USPAP / Appraisal and Report Identification Presence & Reporting Option Detection in PDF
             uspap_idx = page_indices.get("uspap_identification") if "page_indices" in locals() and isinstance(page_indices, dict) else None
             has_uspap_keywords = bool(re.search(r"uspap\s*(?:addendum|compliance|identification)?|appraisal\s+(?:and|&)\s+report\s+identification", full_doc_text, re.IGNORECASE))
             has_uspap_pdf = (uspap_idx is not None) or has_uspap_keywords
             uspap_present_pdf = f"Present (Page {uspap_idx + 1})" if uspap_idx is not None else ("Present" if has_uspap_pdf else "Not Present")
-            data["USPAP / Appraisal and Report Identification"] = uspap_present_pdf
-            data["Appraisal and Report Identification"] = uspap_present_pdf
+
+            uspap_opt, uspap_comm = extract_uspap_reporting_option_and_comment(doc, uspap_page_idx=uspap_idx, full_doc_text=full_doc_text)
+            uspap_long_key = (
+                "This report was prepared under the following USPAP reporting option:\n"
+                "Appraisal Report A written report prepared under Standards Rule 2-2(a).\n"
+                "Restricted Appraisal Report A written report prepared under Standards Rule 2-2(b)."
+            )
+            uspap_val_to_use = uspap_opt if has_uspap_pdf else "Not Present"
+
+            data[uspap_long_key] = uspap_val_to_use
+            data["This report was prepared under the following USPAP reporting option:"] = uspap_val_to_use
+            data["USPAP Reporting Option"] = uspap_val_to_use
+            data["USPAP Reporting Options"] = uspap_val_to_use
+            data["Comments on Appraisal and Report Identification"] = uspap_comm
+            data["Restricted Appraisal Report Comment"] = uspap_comm
+            data["USPAP / Appraisal and Report Identification"] = uspap_val_to_use
+            data["Appraisal and Report Identification"] = uspap_val_to_use
             data["USPAP Addendum"] = uspap_present_pdf
             data["USPAP Present"] = "Yes" if has_uspap_pdf else "No"
             data["has_uspap_identification"] = has_uspap_pdf
+
             if "SUBJECT" in data and isinstance(data["SUBJECT"], dict):
-                data["SUBJECT"]["USPAP / Appraisal and Report Identification"] = uspap_present_pdf
-                data["SUBJECT"]["Appraisal and Report Identification"] = uspap_present_pdf
+                data["SUBJECT"][uspap_long_key] = uspap_val_to_use
+                data["SUBJECT"]["USPAP Reporting Option"] = uspap_val_to_use
+                data["SUBJECT"]["Comments on Appraisal and Report Identification"] = uspap_comm
+                data["SUBJECT"]["USPAP / Appraisal and Report Identification"] = uspap_val_to_use
+                data["SUBJECT"]["Appraisal and Report Identification"] = uspap_val_to_use
                 data["SUBJECT"]["USPAP Addendum"] = uspap_present_pdf
                 data["SUBJECT"]["has_uspap_identification"] = has_uspap_pdf
             if "Subject" in data and isinstance(data["Subject"], dict):
-                data["Subject"]["USPAP / Appraisal and Report Identification"] = uspap_present_pdf
-                data["Subject"]["Appraisal and Report Identification"] = uspap_present_pdf
+                data["Subject"][uspap_long_key] = uspap_val_to_use
+                data["Subject"]["USPAP Reporting Option"] = uspap_val_to_use
+                data["Subject"]["Comments on Appraisal and Report Identification"] = uspap_comm
+                data["Subject"]["USPAP / Appraisal and Report Identification"] = uspap_val_to_use
+                data["Subject"]["Appraisal and Report Identification"] = uspap_val_to_use
                 data["Subject"]["USPAP Addendum"] = uspap_present_pdf
                 data["Subject"]["has_uspap_identification"] = has_uspap_pdf
+            if "CERTIFICATION" in data and isinstance(data["CERTIFICATION"], dict):
+                data["CERTIFICATION"][uspap_long_key] = uspap_val_to_use
+                data["CERTIFICATION"]["USPAP Reporting Option"] = uspap_val_to_use
+                data["CERTIFICATION"]["Comments on Appraisal and Report Identification"] = uspap_comm
 
             # Invoice Presence Detection in PDF
             inv_idx = page_indices.get("invoice") if "page_indices" in locals() and isinstance(page_indices, dict) else None

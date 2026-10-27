@@ -2159,7 +2159,10 @@ function Subject({ defaultFormType }) {
       'Prior service comment': data['Prior service comment'] || data['Prior Service Comment'] || data['Prior Service'] || '',
       'E&O': eoVal,
       'Invoice Attached': invVal,
-      'Conditions Comment': data?.['Conditions Comment'] || data?.RECONCILIATION?.['Conditions Comment'] || data?.['Subject To Comment'] || data?.RECONCILIATION?.['Subject To Comment'] || ''
+      'Conditions Comment': data?.['Conditions Comment'] || data?.RECONCILIATION?.['Conditions Comment'] || data?.['Subject To Comment'] || data?.RECONCILIATION?.['Subject To Comment'] || '',
+      'This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).': data?.['This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).'] || data?.['USPAP Reporting Option'] || data?.['USPAP / Appraisal and Report Identification'] || (data?.has_uspap_identification ? 'Appraisal Report' : ''),
+      'USPAP Reporting Option': data?.['USPAP Reporting Option'] || data?.['This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).'] || data?.['USPAP / Appraisal and Report Identification'] || (data?.has_uspap_identification ? 'Appraisal Report' : ''),
+      'Comments on Appraisal and Report Identification': data?.['Comments on Appraisal and Report Identification'] || data?.['Restricted Appraisal Report Comment'] || data?.CERTIFICATION?.['Comments on Appraisal and Report Identification'] || ''
     };
 
     generateValidationLogPDF({
@@ -2268,6 +2271,40 @@ function Subject({ defaultFormType }) {
         newData.SUBJECT['Invoice Attached'] = value;
         newData.Subject['Invoice Attached'] = value;
         newData['Invoice Attached'] = value;
+      }
+
+      const uspapLongKey = "This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).";
+      if (
+        fieldKey === uspapLongKey ||
+        fieldKey === "This report was prepared under the following USPAP reporting option:" ||
+        fieldKey === "USPAP Reporting Option" ||
+        fieldKey === "USPAP / Appraisal and Report Identification" ||
+        fieldKey === "Appraisal and Report Identification"
+      ) {
+        if (!newData.CERTIFICATION) newData.CERTIFICATION = {};
+        if (!newData.SUBJECT) newData.SUBJECT = {};
+        if (!newData.Subject) newData.Subject = {};
+        newData[uspapLongKey] = value;
+        newData["This report was prepared under the following USPAP reporting option:"] = value;
+        newData["USPAP Reporting Option"] = value;
+        newData["USPAP / Appraisal and Report Identification"] = value;
+        newData["Appraisal and Report Identification"] = value;
+        newData.CERTIFICATION["USPAP Reporting Option"] = value;
+        newData.SUBJECT["USPAP Reporting Option"] = value;
+        newData.Subject["USPAP Reporting Option"] = value;
+        newData.Subject["USPAP / Appraisal and Report Identification"] = value;
+      }
+      if (
+        fieldKey === "Comments on Appraisal and Report Identification" ||
+        fieldKey === "Restricted Appraisal Report Comment"
+      ) {
+        if (!newData.CERTIFICATION) newData.CERTIFICATION = {};
+        if (!newData.SUBJECT) newData.SUBJECT = {};
+        if (!newData.Subject) newData.Subject = {};
+        newData["Comments on Appraisal and Report Identification"] = value;
+        newData["Restricted Appraisal Report Comment"] = value;
+        newData.CERTIFICATION["Comments on Appraisal and Report Identification"] = value;
+        newData.Subject["Comments on Appraisal and Report Identification"] = value;
       }
 
       if (rentScheduleReconciliationFields.includes(fieldKey)) {
@@ -2808,9 +2845,12 @@ function Subject({ defaultFormType }) {
     data?.['USPAP / Appraisal and Report Identification'] === 'Present' ||
     data?.['USPAP / Appraisal and Report Identification']?.startsWith?.('Present') ||
     data?.['Appraisal and Report Identification']?.startsWith?.('Present') ||
+    data?.['USPAP Reporting Option'] ||
+    data?.['This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).'] ||
     data?.Subject?.has_uspap_identification ||
     data?.Subject?.['USPAP / Appraisal and Report Identification']?.startsWith?.('Present') ||
-    data?.Subject?.['Appraisal and Report Identification']?.startsWith?.('Present')
+    data?.Subject?.['Appraisal and Report Identification']?.startsWith?.('Present') ||
+    data?.Subject?.['USPAP Reporting Option']
   );
 
   if (hasUspapIdent && !subjectFields.includes("USPAP / Appraisal and Report Identification")) {
@@ -3209,6 +3249,7 @@ function Subject({ defaultFormType }) {
   ];
 
   const appraisalAndReportIdentificationFields = [
+    "This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).",
     "This Report is one of the following types:",
     "Comments on Standards Rule 2-3",
     "Reasonable Exposure Time",
@@ -7604,45 +7645,83 @@ function Subject({ defaultFormType }) {
                       )}
 
                       {/* USPAP / Appraisal and Report Identification Check */}
-                      {(data['USPAP / Appraisal and Report Identification'] || data['Appraisal and Report Identification'] || data?.Subject?.['USPAP / Appraisal and Report Identification'] || data?.Subject?.['Appraisal and Report Identification'] || data?.has_uspap_identification !== undefined) && (
-                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                          <Paper
-                            variant="outlined"
-                            sx={{
-                              p: 1.5,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              height: '100%',
-                              borderColor: (data?.has_uspap_identification || data['USPAP / Appraisal and Report Identification']?.startsWith('Present') || data['Appraisal and Report Identification']?.startsWith('Present') || data?.Subject?.['USPAP / Appraisal and Report Identification']?.startsWith('Present')) ? 'success.main' : 'divider',
-                              bgcolor: (data?.has_uspap_identification || data['USPAP / Appraisal and Report Identification']?.startsWith('Present') || data['Appraisal and Report Identification']?.startsWith('Present') || data?.Subject?.['USPAP / Appraisal and Report Identification']?.startsWith('Present')) ? '#f0fdf4' : 'background.paper'
-                            }}
-                          >
-                            <Box sx={{ overflow: 'hidden' }}>
-                              <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>
-                                USPAP / Report Identification
-                              </Typography>
-                              <EditableField
-                                fieldPath={['USPAP / Appraisal and Report Identification']}
-                                value={data['USPAP / Appraisal and Report Identification'] || data['Appraisal and Report Identification'] || data?.Subject?.['USPAP / Appraisal and Report Identification'] || (data?.has_uspap_identification ? 'Present' : 'Not Present')}
-                                onDataChange={handleDataChange}
-                                editingField={editingField}
-                                setEditingField={setEditingField}
-                                isEditable={isEditable}
-                                allData={data}
-                              />
-                            </Box>
-                            <Tooltip title="USPAP & Appraisal Report Identification Page">
-                              <IconButton
-                                size="small"
-                                color="primary"
-                              >
-                                <AssignmentIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Paper>
-                        </Grid>
-                      )}
+                      {(data['USPAP / Appraisal and Report Identification'] || data['Appraisal and Report Identification'] || data?.Subject?.['USPAP / Appraisal and Report Identification'] || data?.Subject?.['Appraisal and Report Identification'] || data?.has_uspap_identification !== undefined || data?.['USPAP Reporting Option'] || data?.['This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).']) && (() => {
+                        const uspapLongKey = "This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).";
+                        const uspapVal = data[uspapLongKey] ||
+                          data['This report was prepared under the following USPAP reporting option:'] ||
+                          data['USPAP Reporting Option'] ||
+                          data['USPAP / Appraisal and Report Identification'] ||
+                          data['Appraisal and Report Identification'] ||
+                          data?.Subject?.[uspapLongKey] ||
+                          data?.Subject?.['USPAP Reporting Option'] ||
+                          data?.Subject?.['USPAP / Appraisal and Report Identification'] ||
+                          data?.CERTIFICATION?.['USPAP Reporting Option'] ||
+                          (data?.has_uspap_identification ? 'Appraisal Report' : '');
+
+                        const commentVal = (
+                          data['Comments on Appraisal and Report Identification'] ||
+                          data['Restricted Appraisal Report Comment'] ||
+                          data?.CERTIFICATION?.['Comments on Appraisal and Report Identification'] ||
+                          data?.Subject?.['Comments on Appraisal and Report Identification'] ||
+                          ''
+                        ).trim();
+
+                        const valLower = String(uspapVal || '').toLowerCase();
+                        const isRestricted = valLower.includes('restricted');
+                        const isAppraisalReport = valLower.includes('appraisal report') && !isRestricted;
+                        const isValidated = (isRestricted && commentVal) || isAppraisalReport || valLower.includes('present') || data?.has_uspap_identification;
+                        const isWarning = isRestricted && !commentVal;
+
+                        return (
+                          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                            <Paper
+                              variant="outlined"
+                              sx={{
+                                p: 1.5,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                height: '100%',
+                                borderColor: isValidated ? 'success.main' : (isWarning ? 'warning.main' : 'divider'),
+                                bgcolor: isValidated ? '#f0fdf4' : (isWarning ? '#fffbeb' : 'background.paper')
+                              }}
+                            >
+                              <Box sx={{ overflow: 'hidden', flex: 1, mr: 1 }}>
+                                <Typography variant="caption" color="secondary.main" fontWeight="bold" display="block" noWrap>
+                                  USPAP / Report Identification
+                                </Typography>
+                                <EditableField
+                                  fieldPath={[uspapLongKey]}
+                                  value={uspapVal || (data?.has_uspap_identification ? 'Appraisal Report' : 'Not Present')}
+                                  onDataChange={handleDataChange}
+                                  editingField={editingField}
+                                  setEditingField={setEditingField}
+                                  isEditable={isEditable}
+                                  allData={data}
+                                />
+                                {isRestricted && commentVal && (
+                                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: '0.72rem', fontStyle: 'italic', wordBreak: 'break-word' }}>
+                                    Comment: {commentVal.length > 80 ? commentVal.substring(0, 80) + '...' : commentVal}
+                                  </Typography>
+                                )}
+                                {isRestricted && !commentVal && (
+                                  <Typography variant="caption" sx={{ color: 'warning.dark', display: 'block', mt: 0.5, fontSize: '0.72rem', fontWeight: 600 }}>
+                                    Restricted report selected: comment required
+                                  </Typography>
+                                )}
+                              </Box>
+                              <Tooltip title={isRestricted && commentVal ? `Restricted Appraisal Report Comment: ${commentVal}` : "USPAP & Appraisal Report Identification Page"}>
+                                <IconButton
+                                  size="small"
+                                  color={isValidated ? "success" : (isWarning ? "warning" : "primary")}
+                                >
+                                  <AssignmentIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Paper>
+                          </Grid>
+                        );
+                      })()}
 
                       {/* ANSI - Compulsory Extraction Check */}
                       <Grid size={{ xs: 12, sm: 6, md: 4 }}>

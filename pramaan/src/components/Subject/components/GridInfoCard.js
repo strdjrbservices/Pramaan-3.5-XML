@@ -195,17 +195,41 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
         ?? (allData?.has_1004mc ? "Present" : "");
       if (mcVal) return renderValue(mcVal);
     }
-    if (field === "USPAP / Appraisal and Report Identification" || field === "Appraisal and Report Identification" || field === "USPAP Addendum" || field === "USPAP") {
-      const uspapVal = data?.["USPAP / Appraisal and Report Identification"]
+    if (
+      field === "USPAP / Appraisal and Report Identification" ||
+      field === "Appraisal and Report Identification" ||
+      field === "USPAP Addendum" ||
+      field === "USPAP" ||
+      field === "USPAP Reporting Option" ||
+      (typeof field === "string" && field.includes("USPAP reporting option"))
+    ) {
+      const uspapVal = data?.[field]
+        ?? data?.["This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b)."]
+        ?? data?.["This report was prepared under the following USPAP reporting option:"]
+        ?? data?.["USPAP Reporting Option"]
+        ?? data?.["USPAP / Appraisal and Report Identification"]
         ?? data?.["Appraisal and Report Identification"]
         ?? data?.["USPAP Addendum"]
+        ?? data?.SUBJECT?.["USPAP Reporting Option"]
         ?? data?.SUBJECT?.["USPAP / Appraisal and Report Identification"]
         ?? data?.SUBJECT?.["Appraisal and Report Identification"]
+        ?? data?.CERTIFICATION?.["USPAP Reporting Option"]
+        ?? allData?.["USPAP Reporting Option"]
         ?? allData?.["USPAP / Appraisal and Report Identification"]
         ?? allData?.["Appraisal and Report Identification"]
         ?? allData?.SUBJECT?.["USPAP / Appraisal and Report Identification"]
-        ?? (allData?.has_uspap_identification ? "Present" : "");
+        ?? (allData?.has_uspap_identification ? "Appraisal Report" : "");
       if (uspapVal) return renderValue(uspapVal);
+    }
+    if (field === "Comments on Appraisal and Report Identification" || field === "Restricted Appraisal Report Comment") {
+      const commVal = data?.["Comments on Appraisal and Report Identification"]
+        ?? data?.["Restricted Appraisal Report Comment"]
+        ?? data?.CERTIFICATION?.["Comments on Appraisal and Report Identification"]
+        ?? data?.Subject?.["Comments on Appraisal and Report Identification"]
+        ?? allData?.["Comments on Appraisal and Report Identification"]
+        ?? allData?.["Restricted Appraisal Report Comment"]
+        ?? allData?.CERTIFICATION?.["Comments on Appraisal and Report Identification"];
+      if (commVal) return renderValue(commVal);
     }
     if (field === "E&O" || field === "E&O Present") {
       const eoVal = data?.["E&O"]
@@ -317,15 +341,7 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
         <div
           key={field}
           className={`subject-grid-item ${isHighlighted ? 'highlighted-field' : ''}`}
-          style={{
-            gridColumn: '1 / -1',
-            backgroundColor: '#fffbeb',
-            border: '1px solid #fde68a',
-            borderRadius: '8px',
-            padding: '10px 14px',
-            margin: '6px 0 10px 0',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
-          }}
+
         >
           <span
             className="field-label"
@@ -411,6 +427,42 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
     }
     if ((certVal === undefined || certVal === null || certVal === '') && (fieldPath === 'Invoice Attached' || fieldPath === 'Invoice Present')) {
       certVal = renderValue(data?.['Invoice Attached'] ?? data?.['Invoice Present'] ?? data?.CERTIFICATION?.['Invoice Attached'] ?? data?.CERTIFICATION?.['Invoice Present'] ?? data?.SUBJECT?.['Invoice Attached'] ?? data?.SUBJECT?.['Invoice Present'] ?? data?.INVOICE?.['Invoice Attached'] ?? allData?.['Invoice Attached'] ?? allData?.['Invoice Present'] ?? allData?.CERTIFICATION?.['Invoice Attached'] ?? allData?.CERTIFICATION?.['Invoice Present'] ?? allData?.SUBJECT?.['Invoice Attached'] ?? allData?.INVOICE?.['Invoice Attached'] ?? '');
+    }
+    if ((certVal === undefined || certVal === null || certVal === '') && (
+      fieldPath === 'USPAP Reporting Option' ||
+      fieldPath === 'USPAP / Appraisal and Report Identification' ||
+      fieldPath === 'Appraisal and Report Identification' ||
+      fieldPath === 'This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).' ||
+      (typeof fieldPath === 'string' && fieldPath.includes('USPAP reporting option'))
+    )) {
+      certVal = renderValue(
+        data?.["This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b)."]
+        ?? data?.["This report was prepared under the following USPAP reporting option:"]
+        ?? data?.["USPAP Reporting Option"]
+        ?? data?.["USPAP / Appraisal and Report Identification"]
+        ?? data?.["Appraisal and Report Identification"]
+        ?? data?.CERTIFICATION?.["USPAP Reporting Option"]
+        ?? data?.SUBJECT?.["USPAP Reporting Option"]
+        ?? allData?.["USPAP Reporting Option"]
+        ?? allData?.["This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b)."]
+        ?? allData?.CERTIFICATION?.["USPAP Reporting Option"]
+        ?? (data?.has_uspap_identification ? "Appraisal Report" : "")
+      );
+    }
+    if ((certVal === undefined || certVal === null || certVal === '') && (
+      fieldPath === 'Comments on Appraisal and Report Identification' ||
+      fieldPath === 'Restricted Appraisal Report Comment'
+    )) {
+      certVal = renderValue(
+        data?.["Comments on Appraisal and Report Identification"]
+        ?? data?.["Restricted Appraisal Report Comment"]
+        ?? data?.CERTIFICATION?.["Comments on Appraisal and Report Identification"]
+        ?? data?.Subject?.["Comments on Appraisal and Report Identification"]
+        ?? allData?.["Comments on Appraisal and Report Identification"]
+        ?? allData?.["Restricted Appraisal Report Comment"]
+        ?? allData?.CERTIFICATION?.["Comments on Appraisal and Report Identification"]
+        ?? ""
+      );
     }
     if ((certVal === undefined || certVal === null || certVal === '') && typeof fieldPath === 'string' && fieldPath.startsWith('Supervisory ')) {
       const subKey = fieldPath.replace('Supervisory ', '');
@@ -1864,6 +1916,7 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
               {renderCertField("E&O", "E&O")}
               {renderCertField("Invoice Attached", "Invoice Attached")}
+              {renderCertField("USPAP Reporting Option", "USPAP Reporting Option")}
               {renderCertField("E&O Insurance", "E&O Insurance")}
               {renderCertField("Policy Period From", "Policy Period From")}
               {renderCertField("Policy Period To", "Policy Period To")}

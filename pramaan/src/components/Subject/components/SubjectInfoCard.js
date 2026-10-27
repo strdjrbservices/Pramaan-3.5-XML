@@ -29,8 +29,25 @@ export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, 
       candidateKeys.push('Exposure Comment', 'Exposure comment', 'Reasonable Exposure Time', 'exposure_comment');
     } else if (field === 'Prior Service Comment' || field === 'Prior service comment' || field === 'Prior Service') {
       candidateKeys.push('Prior Service Comment', 'Prior service comment', 'Prior Service', 'prior_service_comment');
-    } else if (field === 'USPAP / Appraisal and Report Identification' || field === 'Appraisal and Report Identification' || field === 'USPAP Addendum' || field === 'USPAP') {
-      candidateKeys.push('USPAP / Appraisal and Report Identification', 'Appraisal and Report Identification', 'USPAP Addendum', 'USPAP', 'has_uspap_identification', 'uspap_identification_presence');
+    } else if (
+      field === 'USPAP / Appraisal and Report Identification' ||
+      field === 'Appraisal and Report Identification' ||
+      field === 'USPAP Addendum' ||
+      field === 'USPAP' ||
+      field === 'USPAP Reporting Option' ||
+      (typeof field === 'string' && field.includes('USPAP reporting option'))
+    ) {
+      candidateKeys.push(
+        'This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).',
+        'This report was prepared under the following USPAP reporting option:',
+        'USPAP Reporting Option',
+        'USPAP / Appraisal and Report Identification',
+        'Appraisal and Report Identification',
+        'USPAP Addendum',
+        'USPAP',
+        'has_uspap_identification',
+        'uspap_identification_presence'
+      );
     }
 
     for (const k of candidateKeys) {

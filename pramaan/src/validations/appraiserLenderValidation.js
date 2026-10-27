@@ -470,4 +470,50 @@ export const checkUnpaidLender = (field, text, data) => {
     return null;
 };
 
+export const checkUspapReportingOption = (field, text, allData) => {
+    const rawVal = String(text || '').trim();
+    if (!rawVal) {
+        return { isError: true, message: "USPAP reporting option must not be blank." };
+    }
+
+    const valLower = rawVal.toLowerCase();
+    const isRestricted = valLower.includes('restricted');
+    const isAppraisalReport = valLower.includes('appraisal report') && !isRestricted;
+
+    if (isRestricted) {
+        const comment = (
+            allData?.['Comments on Appraisal and Report Identification'] ||
+            allData?.['Restricted Appraisal Report Comment'] ||
+            allData?.['USPAP Reporting Option Comment'] ||
+            allData?.CERTIFICATION?.['Comments on Appraisal and Report Identification'] ||
+            allData?.CERTIFICATION?.['Restricted Appraisal Report Comment'] ||
+            allData?.Subject?.['Comments on Appraisal and Report Identification'] ||
+            allData?.Subject?.['Restricted Appraisal Report Comment'] ||
+            ''
+        ).trim();
+
+        if (comment) {
+            return {
+                isMatch: true,
+                message: `validated (Restricted Appraisal Report with comment: "${comment.length > 50 ? comment.substring(0, 50) + '...' : comment}")`
+            };
+        } else {
+            return {
+                isError: true,
+                message: "Restricted Appraisal Report is selected: Explanation comment is required under Comments on Appraisal and Report Identification."
+            };
+        }
+    } else if (isAppraisalReport || valLower.includes('present')) {
+        return {
+            isMatch: true,
+            message: "validated"
+        };
+    }
+
+    return {
+        isError: true,
+        message: "Must be either 'Appraisal Report' or 'Restricted Appraisal Report'."
+    };
+};
+
 

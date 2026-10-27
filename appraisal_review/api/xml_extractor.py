@@ -3487,11 +3487,17 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
 
     # USPAP Reporting Option (Appraisal Report vs Restricted Appraisal Report)
     uspap_reporting_option = "Appraisal Report"
+    uspap_long_key = (
+        "This report was prepared under the following USPAP reporting option:\n"
+        "Appraisal Report A written report prepared under Standards Rule 2-2(a).\n"
+        "Restricted Appraisal Report A written report prepared under Standards Rule 2-2(b)."
+    )
+    uspap_comment = ""
     if pdf_doc is not None:
         try:
             for page in pdf_doc:
                 pt = page.get_text() or ""
-                if "USPAP REPORTING OPTION" in pt.upper() or "STANDARDS RULE 2-2" in pt.upper():
+                if "USPAP REPORTING OPTION" in pt.upper() or "STANDARDS RULE 2-2" in pt.upper() or "APPRAISAL AND REPORT IDENTIFICATION" in pt.upper():
                     blocks = page.get_text("blocks")
                     words = page.get_text("words")
                     rep_appr_bbox = None
@@ -3512,10 +3518,41 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
                                 elif rep_restr_bbox and abs(w[1] - rep_restr_bbox[1]) < 30:
                                     uspap_reporting_option = "Restricted Appraisal Report (USPAP Standards Rule 2-2(b))"
                                     break
+
+                    # Extract comments from USPAP page if present
+                    comments_start_y = None
+                    appraiser_sig_y = None
+                    for b in blocks:
+                        bt = " ".join(b[4].split()).strip().lower()
+                        if "additional comments" in bt or "comments on appraisal and report identification" in bt:
+                            comments_start_y = b[3]
+                        if "appraiser:" in bt or "supervisory appraiser" in bt:
+                            if appraiser_sig_y is None or b[1] < appraiser_sig_y:
+                                appraiser_sig_y = b[1]
+                    if comments_start_y:
+                        limit_y = appraiser_sig_y if appraiser_sig_y and appraiser_sig_y > comments_start_y else (comments_start_y + 200.0)
+                        c_words = [w for w in words if comments_start_y <= w[1] <= limit_y and w[0] >= 20 and w[2] <= 580]
+                        c_words = [w for w in c_words if w[4].lower() not in ["additional", "comments", "appraiser:", "supervisory", "produced", "using", "aci", "software", "uspap_14"]]
+                        if c_words:
+                            c_words.sort(key=lambda w: (round(w[1] / 5.0) * 5.0, w[0]))
+                            uspap_comment = " ".join(w[4] for w in c_words).strip()
+
                     if uspap_reporting_option != "Appraisal Report":
                         break
         except Exception:
             pass
+
+    if not uspap_comment and full_narrative:
+        m_comm = re.search(
+            r'(?:Comments\s+on\s+Appraisal\s+and\s+Report\s+Identification|Restricted\s+Appraisal\s+Report(?:\s+Comments)?)\s*[:\n]\s*([^\n]+(?:\n[^\n]+){1,8})',
+            full_narrative,
+            re.IGNORECASE
+        )
+        if m_comm:
+            c_cand = m_comm.group(1).strip()
+            c_cand = re.split(r'(?:\n\s*(?:APPRAISER|SUPERVISORY|SIGNATURE|CERTIFICATION|Produce)|\Z)', c_cand, flags=re.IGNORECASE)[0].strip()
+            if len(c_cand) > 5:
+                uspap_comment = c_cand
     
     # Smoke & CO detectors
     smoke_comment = ""
@@ -3639,6 +3676,12 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "Prior Service Comment": prior_service_comment,
         "USPAP Reporting Option": uspap_reporting_option,
         "USPAP Reporting Options": uspap_reporting_option,
+        uspap_long_key: uspap_reporting_option,
+        "This report was prepared under the following USPAP reporting option:": uspap_reporting_option,
+        "Comments on Appraisal and Report Identification": uspap_comment,
+        "Restricted Appraisal Report Comment": uspap_comment,
+        "USPAP / Appraisal and Report Identification": uspap_reporting_option,
+        "Appraisal and Report Identification": uspap_reporting_option,
         "ADU File Check": adu_check,
         "Smoke detector comment": smoke_comment,
         "CO detector comment": co_comment,
@@ -5144,8 +5187,11 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "Exposure Comment": exposure_comment,
         "Reasonable Exposure Time": exposure_comment,
         "Prior service comment": prior_service_comment,
-        "Prior Service Comment": prior_service_comment,
         "USPAP Reporting Option": uspap_reporting_option,
+        uspap_long_key: uspap_reporting_option,
+        "This report was prepared under the following USPAP reporting option:": uspap_reporting_option,
+        "Comments on Appraisal and Report Identification": uspap_comment,
+        "Restricted Appraisal Report Comment": uspap_comment,
         "Subject": clean_subject,
         "SUBJECT": clean_subject,
         "CONTRACT": contract_section,
