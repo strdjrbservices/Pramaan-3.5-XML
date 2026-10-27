@@ -27,7 +27,17 @@ except ImportError:
         from .eo_extractor import extract_eo_insurance_from_doc  # type: ignore
     except Exception:
         def extract_eo_insurance_from_doc(doc: Any) -> Dict[str, str]:  # type: ignore
-            return {"E&O Insurance": "", "Policy Period From": "", "Policy Period To": ""}
+            return {
+                "E&O": "Absent",
+                "E&O Present": "Absent",
+                "E&O Insurance": "",
+                "Policy Period From": "",
+                "Policy Period To": "",
+                "E&O Insured": "",
+                "E&O Carrier": "",
+                "E&O Limit": "",
+                "E&O Deductible": "",
+            }
 
 def _clean_currency(val: Any) -> str:
     if val is None:
@@ -4294,9 +4304,15 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
 
         # Additional Info & E&O Insurance
         "Appraiser License": lic_id,
+        "E&O": "Absent",
+        "E&O Present": "Absent",
         "E&O Insurance": "",
         "Policy Period From": "",
         "Policy Period To": "",
+        "E&O Insured": "",
+        "E&O Carrier": "",
+        "E&O Limit": "",
+        "E&O Deductible": "",
         "License Valid To": lic_exp,
         "LICENSE/REGISTRATION/CERTIFICATION #": lic_id,
 
@@ -4321,12 +4337,23 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
             pdf_bytes = base64.b64decode(emb_doc_elem.text.strip())
             emb_pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
             eo_info = extract_eo_insurance_from_doc(emb_pdf)
+            if eo_info.get("E&O"):
+                certification_section["E&O"] = eo_info["E&O"]
+                certification_section["E&O Present"] = eo_info.get("E&O Present", eo_info["E&O"])
             if eo_info.get("E&O Insurance"):
                 certification_section["E&O Insurance"] = eo_info["E&O Insurance"]
             if eo_info.get("Policy Period From"):
                 certification_section["Policy Period From"] = eo_info["Policy Period From"]
             if eo_info.get("Policy Period To"):
                 certification_section["Policy Period To"] = eo_info["Policy Period To"]
+            if eo_info.get("E&O Insured"):
+                certification_section["E&O Insured"] = eo_info["E&O Insured"]
+            if eo_info.get("E&O Carrier"):
+                certification_section["E&O Carrier"] = eo_info["E&O Carrier"]
+            if eo_info.get("E&O Limit"):
+                certification_section["E&O Limit"] = eo_info["E&O Limit"]
+            if eo_info.get("E&O Deductible"):
+                certification_section["E&O Deductible"] = eo_info["E&O Deductible"]
         except Exception as e:
             pass
 
@@ -5032,6 +5059,8 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "COMPARABLE_RENTAL_DATA": comparable_rental_data,
         "Comparable Rent Schedule Reconciliation": rent_reconciliation,
         "EXTRACTED_PHOTOS": extracted_photos,
+        "E&O": certification_section.get("E&O", "Absent"),
+        "E&O Present": certification_section.get("E&O Present", "Absent"),
     }
 
     # Flatten category fields into root fields so data[field] is directly available to UI

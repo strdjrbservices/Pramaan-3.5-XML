@@ -385,6 +385,8 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'Did inspect exterior of comparable sales from street': [checkSupervisoryAppraiserFields],
     'Comparable Sales Date of Inspection': [checkSupervisoryAppraiserFields],
     'Appraiser License': [checkAppraiserFieldsNotBlank],
+    'E&O': [checkAppraiserFieldsNotBlank],
+    'E&O Present': [checkAppraiserFieldsNotBlank],
     'E&O Insurance': [checkAppraiserFieldsNotBlank],
     'Policy Period From': [checkAppraiserFieldsNotBlank],
     'Policy Period To': [checkAppraiserFieldsNotBlank, checkDateGreaterThanToday],

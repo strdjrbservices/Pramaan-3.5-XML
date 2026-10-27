@@ -1746,7 +1746,7 @@ export const generateValidationLogPDF = (params) => {
         { content: 'Additional Info & E&O Insurance', colSpan: 4, styles: { fontStyle: 'bold', fillColor: [240, 243, 246], textColor: [44, 62, 80] } }
       ],
       [
-        { content: 'Appraiser License', styles: { fontStyle: 'bold' } }, fmt(getVal('Appraiser License') || getVal('Appraiser ID')),
+        { content: 'E&O', styles: { fontStyle: 'bold' } }, fmt(getVal('E&O') || getVal('E&O Present') || (getVal('E&O Insurance') ? 'Present' : 'Absent')),
         { content: 'E&O Insurance', styles: { fontStyle: 'bold' } }, fmt(getVal('E&O Insurance'))
       ],
       [
@@ -1754,8 +1754,20 @@ export const generateValidationLogPDF = (params) => {
         { content: 'Policy Period To', styles: { fontStyle: 'bold' } }, fmt(getVal('Policy Period To'))
       ],
       [
-        { content: 'License Valid To', styles: { fontStyle: 'bold' } }, fmt(getVal('License Valid To') || getVal('License Vaild To') || getVal('Appraiser License Expiration Date')),
-        { content: 'License # / Reg #', styles: { fontStyle: 'bold' } }, fmt(getVal('LICENSE/REGISTRATION/CERTIFICATION #') || getVal('License # / Reg #') || getVal('Appraiser ASC Identifier'))
+        { content: 'E&O Insured', styles: { fontStyle: 'bold' } }, fmt(getVal('E&O Insured')),
+        { content: 'E&O Carrier', styles: { fontStyle: 'bold' } }, fmt(getVal('E&O Carrier'))
+      ],
+      [
+        { content: 'E&O Limit', styles: { fontStyle: 'bold' } }, fmt(getVal('E&O Limit')),
+        { content: 'E&O Deductible', styles: { fontStyle: 'bold' } }, fmt(getVal('E&O Deductible'))
+      ],
+      [
+        { content: 'Appraiser License', styles: { fontStyle: 'bold' } }, fmt(getVal('Appraiser License') || getVal('Appraiser ID')),
+        { content: 'License Valid To', styles: { fontStyle: 'bold' } }, fmt(getVal('License Valid To') || getVal('License Vaild To') || getVal('Appraiser License Expiration Date'))
+      ],
+      [
+        { content: 'License # / Reg #', styles: { fontStyle: 'bold' } }, fmt(getVal('LICENSE/REGISTRATION/CERTIFICATION #') || getVal('License # / Reg #') || getVal('Appraiser ASC Identifier')),
+        { content: '', colSpan: 2 }
       ]
     ];
 

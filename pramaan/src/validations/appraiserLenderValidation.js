@@ -283,6 +283,8 @@ export const checkAppraiserFieldsNotBlank = (field, text, allData, fieldPath) =>
         "License Valid To",
         "License Vaild To",
         "E&O Insurance",
+        "E&O",
+        "E&O Present",
         "LICENSE/REGISTRATION/CERTIFICATION #"
     ];
     return checkNotBlank(field, text, fieldsToCheck.find(f => f === field));

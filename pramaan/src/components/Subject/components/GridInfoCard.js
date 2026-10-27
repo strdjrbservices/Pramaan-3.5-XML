@@ -164,6 +164,17 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
         ?? (allData?.has_uspap_identification ? "Present" : "");
       if (uspapVal) return renderValue(uspapVal);
     }
+    if (field === "E&O" || field === "E&O Present") {
+      const eoVal = data?.["E&O"]
+        ?? data?.["E&O Present"]
+        ?? data?.CERTIFICATION?.["E&O"]
+        ?? data?.CERTIFICATION?.["E&O Present"]
+        ?? allData?.["E&O"]
+        ?? allData?.["E&O Present"]
+        ?? allData?.CERTIFICATION?.["E&O"]
+        ?? allData?.CERTIFICATION?.["E&O Present"];
+      if (eoVal) return renderValue(eoVal);
+    }
     if (
       field === 'Legal Nonconforming (Grandfathered Use) comment' ||
       field === 'Legal Nonconforming comment' ||
@@ -291,12 +302,69 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
     }
 
     let certVal = data ? renderValue(data[fieldPath]) : '';
+    if ((certVal === undefined || certVal === null || certVal === '') && (fieldPath === 'E&O' || fieldPath === 'E&O Present')) {
+      certVal = renderValue(data?.['E&O'] ?? data?.['E&O Present'] ?? data?.CERTIFICATION?.['E&O'] ?? data?.CERTIFICATION?.['E&O Present'] ?? allData?.['E&O'] ?? allData?.['E&O Present'] ?? allData?.CERTIFICATION?.['E&O'] ?? allData?.CERTIFICATION?.['E&O Present'] ?? '');
+    }
     if ((certVal === undefined || certVal === null || certVal === '') && typeof fieldPath === 'string' && fieldPath.startsWith('Supervisory ')) {
       const subKey = fieldPath.replace('Supervisory ', '');
       const altKey = `Supervisory Appraiser ${subKey}`;
       if (data?.[altKey]) certVal = renderValue(data[altKey]);
       else if (data?.SUPERVISORY_APPRAISER?.[subKey]) certVal = renderValue(data.SUPERVISORY_APPRAISER[subKey]);
       else if (data?.SUPERVISORY_APPRAISER?.[fieldPath]) certVal = renderValue(data.SUPERVISORY_APPRAISER[fieldPath]);
+    }
+    if ((certVal === undefined || certVal === null || certVal === '') && typeof fieldPath === 'string') {
+      if (data?.CERTIFICATION?.[fieldPath]) certVal = renderValue(data.CERTIFICATION[fieldPath]);
+      else if (allData?.CERTIFICATION?.[fieldPath]) certVal = renderValue(allData.CERTIFICATION[fieldPath]);
+      else if (allData?.[fieldPath]) certVal = renderValue(allData[fieldPath]);
+    }
+
+    if (fieldPath === 'E&O' || fieldPath === 'E&O Present') {
+      const isPresent = String(certVal || '').trim().toLowerCase() === 'present';
+      return (
+        <div style={{ borderBottom: '1px solid #dee2e6', paddingBottom: '3px', marginBottom: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span
+              onClick={() => setEditingField && setEditingField([fieldPath])}
+              style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.7rem', minWidth: '100px', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}
+            >
+              {label}
+            </span>
+            <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span
+                style={{
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  fontSize: '0.72rem',
+                  fontWeight: 'bold',
+                  backgroundColor: isPresent ? '#e8f5e9' : '#ffebee',
+                  color: isPresent ? '#1b5e20' : '#c62828',
+                  border: `1px solid ${isPresent ? '#a5d6a7' : '#ef9a9a'}`
+                }}
+              >
+                {isPresent ? '● Present' : '○ Absent'}
+              </span>
+              <div style={{ flexGrow: 1 }}>
+                <EditableField
+                  fieldPath={[fieldPath]}
+                  value={certVal || 'Absent'}
+                  onDataChange={onDataChange}
+                  editingField={editingField}
+                  setEditingField={setEditingField}
+                  isMissing={false}
+                  isEditable={true}
+                  allData={allData}
+                  manualValidations={manualValidations}
+                  handleManualValidation={handleManualValidation}
+                  revisionHandlers={revisionHandlers}
+                  inputClassName="form-control form-control-sm field-value"
+                  inputStyle={{ width: '100%', border: 'none', background: 'transparent', padding: 0, fontSize: '0.8rem', height: 'auto' }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      );
     }
 
     return (
@@ -1638,10 +1706,15 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
               Additional Info & E&O Insurance
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
-              {renderCertField("Appraiser License", "Appraiser License")}
+              {renderCertField("E&O", "E&O")}
               {renderCertField("E&O Insurance", "E&O Insurance")}
               {renderCertField("Policy Period From", "Policy Period From")}
               {renderCertField("Policy Period To", "Policy Period To")}
+              {renderCertField("E&O Insured", "E&O Insured")}
+              {renderCertField("E&O Carrier", "E&O Carrier")}
+              {renderCertField("E&O Limit", "E&O Limit")}
+              {renderCertField("E&O Deductible", "E&O Deductible")}
+              {renderCertField("Appraiser License", "Appraiser License")}
               {renderCertField("License Valid To", "License Valid To")}
               {renderCertField("License # / Reg #", "LICENSE/REGISTRATION/CERTIFICATION #")}
             </div>

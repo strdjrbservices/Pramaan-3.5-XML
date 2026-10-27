@@ -26,7 +26,17 @@ except ImportError:
         from .eo_extractor import extract_eo_insurance_from_doc  # type: ignore
     except Exception:
         def extract_eo_insurance_from_doc(doc: Any) -> Dict[str, str]:  # type: ignore
-            return {"E&O Insurance": "", "Policy Period From": "", "Policy Period To": ""}
+            return {
+                "E&O": "Absent",
+                "E&O Present": "Absent",
+                "E&O Insurance": "",
+                "Policy Period From": "",
+                "Policy Period To": "",
+                "E&O Insured": "",
+                "E&O Carrier": "",
+                "E&O Limit": "",
+                "E&O Deductible": "",
+            }
 
 
 
@@ -156,9 +166,8 @@ CERTIFICATION_FIELDS = [
     "LENDER/CLIENT Name",
     "Lender/Client Company Name",
     "Lender/Client Company Address",
-    "Lender/Client Email Address","Appraiser License", "E&O Insurance","Policy Period From","License Valid To","LICENSE/REGISTRATION/CERTIFICATION #",
+    "Lender/Client Email Address","Appraiser License", "E&O", "E&O Present", "E&O Insurance","Policy Period From","Policy Period To","E&O Insured","E&O Carrier","E&O Limit","E&O Deductible","License Valid To","LICENSE/REGISTRATION/CERTIFICATION #",
     "License # / Reg #:", "License # / Reg #",
-    "Policy Period To",
     "Appraiser Certifications",
     "Appraiser Signature",
     "Appraiser Name",
@@ -4098,15 +4107,25 @@ def extract_certification_section(pdf_path, full_doc_text=""):
         cert["Appraiser's Fee"] = fee_val
         cert["Appraiser Fee"] = fee_val
 
-    # Extract E&O Insurance details (Policy Number, Policy Period From, Policy Period To)
+    # Extract E&O Insurance details (Policy Number, Policy Period From, Policy Period To, etc.)
     try:
         eo_details = extract_eo_insurance_from_doc(doc)
+        cert["E&O"] = eo_details.get("E&O", "Absent")
+        cert["E&O Present"] = eo_details.get("E&O Present", "Absent")
         if eo_details.get("E&O Insurance"):
             cert["E&O Insurance"] = eo_details["E&O Insurance"]
         if eo_details.get("Policy Period From"):
             cert["Policy Period From"] = eo_details["Policy Period From"]
         if eo_details.get("Policy Period To"):
             cert["Policy Period To"] = eo_details["Policy Period To"]
+        if eo_details.get("E&O Insured"):
+            cert["E&O Insured"] = eo_details["E&O Insured"]
+        if eo_details.get("E&O Carrier"):
+            cert["E&O Carrier"] = eo_details["E&O Carrier"]
+        if eo_details.get("E&O Limit"):
+            cert["E&O Limit"] = eo_details["E&O Limit"]
+        if eo_details.get("E&O Deductible"):
+            cert["E&O Deductible"] = eo_details["E&O Deductible"]
     except Exception as e:
         print(f"[pdf_extractor_offline] E&O extraction notice: {e}")
 
