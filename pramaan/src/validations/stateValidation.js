@@ -205,8 +205,21 @@ export const getLenderClientName = (data) => {
         getVal(data, 'Subject', 'Lender/Client'),
         getVal(data, 'Subject', 'Client Name'),
         getVal(data, 'Subject', 'Client/Lender Company Name'),
+        getVal(data, 'Subject', 'Lender/Client Company Name'),
+        getVal(data, 'Subject', 'LENDER/CLIENT Name'),
+        getVal(data, 'Certification', 'Lender/Client'),
+        getVal(data, 'Certification', 'Client Name'),
+        getVal(data, 'Certification', 'Lender Name'),
+        getVal(data, 'Certification', 'Lender/Client Company Name'),
+        getVal(data, 'Certification', 'LENDER/CLIENT Name'),
+        getVal(data, 'Certification', 'LENDER/CLIENT Company Name'),
         data?.['Lender/Client'],
-        data?.['Client Name']
+        data?.['Client Name'],
+        data?.['Lender/Client Company Name'],
+        data?.['LENDER/CLIENT Name'],
+        data?.['Lender Name'],
+        data?.comparisonData?.['Client/Lender on Report'],
+        data?.['Client/Lender on Report']
     ];
     for (const val of sources) {
         if (val !== undefined && val !== null) {
@@ -242,16 +255,59 @@ export const checkIllinoisCoDetectorAndPhotos = (data) => {
 
 // 8. Invoice attached to report (NY except Plaza Home Mortgage; WI)
 export const checkInvoiceAttached = (data) => {
+    // 1. Direct flag fields across sections
+    const invFlagSources = [
+        getVal(data, 'Certification', 'Invoice Attached'),
+        getVal(data, 'Certification', 'Invoice Present'),
+        getVal(data, 'Subject', 'Invoice Attached'),
+        getVal(data, 'Subject', 'Invoice Present'),
+        data?.['Invoice Attached'],
+        data?.['Invoice Present'],
+        data?.['has_invoice'],
+        data?.['Invoice copy attached to report'],
+        data?.['Invoice copy attached'],
+        data?.CERTIFICATION?.['Invoice Attached'],
+        data?.CERTIFICATION?.['Invoice Present'],
+        data?.SUBJECT?.['Invoice Attached'],
+        data?.SUBJECT?.['Invoice Present']
+    ];
+    for (const flag of invFlagSources) {
+        if (flag !== undefined && flag !== null) {
+            const raw = typeof flag === 'object' && flag.value !== undefined ? flag.value : flag;
+            const str = String(raw).trim().toLowerCase();
+            if (['yes', 'true', 'attached', 'included', '1', 'present'].includes(str)) return true;
+        }
+    }
+
+    // 2. Direct INVOICE / Invoice section
     const invSec = data?.INVOICE || data?.Invoice;
     if (invSec && typeof invSec === 'object' && Object.keys(invSec).length > 0) {
-        return true;
+        const val = invSec['Invoice Attached'] || invSec['Invoice Present'] || invSec['has_invoice'] || invSec['Invoice Total'] || invSec['Total Fee'] || invSec['Invoice Page'];
+        if (val !== undefined && val !== null) {
+            const str = String(val).trim().toLowerCase();
+            if (!['no', 'false', 'absent', 'not attached', '0'].includes(str)) {
+                return true;
+            }
+        } else {
+            return true;
+        }
     }
-    const invFlag = getVal(data, 'Certification', 'Invoice Attached') || getVal(data, 'Subject', 'Invoice Attached') || data?.['Invoice Attached'];
-    if (invFlag) {
-        const str = String(invFlag).trim().toLowerCase();
-        if (['yes', 'true', 'attached', 'included', '1'].includes(str)) return true;
+
+    // 3. Pages detected containing invoice
+    if (data?.pages_detected?.invoice !== null && data?.pages_detected?.invoice !== undefined) return true;
+    if (Array.isArray(data?.pages_detected?.invoice_pages) && data.pages_detected.invoice_pages.length > 0) return true;
+
+    // 4. Raw text check in report
+    const fullText = String(data?.raw || data?.full_doc_text || '').toUpperCase();
+    if (fullText) {
+        if (/\bINVOICE\s*(?:COPY\s*)?ATTACHED\b|\bINVOICE\s+INCLUDED\b|\bAPPRAISAL\s+INVOICE\b|\bINVOICE\s*(?:#|NUMBER|TOTAL|DATE|AMOUNT)\b/.test(fullText)) {
+            return true;
+        }
     }
+
+    // 5. Appraiser fee fallback
     if (checkAppraiserFee(data)) return true;
+
     return false;
 };
 
@@ -352,7 +408,7 @@ export const checkStateRequirements = (field, text, data) => {
 
     if (state === 'NY') {
         const lender = getLenderClientName(data);
-        const isPlaza = lender.includes('PLAZA HOME');
+        const isPlaza = lender.includes('PLAZA HOME') || lender.includes('PLAZA');
         if (!isPlaza && !checkInvoiceAttached(data)) {
             missing.push("Invoice copy attached to report (exempt for Plaza Home Mortgage)");
         }

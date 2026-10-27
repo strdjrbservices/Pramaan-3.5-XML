@@ -554,7 +554,15 @@ def evaluate_state_requirements(pdf_path: str, extracted_data: Optional[Dict[str
     if subject_state in ["NY", "WI"]:
         inv_page, _ = _find_keyword_in_pages(pages_text, [r"\bINVOICE\b", r"Invoice\s*Total", r"Invoice\s*Amount", r"Total\s*Fee"])
         has_inv_sec = bool(data.get("INVOICE") or data.get("Invoice"))
-        has_invoice = bool(inv_page or has_inv_sec)
+        inv_flag_val = str(
+            data.get("Invoice Attached")
+            or data.get("Invoice Present")
+            or _get_field_val(data, "Certification", "Invoice Attached")
+            or _get_field_val(data, "Subject", "Invoice Attached")
+            or ""
+        ).strip().lower()
+        has_inv_flag = inv_flag_val in ["yes", "true", "attached", "included", "1", "present"]
+        has_invoice = bool(inv_page or has_inv_sec or has_inv_flag or data.get("has_invoice"))
 
         if subject_state == "WI":
             details.append({
@@ -563,12 +571,22 @@ def evaluate_state_requirements(pdf_path: str, extracted_data: Optional[Dict[str
                 "value_or_comment": "Invoice attached to report." if has_invoice else "Wisconsin requirement: Copy of invoice must be attached to the report."
             })
         elif subject_state == "NY":
-            lender_name = str(_get_field_val(data, "Subject", "Lender/Client") or _get_field_val(data, "Subject", "Client Name") or "").upper()
+            lender_name = str(
+                _get_field_val(data, "Subject", "Lender/Client")
+                or _get_field_val(data, "Subject", "Client Name")
+                or _get_field_val(data, "Subject", "Client/Lender Company Name")
+                or _get_field_val(data, "Certification", "Lender/Client")
+                or _get_field_val(data, "Certification", "Lender/Client Company Name")
+                or _get_field_val(data, "Certification", "LENDER/CLIENT Name")
+                or data.get("Lender/Client")
+                or data.get("Client Name")
+                or ""
+            ).upper()
             if not lender_name:
                 _, lender_snip = _find_keyword_in_pages(pages_text, [r"LENDER/CLIENT\s*[:\-]?\s*([^\n\r]+)"])
                 lender_name = str(lender_snip or "").upper()
 
-            is_plaza = "PLAZA HOME" in lender_name
+            is_plaza = "PLAZA HOME" in lender_name or "PLAZA" in lender_name
             if is_plaza:
                 details.append({
                     "requirement": "Invoice Attached to Report (NY)",

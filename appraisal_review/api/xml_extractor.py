@@ -1,9 +1,4 @@
-"""
-xml_extractor.py
-Comprehensive MISMO 2.6 XML Parser for Appraisal Reports (FNMA 1025, 1004, 1073, 1007, etc.)
-Extracts structured appraisal data dynamically from XML matching the exact schema expected by Pramaan UI.
-Zero hardcoded values.
-"""
+
 
 import os
 import re
@@ -385,6 +380,103 @@ def _detect_uspap_identification_presence(root: ET.Element, embedded_doc: Option
             pass
 
     return False, "Not Present"
+
+
+def _detect_invoice_presence(root: ET.Element, embedded_doc: Optional[ET.Element] = None, full_narrative: str = "") -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Identifies whether an appraisal invoice page or invoice copy is present in MISMO XML or embedded PDF.
+    Checks:
+    1. <FORM> elements for INVOICE
+    2. <FORM> AppraisalAddendumText attributes
+    3. <DOCUMENT> or <EMBEDDED_FILE> elements
+    4. Embedded PDF document pages
+    5. Full narrative text
+    Returns (is_present: bool, reason: str, invoice_details: Dict[str, Any])
+    """
+    inv_details: Dict[str, Any] = {
+        "Invoice Attached": "No",
+        "Invoice Present": "No",
+        "Invoice Page": None,
+        "Invoice Total": "",
+        "has_invoice": False
+    }
+
+    # 1. Check <FORM> tags
+    for form in root.findall(".//FORM"):
+        name = f"{form.attrib.get('AppraisalReportContentName', '')} {form.attrib.get('AppraisalReportContentIdentifier', '')} {form.attrib.get('AppraisalReportContentType', '')}".upper()
+        if "INVOICE" in name or "APPRAISAL INVOICE" in name or "FEE INVOICE" in name:
+            inv_details["Invoice Attached"] = "Yes"
+            inv_details["Invoice Present"] = "Yes"
+            inv_details["has_invoice"] = True
+            inv_details["Invoice Page"] = "FORM Tag"
+            return True, f"FORM Tag: {form.attrib.get('AppraisalReportContentName', '') or form.attrib.get('AppraisalReportContentIdentifier', '')}", inv_details
+
+        addendum_txt = (form.attrib.get("AppraisalAddendumText") or "").upper()
+        if re.search(r'\bINVOICE\b|APPRAISAL\s+INVOICE|FEE\s+INVOICE', addendum_txt):
+            inv_details["Invoice Attached"] = "Yes"
+            inv_details["Invoice Present"] = "Yes"
+            inv_details["has_invoice"] = True
+            inv_details["Invoice Page"] = "FORM Addendum Text"
+            return True, "FORM Addendum Text: Invoice", inv_details
+
+    # 2. Check embedded PDF document
+    if embedded_doc is not None and embedded_doc.text:
+        try:
+            pdf_bytes = base64.b64decode(embedded_doc.text.strip())
+            if fitz is not None:
+                pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+                for page_num, page in enumerate(pdf, 1):
+                    raw_t = page.get_text() or ""
+                    t_upper = raw_t.upper()
+
+                    # Skip standard Form primary body pages
+                    is_primary = ("PAGE 1 OF 6" in t_upper or "PAGE 2 OF 6" in t_upper or "PAGE 3 OF 6" in t_upper or "PAGE 1 OF 5" in t_upper)
+                    if is_primary:
+                        continue
+
+                    has_inv_heading = bool(re.search(
+                        r'\bINVOICE\b|APPRAISAL\s+INVOICE|FEE\s+INVOICE|SERVICES\s+INVOICE|\*+\s*INVOICE\s*\*+',
+                        t_upper
+                    ))
+                    has_inv_indicators = bool(re.search(
+                        r'INVOICE\s*(?:#|NO|NUMBER|DATE|TOTAL|AMOUNT|DUE)|'
+                        r'TOTAL\s*(?:DUE|FEE|AMOUNT\s*DUE)|AMOUNT\s*DUE|BALANCE\s*DUE|'
+                        r'PLEASE\s*REMIT|REMIT\s*(?:TO|PAYMENT)|BILL\s*TO|BILLED\s*TO|'
+                        r'FEES\s+AMOUNT\s+SUBTOTAL|INVOICE\s*TAX\s*ID',
+                        t_upper
+                    ))
+
+                    if has_inv_heading and has_inv_indicators:
+                        m_amt = re.search(
+                            r'(?:TOTAL\s*DUE|AMOUNT\s*DUE|INVOICE\s*TOTAL|TOTAL\s*FEE|INVOICE\s*AMOUNT|TOTAL)[^0-9$\n]{0,35}\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)',
+                            raw_t,
+                            re.IGNORECASE
+                        )
+                        amt = ""
+                        if m_amt and any(c.isdigit() for c in m_amt.group(1)):
+                            amt = f"${m_amt.group(1).strip()}"
+                        pdf.close()
+                        inv_details["Invoice Attached"] = "Yes"
+                        inv_details["Invoice Present"] = "Yes"
+                        inv_details["has_invoice"] = True
+                        inv_details["Invoice Page"] = page_num
+                        inv_details["Invoice Total"] = amt
+                        return True, f"Embedded PDF Page {page_num} (Invoice)", inv_details
+                pdf.close()
+        except Exception:
+            pass
+
+    # 3. Check full narrative text
+    if full_narrative:
+        fn_upper = full_narrative.upper()
+        if re.search(r'INVOICE\s*(?:COPY\s*)?ATTACHED|COPY\s*OF\s*INVOICE\s*ATTACHED|INVOICE\s*ATTACHED\s*TO\s*REPORT|INVOICE\s*IS\s*ATTACHED', fn_upper):
+            inv_details["Invoice Attached"] = "Yes"
+            inv_details["Invoice Present"] = "Yes"
+            inv_details["has_invoice"] = True
+            inv_details["Invoice Page"] = "Narrative"
+            return True, "Narrative: Invoice Attached", inv_details
+
+    return False, "Not Present", inv_details
 
 
 def find_comparable_rent_schedule_pages(doc) -> List[int]:
@@ -3487,6 +3579,10 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
     has_uspap_ident, uspap_source = _detect_uspap_identification_presence(root, embedded_doc=embedded_doc)
     uspap_ident_str = "Present" if has_uspap_ident else "Not Present"
 
+    # Invoice Presence Detection
+    has_invoice, inv_source, inv_details = _detect_invoice_presence(root, embedded_doc=embedded_doc, full_narrative=full_narrative)
+    inv_present_str = "Yes" if has_invoice else "No"
+
     # Build standard sections matching UI
     subject_section = {
         "1004MC Addendum": mc_present_str,
@@ -3496,6 +3592,9 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "Appraisal and Report Identification": uspap_ident_str,
         "USPAP Addendum": uspap_ident_str,
         "has_uspap_identification": has_uspap_ident,
+        "Invoice Attached": inv_present_str,
+        "Invoice Present": inv_present_str,
+        "has_invoice": has_invoice,
         "FHA Case No.": fha_case_no,
         "FHA Case #": fha_case_no,
         "FHA Case Number": fha_case_no,
@@ -4313,6 +4412,9 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "E&O Carrier": "",
         "E&O Limit": "",
         "E&O Deductible": "",
+        "Invoice Attached": inv_present_str,
+        "Invoice Present": inv_present_str,
+        "has_invoice": has_invoice,
         "License Valid To": lic_exp,
         "LICENSE/REGISTRATION/CERTIFICATION #": lic_id,
 
@@ -5061,7 +5163,21 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "EXTRACTED_PHOTOS": extracted_photos,
         "E&O": certification_section.get("E&O", "Absent"),
         "E&O Present": certification_section.get("E&O Present", "Absent"),
+        "Invoice Attached": certification_section.get("Invoice Attached", inv_present_str),
+        "Invoice Present": certification_section.get("Invoice Present", inv_present_str),
+        "has_invoice": has_invoice,
     }
+
+    if has_invoice:
+        fields.setdefault("INVOICE", {})
+        fields["INVOICE"]["Invoice Attached"] = "Yes"
+        fields["INVOICE"]["Invoice Present"] = "Yes"
+        if inv_details.get("Invoice Page"):
+            fields["INVOICE"]["Invoice Page"] = inv_details["Invoice Page"]
+        if inv_details.get("Invoice Total"):
+            fields["INVOICE"]["Invoice Total"] = inv_details["Invoice Total"]
+            fields["INVOICE"]["Total Fee"] = inv_details["Invoice Total"]
+        fields["Invoice"] = fields["INVOICE"]
 
     # Flatten category fields into root fields so data[field] is directly available to UI
     for cat_dict in [clean_subject, contract_section, neighborhood_section, site_section, improvements_section, reconciliation_section, income_approach_section, cost_approach_section, pud_info_section, project_info_section, project_analysis_section, market_conditions_section, condo_coop_section, condo_foreclosure_section, certification_section, info_of_sales_section]:
@@ -5091,6 +5207,9 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "USPAP / Appraisal and Report Identification": uspap_ident_str,
         "Appraisal and Report Identification": uspap_ident_str,
         "USPAP Addendum": uspap_ident_str,
+        "Invoice Attached": inv_present_str,
+        "Invoice Present": inv_present_str,
+        "has_invoice": has_invoice,
         "Subject": clean_subject,
         "Contract": contract_section,
         "Neighborhood": neighborhood_section,
@@ -5125,6 +5244,8 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         clean_data["Single Family Rent Schedule"] = single_family_rent_schedule
     if certification_section and any(certification_section.values()):
         clean_data["Certification"] = certification_section
+    if has_invoice and "INVOICE" in fields:
+        clean_data["Invoice"] = fields["INVOICE"]
 
     fields["Form Type"] = form_type
     fields["From Type"] = form_type

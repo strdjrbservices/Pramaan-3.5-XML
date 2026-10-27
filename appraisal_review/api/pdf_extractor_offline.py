@@ -407,20 +407,28 @@ STATIC_LABELS_TO_STRIP = {
 
 def locate_appraisal_pages(doc):
     """Scans the PDF to dynamically locate the page numbers of each form section."""
-    page_map: Dict[str, Optional[int]] = {
+    page_map: Dict[str, Any] = {
         "form_p1": None,
         "form_p2": None,
         "form_p3": None,
         "comps_4_6": None,
         "1004mc": None,
         "uspap_identification": None,
-        "certifications": None
+        "certifications": None,
+        "invoice": None,
+        "invoice_pages": []
     }
 
     for idx, page in enumerate(doc):
         t = page.get_text("text")
         t_lower = t.lower()
         t_upper = t.upper()
+
+        # Track Invoice pages
+        if ("INVOICE" in t_upper) and not ("PAGE 1 OF 6" in t_upper or "PAGE 2 OF 6" in t_upper or "PAGE 3 OF 6" in t_upper or "PAGE 1 OF 5" in t_upper):
+            if page_map["invoice"] is None:
+                page_map["invoice"] = idx
+            page_map["invoice_pages"].append(idx)
 
         # Skip Cover / Invoice / Letter of Transmittal / Title pages
         is_cover_or_invoice = ("INVOICE" in t_upper or "LETTER OF TRANSMITTAL" in t_upper or "APPRAISAL OF REAL PROPERTY LOCATED AT" in t_upper or "SUMMARY OF SALIENT FEATURES" in t_upper or "TABLE OF CONTENTS" in t_upper) and not ("PAGE 1 OF 6" in t_upper or "PAGE 2 OF 6" in t_upper or "PAGE 3 OF 6" in t_upper)
@@ -4129,7 +4137,90 @@ def extract_certification_section(pdf_path, full_doc_text=""):
     except Exception as e:
         print(f"[pdf_extractor_offline] E&O extraction notice: {e}")
 
+    # Extract Invoice presence details (attached invoice copy, invoice total, invoice page)
+    try:
+        inv_details = extract_invoice_info_from_doc(doc, full_doc_text=full_doc_text)
+        cert["Invoice Attached"] = inv_details.get("Invoice Attached", "No")
+        cert["Invoice Present"] = inv_details.get("Invoice Present", "No")
+        if inv_details.get("Invoice Page"):
+            cert["Invoice Page"] = inv_details["Invoice Page"]
+        if inv_details.get("Invoice Total"):
+            cert["Invoice Total"] = inv_details["Invoice Total"]
+    except Exception as e:
+        print(f"[pdf_extractor_offline] Invoice extraction notice: {e}")
+
     return cert
+
+
+def extract_invoice_info_from_doc(doc: Any, full_doc_text: str = "") -> Dict[str, Any]:
+    """
+    Scans the document for an appraisal invoice page, invoice copy, or invoice presence.
+    Returns:
+        {
+            "Invoice Attached": "Yes" | "No",
+            "Invoice Present": "Yes" | "No",
+            "Invoice Page": int or str,
+            "Invoice Total": str,
+            "has_invoice": bool
+        }
+    """
+    inv_page_idx = None
+    inv_total_amt = ""
+
+    if doc:
+        for idx in range(len(doc)):
+            page = doc[idx]
+            raw_t = page.get_text("text") or ""
+            t_upper = raw_t.upper()
+
+            # Skip standard Form 1004 / 1025 / 2055 primary body pages 1-3
+            is_primary_form = (
+                ("PAGE 1 OF 6" in t_upper or "PAGE 2 OF 6" in t_upper or "PAGE 3 OF 6" in t_upper)
+                or ("PAGE 1 OF 5" in t_upper or "PAGE 2 OF 5" in t_upper or "PAGE 3 OF 5" in t_upper)
+            )
+            if is_primary_form:
+                continue
+
+            has_inv_heading = bool(re.search(
+                r'\bINVOICE\b|APPRAISAL\s+INVOICE|FEE\s+INVOICE|SERVICES\s+INVOICE|\*+\s*INVOICE\s*\*+',
+                t_upper
+            ))
+
+            has_inv_indicators = bool(re.search(
+                r'INVOICE\s*(?:#|NO|NUMBER|DATE|TOTAL|AMOUNT|DUE)|'
+                r'TOTAL\s*(?:DUE|FEE|AMOUNT\s*DUE)|AMOUNT\s*DUE|BALANCE\s*DUE|'
+                r'PLEASE\s*REMIT|REMIT\s*(?:TO|PAYMENT)|BILL\s*TO|BILLED\s*TO|'
+                r'FEES\s+AMOUNT\s+SUBTOTAL|INVOICE\s*TAX\s*ID',
+                t_upper
+            ))
+
+            if has_inv_heading and has_inv_indicators:
+                inv_page_idx = idx + 1
+                # Try to extract total fee / amount due
+                m_amt = re.search(
+                    r'(?:TOTAL\s*DUE|AMOUNT\s*DUE|INVOICE\s*TOTAL|TOTAL\s*FEE|TOTAL|SUBTOTAL)[^0-9$\n]{0,35}\$?\s*([0-9,]+(?:\.\d{2})?)',
+                    raw_t,
+                    re.IGNORECASE
+                )
+                if m_amt:
+                    inv_total_amt = f"${m_amt.group(1)}"
+                break
+
+    has_inv = (inv_page_idx is not None)
+
+    # Secondary check in full document text if standalone page not matched
+    if not has_inv and full_doc_text:
+        doc_u = full_doc_text.upper()
+        if re.search(r'INVOICE\s*(?:COPY\s*)?ATTACHED|COPY\s*OF\s*INVOICE\s*ATTACHED|INVOICE\s*ATTACHED\s*TO\s*REPORT|INVOICE\s*IS\s*ATTACHED', doc_u):
+            has_inv = True
+
+    return {
+        "Invoice Attached": "Yes" if has_inv else "No",
+        "Invoice Present": "Yes" if has_inv else "No",
+        "Invoice Page": inv_page_idx,
+        "Invoice Total": inv_total_amt,
+        "has_invoice": has_inv
+    }
 
 
 def extract_market_conditions_section(pdf_path, full_doc_text=""):
@@ -5836,6 +5927,40 @@ def clean_appraisal_extracted_data(data):
             data["Subject"]["Appraiser's Fee"] = fee_val
             data["Subject"]["Appraiser Fee"] = fee_val
 
+    # 13. Clean & Sync Invoice Attached / Invoice Present
+    inv_val = (
+        data.get("Invoice Attached")
+        or data.get("Invoice Present")
+        or (data.get("CERTIFICATION", {}).get("Invoice Attached") if isinstance(data.get("CERTIFICATION"), dict) else "")
+        or (data.get("CERTIFICATION", {}).get("Invoice Present") if isinstance(data.get("CERTIFICATION"), dict) else "")
+        or (data.get("SUBJECT", {}).get("Invoice Attached") if isinstance(data.get("SUBJECT"), dict) else "")
+        or (data.get("Subject", {}).get("Invoice Attached") if isinstance(data.get("Subject"), dict) else "")
+        or (data.get("INVOICE", {}).get("Invoice Attached") if isinstance(data.get("INVOICE"), dict) else "")
+    )
+    has_inv = (
+        str(inv_val).strip().lower() in ["yes", "true", "attached", "included", "1", "present"]
+        or bool(data.get("has_invoice"))
+        or bool(data.get("INVOICE") and any(data["INVOICE"].values()))
+    )
+    final_inv = "Yes" if has_inv else ("No" if inv_val else "No")
+    data["Invoice Attached"] = final_inv
+    data["Invoice Present"] = final_inv
+    data["has_invoice"] = has_inv
+    if isinstance(data.get("CERTIFICATION"), dict):
+        data["CERTIFICATION"]["Invoice Attached"] = final_inv
+        data["CERTIFICATION"]["Invoice Present"] = final_inv
+    if isinstance(data.get("SUBJECT"), dict):
+        data["SUBJECT"]["Invoice Attached"] = final_inv
+        data["SUBJECT"]["Invoice Present"] = final_inv
+    if isinstance(data.get("Subject"), dict):
+        data["Subject"]["Invoice Attached"] = final_inv
+        data["Subject"]["Invoice Present"] = final_inv
+    if has_inv and not data.get("INVOICE"):
+        data["INVOICE"] = {
+            "Invoice Attached": "Yes",
+            "Invoice Present": "Yes"
+        }
+
     return data
 
 
@@ -5853,7 +5978,9 @@ def detect_form_pages(doc) -> Dict[str, Any]:
         "extra_comp_pages": [],
         "market_conditions": None,
         "uspap_identification": None,
-        "rent_schedule_pages": []
+        "rent_schedule_pages": [],
+        "invoice": None,
+        "invoice_pages": []
     }
     if not doc:
         return indices
@@ -5870,6 +5997,16 @@ def detect_form_pages(doc) -> Dict[str, Any]:
             continue
 
         txt = (page.get_text("text") or "").upper()
+
+        # Track Invoice pages outside primary Form pages
+        is_inv_candidate = (
+            ("INVOICE" in txt or "APPRAISAL INVOICE" in txt or "FEE INVOICE" in txt)
+            and not ("PAGE 1 OF 6" in txt or "PAGE 2 OF 6" in txt or "PAGE 3 OF 6" in txt or "PAGE 1 OF 5" in txt)
+        )
+        if is_inv_candidate:
+            if indices["invoice"] is None:
+                indices["invoice"] = idx
+            indices["invoice_pages"].append(idx)
         
         # Form 1004 Page 1: Subject, Contract, Neighborhood, Site, Improvements
         if indices["form_p1"] is None and (
@@ -6256,6 +6393,39 @@ def extract_fields_from_pdf_offline(pdf_path):
                 data["Subject"]["USPAP Addendum"] = uspap_present_pdf
                 data["Subject"]["has_uspap_identification"] = has_uspap_pdf
 
+            # Invoice Presence Detection in PDF
+            inv_idx = page_indices.get("invoice") if "page_indices" in locals() and isinstance(page_indices, dict) else None
+            inv_info = extract_invoice_info_from_doc(doc, full_doc_text=full_doc_text)
+            has_inv_pdf = (inv_idx is not None) or inv_info.get("has_invoice", False) or (len(page_indices.get("invoice_pages", [])) > 0)
+            inv_present_str = "Yes" if has_inv_pdf else "No"
+            data["Invoice Attached"] = inv_present_str
+            data["Invoice Present"] = inv_present_str
+            data["has_invoice"] = has_inv_pdf
+            if has_inv_pdf:
+                inv_page_no = (inv_idx + 1) if inv_idx is not None else inv_info.get("Invoice Page")
+                data.setdefault("INVOICE", {})
+                data["INVOICE"]["Invoice Attached"] = "Yes"
+                data["INVOICE"]["Invoice Present"] = "Yes"
+                if inv_page_no:
+                    data["INVOICE"]["Invoice Page"] = inv_page_no
+                if inv_info.get("Invoice Total"):
+                    data["INVOICE"]["Invoice Total"] = inv_info["Invoice Total"]
+                    data["INVOICE"]["Total Fee"] = inv_info["Invoice Total"]
+            if "SUBJECT" in data and isinstance(data["SUBJECT"], dict):
+                data["SUBJECT"]["Invoice Attached"] = inv_present_str
+                data["SUBJECT"]["Invoice Present"] = inv_present_str
+                data["SUBJECT"]["has_invoice"] = has_inv_pdf
+            if "Subject" in data and isinstance(data["Subject"], dict):
+                data["Subject"]["Invoice Attached"] = inv_present_str
+                data["Subject"]["Invoice Present"] = inv_present_str
+                data["Subject"]["has_invoice"] = has_inv_pdf
+            if "CERTIFICATION" in data and isinstance(data["CERTIFICATION"], dict):
+                data["CERTIFICATION"]["Invoice Attached"] = inv_present_str
+                data["CERTIFICATION"]["Invoice Present"] = inv_present_str
+            if "Certification" in data and isinstance(data["Certification"], dict):
+                data["Certification"]["Invoice Attached"] = inv_present_str
+                data["Certification"]["Invoice Present"] = inv_present_str
+
             # Apply Master Sanitization & Clean-up FIRST so signed values and numbers are pristine
             clean_data = clean_appraisal_extracted_data(data)
 
@@ -6410,6 +6580,13 @@ def extract_fields_from_pdf_offline(pdf_path):
             if rent_schedule_reconciliation:
                 clean_section_data["Comparable Rent Schedule Reconciliation"] = rent_schedule_reconciliation
                 unified_fields["Comparable Rent Schedule Reconciliation"] = rent_schedule_reconciliation
+            if clean_data.get("INVOICE") and any(clean_data["INVOICE"].values()):
+                clean_section_data["Invoice"] = clean_data["INVOICE"]
+                unified_fields["Invoice"] = clean_data["INVOICE"]
+                unified_fields["INVOICE"] = clean_data["INVOICE"]
+            unified_fields["Invoice Attached"] = clean_data.get("Invoice Attached", "No")
+            unified_fields["Invoice Present"] = clean_data.get("Invoice Present", "No")
+            unified_fields["has_invoice"] = clean_data.get("has_invoice", False)
 
             raw_json_str = json.dumps(unified_fields, indent=2)
             unified_fields["raw"] = raw_json_str

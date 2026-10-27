@@ -1660,7 +1660,7 @@ export const generateVersion1ValidationLogPDF = ({
       ],
       [
         { content: 'License # / Reg #', styles: { fontStyle: 'bold' } }, fmt(getVal('LICENSE/REGISTRATION/CERTIFICATION #') || getVal('License # / Reg #') || getVal('Appraiser ASC Identifier')),
-        { content: '', colSpan: 2 }
+        { content: 'Invoice Attached', styles: { fontStyle: 'bold' } }, fmt(getVal('Invoice Attached') || getVal('Invoice Present') || (getVal('INVOICE') ? 'Yes' : 'No'))
       ]
     ];
 

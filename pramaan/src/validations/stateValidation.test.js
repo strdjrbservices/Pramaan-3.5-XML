@@ -138,22 +138,69 @@ describe('State Requirements Validations', () => {
     });
 
     // 8. Invoice attached (NY except Plaza Home Mortgage; WI)
+    // 8. Invoice attached (NY except Plaza Home Mortgage; WI)
     test('Rule 8: Invoice attached for WI and NY (with Plaza Home exception)', () => {
         const dataNoInvoice = { SUBJECT: { "Lender/Client": "Standard Mortgage" } };
-        expect(checkStateRequirements('State', 'WI', dataNoInvoice).isError).toBe(true);
-        expect(checkStateRequirements('State', 'NY', dataNoInvoice).isError).toBe(true);
+        const resWI = checkStateRequirements('State', 'WI', dataNoInvoice);
+        expect(resWI.isError).toBe(true);
+        expect(resWI.message).toContain("Invoice copy attached to report");
 
-        // NY with Plaza Home Mortgage exception
+        const resNY = checkStateRequirements('State', 'NY', dataNoInvoice);
+        expect(resNY.isError).toBe(true);
+        expect(resNY.message).toContain("Missing for NY: Invoice copy attached to report (exempt for Plaza Home Mortgage).");
+
+        // NY with Plaza Home Mortgage exception (via Subject)
         const dataPlaza = { SUBJECT: { "Lender/Client": "Plaza Home Mortgage, Inc." } };
         expect(checkStateRequirements('State', 'NY', dataPlaza).isMatch).toBe(true);
 
-        // With invoice attached
+        // NY with Plaza exception via Certification
+        const dataPlazaCert = {
+            CERTIFICATION: { "Lender/Client Company Name": "Plaza Home Mortgage" },
+            SUBJECT: { "Lender/Client": "" }
+        };
+        expect(checkStateRequirements('State', 'NY', dataPlazaCert).isMatch).toBe(true);
+
+        // NY with Plaza exception via comparisonData
+        const dataPlazaComp = {
+            comparisonData: { "Client/Lender on Report": "PLAZA HOME MORTGAGE" }
+        };
+        expect(checkStateRequirements('State', 'NY', dataPlazaComp).isMatch).toBe(true);
+
+        // With INVOICE object
         const dataWithInv = {
             INVOICE: { "Invoice Total": "$500" },
             SUBJECT: { "Lender/Client": "Standard Mortgage" }
         };
         expect(checkStateRequirements('State', 'WI', dataWithInv).isMatch).toBe(true);
         expect(checkStateRequirements('State', 'NY', dataWithInv).isMatch).toBe(true);
+
+        // With Invoice Attached flag in CERTIFICATION
+        const dataWithCertInv = {
+            CERTIFICATION: { "Invoice Attached": "Yes" },
+            SUBJECT: { "Lender/Client": "Standard Mortgage" }
+        };
+        expect(checkStateRequirements('State', 'NY', dataWithCertInv).isMatch).toBe(true);
+
+        // With Invoice Present flag in root
+        const dataWithRootInv = {
+            "Invoice Present": "Yes",
+            SUBJECT: { "Lender/Client": "Standard Mortgage" }
+        };
+        expect(checkStateRequirements('State', 'NY', dataWithRootInv).isMatch).toBe(true);
+
+        // With pages_detected.invoice_pages
+        const dataWithPages = {
+            pages_detected: { invoice_pages: [42] },
+            SUBJECT: { "Lender/Client": "Standard Mortgage" }
+        };
+        expect(checkStateRequirements('State', 'NY', dataWithPages).isMatch).toBe(true);
+
+        // With raw text containing invoice marker
+        const dataWithRaw = {
+            raw: "APPRAISAL INVOICE \n TOTAL DUE: $460.00",
+            SUBJECT: { "Lender/Client": "Standard Mortgage" }
+        };
+        expect(checkStateRequirements('State', 'NY', dataWithRaw).isMatch).toBe(true);
     });
 
     // 9. Oklahoma: Invoice included or omitted without rejection

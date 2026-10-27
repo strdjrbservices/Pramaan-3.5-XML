@@ -199,6 +199,10 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
         ?? allData?.['Zoning Compliance comment'];
       if (commentVal) return renderValue(commentVal);
     }
+    if (field === 'Invoice Attached' || field === 'Invoice Present') {
+      const invVal = data?.['Invoice Attached'] ?? data?.['Invoice Present'] ?? data?.CERTIFICATION?.['Invoice Attached'] ?? data?.CERTIFICATION?.['Invoice Present'] ?? data?.SUBJECT?.['Invoice Attached'] ?? data?.SUBJECT?.['Invoice Present'] ?? data?.INVOICE?.['Invoice Attached'] ?? allData?.['Invoice Attached'] ?? allData?.['Invoice Present'] ?? allData?.CERTIFICATION?.['Invoice Attached'] ?? allData?.CERTIFICATION?.['Invoice Present'] ?? allData?.SUBJECT?.['Invoice Attached'] ?? allData?.INVOICE?.['Invoice Attached'];
+      if (invVal) return renderValue(invVal);
+    }
     const val = data?.[field] 
       ?? data?.CONTRACT?.[field] 
       ?? data?.NEIGHBORHOOD?.[field] 
@@ -305,6 +309,9 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
     if ((certVal === undefined || certVal === null || certVal === '') && (fieldPath === 'E&O' || fieldPath === 'E&O Present')) {
       certVal = renderValue(data?.['E&O'] ?? data?.['E&O Present'] ?? data?.CERTIFICATION?.['E&O'] ?? data?.CERTIFICATION?.['E&O Present'] ?? allData?.['E&O'] ?? allData?.['E&O Present'] ?? allData?.CERTIFICATION?.['E&O'] ?? allData?.CERTIFICATION?.['E&O Present'] ?? '');
     }
+    if ((certVal === undefined || certVal === null || certVal === '') && (fieldPath === 'Invoice Attached' || fieldPath === 'Invoice Present')) {
+      certVal = renderValue(data?.['Invoice Attached'] ?? data?.['Invoice Present'] ?? data?.CERTIFICATION?.['Invoice Attached'] ?? data?.CERTIFICATION?.['Invoice Present'] ?? data?.SUBJECT?.['Invoice Attached'] ?? data?.SUBJECT?.['Invoice Present'] ?? data?.INVOICE?.['Invoice Attached'] ?? allData?.['Invoice Attached'] ?? allData?.['Invoice Present'] ?? allData?.CERTIFICATION?.['Invoice Attached'] ?? allData?.CERTIFICATION?.['Invoice Present'] ?? allData?.SUBJECT?.['Invoice Attached'] ?? allData?.INVOICE?.['Invoice Attached'] ?? '');
+    }
     if ((certVal === undefined || certVal === null || certVal === '') && typeof fieldPath === 'string' && fieldPath.startsWith('Supervisory ')) {
       const subKey = fieldPath.replace('Supervisory ', '');
       const altKey = `Supervisory Appraiser ${subKey}`;
@@ -348,6 +355,55 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
                 <EditableField
                   fieldPath={[fieldPath]}
                   value={certVal || 'Absent'}
+                  onDataChange={onDataChange}
+                  editingField={editingField}
+                  setEditingField={setEditingField}
+                  isMissing={false}
+                  isEditable={true}
+                  allData={allData}
+                  manualValidations={manualValidations}
+                  handleManualValidation={handleManualValidation}
+                  revisionHandlers={revisionHandlers}
+                  inputClassName="form-control form-control-sm field-value"
+                  inputStyle={{ width: '100%', border: 'none', background: 'transparent', padding: 0, fontSize: '0.8rem', height: 'auto' }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (fieldPath === 'Invoice Attached' || fieldPath === 'Invoice Present') {
+      const isAttached = ['yes', 'true', 'attached', 'included', '1', 'present'].includes(String(certVal || '').trim().toLowerCase());
+      return (
+        <div style={{ borderBottom: '1px solid #dee2e6', paddingBottom: '3px', marginBottom: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span
+              onClick={() => setEditingField && setEditingField([fieldPath])}
+              style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.7rem', minWidth: '100px', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}
+            >
+              {label}
+            </span>
+            <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span
+                style={{
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  fontSize: '0.72rem',
+                  fontWeight: 'bold',
+                  backgroundColor: isAttached ? '#e8f5e9' : '#ffebee',
+                  color: isAttached ? '#1b5e20' : '#c62828',
+                  border: `1px solid ${isAttached ? '#a5d6a7' : '#ef9a9a'}`
+                }}
+              >
+                {isAttached ? '● Attached' : '○ Not Attached'}
+              </span>
+              <div style={{ flexGrow: 1 }}>
+                <EditableField
+                  fieldPath={[fieldPath]}
+                  value={certVal || (isAttached ? 'Yes' : 'No')}
                   onDataChange={onDataChange}
                   editingField={editingField}
                   setEditingField={setEditingField}
@@ -1707,6 +1763,7 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
               {renderCertField("E&O", "E&O")}
+              {renderCertField("Invoice Attached", "Invoice Attached")}
               {renderCertField("E&O Insurance", "E&O Insurance")}
               {renderCertField("Policy Period From", "Policy Period From")}
               {renderCertField("Policy Period To", "Policy Period To")}
