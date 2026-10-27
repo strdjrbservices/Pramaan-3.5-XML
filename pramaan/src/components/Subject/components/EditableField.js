@@ -332,7 +332,7 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'Other (e.g., basement, etc.)': [checkOtherBasement],
     'Other:': [checkRentSubjectOtherConsistency, checkRentOtherAdjustment],
     'Other: Adjustment': [checkRentOtherAdjustment],
-    'Other': [checkRentSubjectOtherConsistency, checkRentOtherAdjustment],
+    // 'Other': [checkRentSubjectOtherConsistency, checkRentOtherAdjustment],
     'Other Adjustment': [checkRentOtherAdjustment],
     'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF': [checkRentScheduleAsOfDateConsistency],
     'TO BE $': [checkRentScheduleToBeAmountConsistency],

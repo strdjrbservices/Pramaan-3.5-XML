@@ -23,7 +23,7 @@ APIKEY = os.environ.get("APIKEY", os.environ.get("GEMINI_API_KEY", ""))
 SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-zx9!0$38f(!jbn(7=-m-4gc)ixt8lq&-37=mau-qikbw+kkm5+")
 DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = ["*", "192.168.30.60"]
 
 
 INSTALLED_APPS = [

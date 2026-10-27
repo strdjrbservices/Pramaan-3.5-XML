@@ -1699,6 +1699,19 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         if borrower_elem is not None:
             borrower_name = borrower_elem.attrib.get("_UnparsedName", "")
 
+    # Fallback if lender_name is placeholder like 'SEE ADDENDUM' or missing
+    if not lender_name or re.match(r"^(?:see\s+(?:addendum|attached|text|addenda)|refer\s+to|n/?a|none|undefined|null)\b", lender_name.strip(), re.I):
+        early_narrative = " ".join(
+            v for f in root.findall(".//FORM") for k, v in f.attrib.items()
+            if ("text" in k.lower() or "comment" in k.lower() or "addendum" in k.lower()) and v
+        )
+        m_lender_add = re.search(r"(?:LENDER\s*[/]\s*CLIENT|LENDER\s+NAME|CLIENT\s+NAME)\s*[:\-]\s*([^\n\r<]{2,80})", early_narrative, re.I)
+        if m_lender_add:
+            cand_l = m_lender_add.group(1).strip()
+            cand_l = re.split(r"\s+[-:]+", cand_l)[0].strip(" -:;,")
+            if cand_l and not re.match(r"^(?:see\s+(?:addendum|attached)|n/?a|none)\b", cand_l, re.I):
+                lender_name = cand_l
+
     # Priority 1: MANAGEMENT_COMPANY (AMC / Ordering Client Name for Certificate Page)
     mc_elem = root.find(".//MANAGEMENT_COMPANY")
     if mc_elem is not None:
@@ -3241,6 +3254,18 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
 
     full_narrative = "\n\n".join(t for t in [addendum_text] + dom_narratives + [pdf_text] if t).strip()
 
+    # Second-pass fallback for lender_name if still placeholder or empty
+    if not lender_name or re.match(r"^(?:see\s+(?:addendum|attached|text|addenda)|refer\s+to|n/?a|none|undefined|null)\b", lender_name.strip(), re.I):
+        m_lender_add = re.search(r"(?:LENDER\s*[/]\s*CLIENT|LENDER\s+NAME|CLIENT\s+NAME)\s*[:\-]\s*([^\n\r<]{2,80})", full_narrative, re.I)
+        if m_lender_add:
+            cand_l = m_lender_add.group(1).strip()
+            cand_l = re.split(r"\s+[-:]+", cand_l)[0].strip(" -:;,")
+            if cand_l and not re.match(r"^(?:see\s+(?:addendum|attached)|n/?a|none)\b", cand_l, re.I):
+                lender_name = cand_l
+                if not lender_client_name or re.match(r"^(?:see\s+(?:addendum|attached|text|addenda)|refer\s+to|n/?a|none|undefined|null)\b", lender_client_name.strip(), re.I):
+                    lender_client_name = lender_name
+
+
     # ANSI (compulsory field)
     ansi_comment = "Not Present"
     ansi_candidates = []
@@ -4248,6 +4273,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         # Lender / Client
         "LENDER/CLIENT Name": lender_client_name,
         "Lender/Client Name": lender_client_name,
+        "Lender/Client": lender_name,
         "Client Name": lender_client_name,
         "Lender Name": lender_name,
         "Lender/Client Company Name": lender_name,

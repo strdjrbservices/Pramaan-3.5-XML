@@ -7837,6 +7837,14 @@ function Subject({ defaultFormType }) {
                   loading={clientReqLoading}
                   response={clientReqResponse}
                   error={clientReqError}
+                  detectedLender={
+                    data?.['Lender/Client'] ||
+                    data?.Subject?.['Lender/Client'] ||
+                    data?.Subject?.['Lender Name'] ||
+                    data?.Subject?.['LENDER/CLIENT Name'] ||
+                    data?.['LENDER/CLIENT Name'] ||
+                    ''
+                  }
                 />
               </div>
 

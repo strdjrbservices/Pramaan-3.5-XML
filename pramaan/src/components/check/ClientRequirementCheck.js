@@ -428,15 +428,28 @@ const CLIENT_OPTIONS = [
   { value: 'X Lend', label: 'X Lend' },
 ];
 
-const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) => {
+const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error, detectedLender }) => {
   const [selectedClient, setSelectedClient] = useState('');
   const [filterValue, setFilterValue] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedIndex, setCopiedIndex] = useState(null);
 
+  const cleanLender = typeof detectedLender === 'object'
+    ? (detectedLender?.value || '')
+    : String(detectedLender || '').trim();
+  const validDetectedLender = cleanLender && !/^(?:see\s+addendum|see\s+attached|n\/?a|none)\b/i.test(cleanLender)
+    ? cleanLender
+    : '';
+
+  const autoDetectLabel = validDetectedLender
+    ? `Auto-detect from Report (${validDetectedLender})`
+    : 'Auto-detect from Report';
+
   const handleCheck = () => {
     if (selectedClient) {
       onPromptSubmit(`Lender: ${selectedClient}\n\n${CLIENT_REQUIREMENT_PROMPT}`);
+    } else if (validDetectedLender) {
+      onPromptSubmit(`Lender: ${validDetectedLender}\n\n${CLIENT_REQUIREMENT_PROMPT}`);
     } else {
       onPromptSubmit(CLIENT_REQUIREMENT_PROMPT);
     }
@@ -547,6 +560,9 @@ const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) =>
       if (candidate.length > 2 && candidate.length < 50) {
         detectedClient = candidate;
       }
+    }
+    if (!detectedClient && validDetectedLender) {
+      detectedClient = validDetectedLender;
     }
 
     const filteredDetails = details.filter(item => {
@@ -832,7 +848,7 @@ const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) =>
         )}
       </Stack>
     );
-  }, [response, filterValue, searchQuery, copiedIndex]);
+  }, [response, filterValue, searchQuery, copiedIndex, validDetectedLender]);
 
   return (
     <div id="client-requirement-check-section" className="card shadow mb-4">
@@ -854,7 +870,7 @@ const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) =>
               >
                 {CLIENT_OPTIONS.map((opt) => (
                   <MenuItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                    {opt.value === '' ? autoDetectLabel : opt.label}
                   </MenuItem>
                 ))}
               </Select>

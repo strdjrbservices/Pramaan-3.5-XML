@@ -100,16 +100,16 @@ export const PhotosGallerySection = ({
     const hasRear = photosList.some(p => /rear/i.test(p.caption || '') || /rear/i.test(p.category || ''));
     const hasStreet = photosList.some(p => /street/i.test(p.caption || '') || /street/i.test(p.category || ''));
     const compPhotosCount = photosList.filter(p => /comparable/i.test(p.category || '') || /comp/i.test(p.caption || '')).length;
-    const hasSketch = photosList.some(p => p.category === 'Sketch' || /sketch|floor\s*plan/i.test(p.caption || ''));
-    const hasMap = photosList.some(p => p.category === 'Map' || /map|aerial/i.test(p.caption || ''));
+    // const hasSketch = photosList.some(p => p.category === 'Sketch' || /sketch|floor\s*plan/i.test(p.caption || ''));
+    // const hasMap = photosList.some(p => p.category === 'Map' || /map|aerial/i.test(p.caption || ''));
 
     return [
       { label: 'Subject Front View', pass: hasFront },
       { label: 'Subject Rear View', pass: hasRear },
       { label: 'Subject Street Scene', pass: hasStreet },
       { label: `Comparable Photos (${compPhotosCount} Found)`, pass: compPhotosCount >= 3 },
-      { label: 'Building Sketch / Floor Plan', pass: hasSketch },
-      { label: 'Location Map / Aerial', pass: hasMap }
+      // { label: 'Building Sketch / Floor Plan', pass: hasSketch },
+      // { label: 'Location Map / Aerial', pass: hasMap }
     ];
   }, [photosList]);
 

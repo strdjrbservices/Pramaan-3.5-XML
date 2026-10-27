@@ -732,11 +732,16 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
                 lender_name = val.strip()
                 break
 
+    # If placeholder like "SEE ADDENDUM", clear it so full_text/narrative fallback can find real lender
+    if lender_name and re.match(r"^(?:see\s+(?:addendum|attached|text|addenda)|refer\s+to|n/?a|none|undefined|null)\b", str(lender_name).strip(), re.I):
+        lender_name = ""
+
     if not lender_name:
-        m = re.search(r"(?:LENDER/CLIENT|LENDER|CLIENT)\s*[:\-]?\s*([^\n\r<]+)", full_text, re.IGNORECASE)
+        m = re.search(r"(?:LENDER\s*[/]\s*CLIENT|LENDER\s+NAME|CLIENT\s+NAME|LENDER/CLIENT)\s*[:\-]\s*([^\n\r<]{2,80})", full_text, re.IGNORECASE)
         if m:
             cand_lender = m.group(1).strip()
-            if cand_lender and len(cand_lender) > 1 and "requirement" not in cand_lender.lower():
+            cand_lender = re.split(r"\s+[-:]+", cand_lender)[0].strip(" -:;,")
+            if cand_lender and not re.match(r"^(?:see\s+(?:addendum|attached)|n/?a|none)\b", cand_lender, re.I) and not any(w in cand_lender.lower() for w in ["requirement", "the intended", "appraisal report", "amount of", "opinion"]):
                 lender_name = cand_lender
 
     # Fallback to full_text client name detection
@@ -820,8 +825,8 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
             lender_name = "Haus Capital"
         elif "homebridge" in ft_lower:
             lender_name = "Homebridge Financial Services"
-        elif "thelender" in ft_lower or "the lender" in ft_lower:
-            lender_name = "TheLender"
+        elif "thelender" in ft_lower or "hometown equity" in ft_lower or bool(re.search(r"\btheLender\b", full_text)) or bool(re.search(r"\bthe\s+Lender\s*(?:,\s*LLC|\s+dba|\s+Mortgage)\b", full_text, re.I)):
+            lender_name = "Hometown Equity Mortgage / theLender"
         elif "hometown equity" in ft_lower:
             lender_name = "Hometown Equity"
         elif "lxai" in ft_lower:
@@ -1070,16 +1075,18 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
     is_hometown_equity_client = (
         ("HOMETOWN EQUITY" in str(lender_name).upper()) or
         ("THELENDER" in str(lender_name).upper()) or
-        ("THE LENDER" in str(lender_name).upper()) or
+        (bool(re.search(r"\bthe\s*Lender\b", str(lender_name), re.I)) and "CLIENT" not in str(lender_name).upper()) or
         ("HOMETOWN EQUITY" in client_field_cand.upper()) or
         ("THELENDER" in client_field_cand.upper()) or
-        ("THE LENDER" in client_field_cand.upper()) or
-        bool(re.search(r"\b(?:Hometown\s+Equity|theLender|the\s+Lender)\b", full_text, re.I)) or
-        (bool(custom_prompt) and any(k in custom_prompt.lower() for k in ["hometown equity", "thelender", "the lender"]) and "visio" not in custom_prompt.lower() and not is_master_prompt)
+        bool(re.search(r"\bHometown\s+Equity\b", full_text, re.I)) or
+        bool(re.search(r"\btheLender\b", full_text)) or
+        bool(re.search(r"\bthe\s+Lender\s*(?:,\s*LLC|\s+dba|\s+Mortgage)\b", full_text, re.I)) or
+        (bool(custom_prompt) and any(k in custom_prompt.lower() for k in ["hometown equity", "thelender"]) and "visio" not in custom_prompt.lower() and not is_master_prompt)
     )
 
     if is_hometown_equity_client and not any(k in str(lender_name).upper() for k in ["HOMETOWN EQUITY", "THELENDER"]):
-        lender_name = f"Hometown Equity Mortgage / theLender ({lender_name})" if lender_name else "Hometown Equity Mortgage / theLender"
+        if not lender_name:
+            lender_name = "Hometown Equity Mortgage / theLender"
 
     is_x_lend_client = (
         ("X LEND" in str(lender_name).upper()) or
@@ -1120,7 +1127,9 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         (bool(custom_prompt) and "1004d" in custom_prompt.lower() and any(w in custom_prompt.lower() for w in ["validation", "requirements", "final inspection", "appraisal update", "report"]) and not is_master_prompt)
     )
 
-    if is_1004d_client:
+    if explicit_override:
+        lender_name = explicit_override
+    elif is_1004d_client and (not lender_name or "1004D" in lender_name.upper()):
         lender_name = "1004D Reports"
         is_logan_client = False
         is_arc_home_client = False
@@ -1136,7 +1145,7 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         is_hometown_equity_client = False
         is_x_lend_client = False
         is_coast2coast_client = False
-    elif is_declining_market_client:
+    elif is_declining_market_client and (not lender_name or "DECLINING" in lender_name.upper()):
         lender_name = "Declining Market"
         is_logan_client = False
         is_arc_home_client = False
@@ -1151,7 +1160,7 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         is_hometown_equity_client = False
         is_x_lend_client = False
         is_coast2coast_client = False
-    elif is_the_loan_store_client:
+    elif is_the_loan_store_client and (not lender_name or "LOAN STORE" in lender_name.upper()):
         lender_name = "The Loan Store"
         is_logan_client = False
         is_arc_home_client = False
@@ -1167,7 +1176,7 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         is_hometown_equity_client = False
         is_x_lend_client = False
         is_coast2coast_client = False
-    elif is_hometown_equity_client:
+    elif is_hometown_equity_client and (not lender_name or any(k in lender_name.upper() for k in ["HOMETOWN", "THELENDER"])):
         lender_name = "Hometown Equity Mortgage / theLender"
         is_logan_client = False
         is_arc_home_client = False
@@ -1183,7 +1192,7 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         is_the_loan_store_client = False
         is_x_lend_client = False
         is_coast2coast_client = False
-    elif is_x_lend_client:
+    elif is_x_lend_client and (not lender_name or "XLEND" in lender_name.upper() or "X LEND" in lender_name.upper()):
         lender_name = "X Lend"
         is_logan_client = False
         is_arc_home_client = False
@@ -1199,7 +1208,7 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         is_the_loan_store_client = False
         is_hometown_equity_client = False
         is_coast2coast_client = False
-    elif is_coast2coast_client:
+    elif is_coast2coast_client and (not lender_name or "COAST" in lender_name.upper() or "C2C" in lender_name.upper()):
         lender_name = "Coast2Coast Mortgage"
         is_logan_client = False
         is_arc_home_client = False
@@ -1215,8 +1224,6 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
         is_the_loan_store_client = False
         is_hometown_equity_client = False
         is_x_lend_client = False
-    elif explicit_override:
-        lender_name = explicit_override
 
     lender_upper = str(lender_name).upper()
     details = []
@@ -1815,7 +1822,7 @@ def evaluate_client_requirements(pdf_path: str, extracted_data: Optional[Dict[st
             })
 
     # 5. Hometown Equity Mortgage / theLender
-    elif "HOMETOWN EQUITY" in lender_upper or "THELENDER" in lender_upper or "THE LENDER" in lender_upper or is_hometown_equity_client:
+    elif "HOMETOWN EQUITY" in lender_upper or "THELENDER" in lender_upper or (bool(re.search(r"\bthe\s*lender\b", lender_upper, re.I)) and "CLIENT" not in lender_upper) or is_hometown_equity_client:
         # 1. Smoke & CO Detectors - Comments and Photos for both detector types
         # - The appraiser must provide comments and photos of all smoke detectors and carbon monoxide (CO) detectors.
         # - Both detector types must be addressed in the report.
