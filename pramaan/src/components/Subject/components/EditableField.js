@@ -8,7 +8,7 @@ import { checkUnits, checkAccessoryUnit, checkNumberOfStories, checkPropertyType
 import { checkConditionAdjustment, checkBedroomsAdjustment, checkBathsAdjustment, checkQualityOfConstructionAdjustment, checkProximityToSubject, checkSiteAdjustment, checkGrossLivingAreaAdjustment, checkSubjectAddressInconsistency, checkDesignStyleAdjustment, checkFunctionalUtilityAdjustment, checkEnergyEfficientItemsAdjustment, checkPorchPatioDeckAdjustment, checkHeatingCoolingAdjustment, checkDataSourceDOM, checkActualAgeAdjustment, checkLeaseholdFeeSimpleConsistency, checkDateOfSale, checkLocationConsistency, checkSalePrice, checkSubjectAgeConsistency, checkViewAdjustment } from '../../../validations/salesComparisonValidation';
 import { checkFinalValueConsistency, checkCostApproachDeveloped, checkAppraisalCondition, checkAsOfDate, checkFinalValueBracketing, checkReconciliationFieldsNotBlank, checkFiveValuesConsistency, checkEffectiveDatesConsistency, checkPropertyQualityConsistency, checkPropertyConditionConsistency, checkHbuConsistency, checkCostApproachConsistency, checkAttachmentTypeConsistency, checkPropertyRightsConsistency, checkAppraiserCredentialLevelConsistency } from '../../../validations/reconciliationValidation';
 import { checkLenderAddressInconsistency, checkLenderNameInconsistency, checkUnpaidLender, checkAppraiserFieldsNotBlank, checkLicenseNumberConsistency as checkAppraiserLicenseConsistency, checkDateGreaterThanToday, checkClientNameHtmlConsistency, checkClientAddressHtmlConsistency, checkBorrowerHtmlConsistency, checkPropertyAddressHtmlConsistency, checkAppraiserVendorNameConsistency, checkSupervisoryAppraiserFields, checkAppraiserLicenseGroup } from '../../../validations/appraiserLenderValidation';
-import { checkCostNew, checkSourceOfCostData, checkIndicatedValueByCostApproach, checkCostApproachFieldsNotBlank } from '../../../validations/costApproachValidation';
+import { checkCostNew, checkSourceOfCostData, checkIndicatedValueByCostApproach, checkCostApproachFieldsNotBlank, checkOpinionOfSiteValue, checkRemainingEconomicLife } from '../../../validations/costApproachValidation';
 import { checkResearchHistory, checkSubjectPriorSales, checkComparablePriorSales, checkDataSourceNotBlank, checkEffectiveDateIsCurrentYear, checkSubjectPriorSaleDate, checkCompPriorSaleDate } from '../../../validations/salesHistoryValidation';
 import { checkStateRequirements } from '../../../validations/stateValidation';
 import { checkLenderAddressInconsistency as checkLenderAddressHtmlInconsistency, checkSubjectLenderNameVsHtml, checkBorrowerNameVsHtml } from '../../../validations/htmldatavaliadtion';
@@ -45,23 +45,37 @@ export const HighlightKeywords = ({ text, keywords }) => {
   );
 };
 
-export const EditableField = ({ fieldPath, value, onDataChange, editingField, setEditingField, usePre, isMissing, inputClassName, inputStyle, isEditable, isAdjustment, allData, saleName, manualValidations, handleManualValidation, revisionHandlers = {}, customValidation, showBlankValidation = false, prefix, suffix }) => {
+export const EditableField = ({ fieldPath, value, onDataChange, editingField, setEditingField, usePre, isMissing, inputClassName, inputStyle, valueStyle, isEditable = true, isAdjustment, allData, saleName, manualValidations, handleManualValidation, revisionHandlers = {}, customValidation, showBlankValidation = false, prefix, suffix }) => {
   isMissing = false;
-  const isEditing = isEditable && editingField && JSON.stringify(editingField) === JSON.stringify(fieldPath);
+  const [internalEditing, setInternalEditing] = React.useState(false);
+  const isFieldEditable = isEditable !== false;
+  const isControlled = setEditingField !== undefined;
+  const isEditing = isFieldEditable && (
+    isControlled
+      ? (Boolean(editingField) && JSON.stringify(editingField) === JSON.stringify(fieldPath))
+      : internalEditing
+  );
+
+  const setEditing = (val) => {
+    if (setEditingField) {
+      setEditingField(val);
+    }
+    setInternalEditing(Boolean(val));
+  };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !usePre) {
-      setEditingField(null);
-      onDataChange(fieldPath, e.target.value);
+      setEditing(null);
+      if (onDataChange) onDataChange(fieldPath, e.target.value);
 
     } else if (e.key === 'Escape') {
-      setEditingField(null);
+      setEditing(null);
     }
   };
 
   const handleContainerClick = () => {
-    if (!isEditing && isEditable) {
-      setEditingField(fieldPath);
+    if (!isEditing && isFieldEditable) {
+      setEditing(fieldPath);
     }
   };
 
@@ -298,16 +312,32 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     // Appraiser/Lender Validations
     'Lender/Client Company Address': [checkLenderAddressHtmlInconsistency, checkLenderAddressInconsistency],
     'Supervisory Signature': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Signature': [checkSupervisoryAppraiserFields],
     'Supervisory Name': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Name': [checkSupervisoryAppraiserFields],
     'Supervisory Company Name': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Company Name': [checkSupervisoryAppraiserFields],
     'Supervisory Company Address': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Company Address': [checkSupervisoryAppraiserFields],
     'Supervisory Telephone Number': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Telephone Number': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Phone': [checkSupervisoryAppraiserFields],
     'Supervisory Email Address': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Email Address': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Email': [checkSupervisoryAppraiserFields],
     'Supervisory Date of Signature': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Date of Signature': [checkSupervisoryAppraiserFields],
     'Supervisory State Certification #': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser State Certification #': [checkSupervisoryAppraiserFields],
     'Supervisory or State License #': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser or State License #': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser State License #': [checkSupervisoryAppraiserFields],
     'Supervisory State': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser State': [checkSupervisoryAppraiserFields],
     'Supervisory Expiration Date of Certification or License': [checkSupervisoryAppraiserFields],
+    'Supervisory Expiration Date': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Expiration Date': [checkSupervisoryAppraiserFields],
+    'Supervisory Appraiser Expiration Date of Certification or License': [checkSupervisoryAppraiserFields],
     'Did not inspect subject property': [checkSupervisoryAppraiserFields],
     'Did inspect exterior of subject property from street': [checkSupervisoryAppraiserFields],
     'Subject Property Date of Inspection (Exterior)': [checkSupervisoryAppraiserFields],
@@ -418,10 +448,31 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
   validationRegistry["Source of cost data"] = [checkSourceOfCostData];
   validationRegistry["Indicated Value By Cost Approach......................................................=$"] = [checkIndicatedValueByCostApproach];
 
+  const opinionOfSiteFields = [
+    "OPINION OF SITE VALUE = $ ................................................",
+    "OPINION OF SITE VALUE",
+    "Opinion of Site Value",
+    "Opinion of Site Value $",
+    "OPINION OF SITE VALUE $"
+  ];
+  opinionOfSiteFields.forEach(f => {
+    validationRegistry[f] = [checkOpinionOfSiteValue];
+  });
+
+  const remainingEconomicLifeFields = [
+    "Estimated Remaining Economic Life (HUD and VA only)",
+    "Remaining Economic Life",
+    "Estimated Remaining Economic Life",
+    "Estimated Remaining Economic Life Years"
+  ];
+  remainingEconomicLifeFields.forEach(f => {
+    validationRegistry[f] = [checkRemainingEconomicLife];
+  });
+
   const costApproachFieldsToValidate = [
     "Estimated", "Source of cost data", "Quality rating from cost service ",
     "Effective date of cost data ", "Comments on Cost Approach (gross living area calculations, depreciation, etc.)",
-    "OPINION OF SITE VALUE = $ ................................................", "Dwelling", "Garage/Carport ",
+    "Dwelling", "Garage/Carport ",
     " Total Estimate of Cost-New  = $ ...................", "Depreciation ",
     "Depreciated Cost of Improvements......................................................=$ ",
     "“As-is” Value of Site Improvements......................................................=$",
@@ -429,7 +480,6 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     "Indicated Value by Cost Approach",
     "Depreciated Cost of Dwellings",
     "As Is Value of Site Improvements",
-    "Opinion of Site Value",
     "Above Grade Finished Area",
     "Cost Per Square Foot",
     "Depreciated Cost",
@@ -437,7 +487,6 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     "Functional Depreciation",
     "External Depreciation",
     "Total Depreciation",
-    "Remaining Economic Life",
     "Effective Age",
     "Site Improvement Description",
     "Site Improvement Amount",
@@ -740,8 +789,14 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
       if (customRes) validationResult = customRes;
     }
 
+    const isSupervisory = String(lookupField || '').toLowerCase().includes('supervisory') ||
+      (Array.isArray(fieldPath) && fieldPath.some(p => String(p).toLowerCase().includes('supervisory')));
+
     if (!validationResult) {
-      const checksToRun = validationRegistry[lookupField] || [];
+      let checksToRun = [...(validationRegistry[lookupField] || [])];
+      if (isSupervisory && !checksToRun.includes(checkSupervisoryAppraiserFields)) {
+        checksToRun = [checkSupervisoryAppraiserFields, ...checksToRun];
+      }
       for (const check of checksToRun) {
         if (typeof check === 'function') {
           let res = check(lookupField, text, data, fieldPath, saleName);
@@ -798,7 +853,7 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
       style = { backgroundColor: '#ff9d0bff', color: '#ffffff', padding: '2px 5px', borderRadius: '4px' };
     }
 
-    return { style, message };
+    return { style, message, validationResult };
   };
 
   const validation = getValidationInfo(fieldPath.slice(-1)[0], value, allData, fieldPath, saleName, manualValidations, isAdjustment); // Pass allData here
@@ -815,7 +870,7 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
         ...validation.style,
         position: 'relative',
         paddingRight: handleManualValidation ? '50px' : '28px',
-        cursor: isEditable ? 'pointer' : 'default',
+        cursor: isFieldEditable ? 'pointer' : 'default',
         minHeight: '26px',
         display: 'flex',
         alignItems: 'center'
@@ -825,8 +880,8 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
         React.createElement(usePre ? 'textarea' : 'input', {
           type: "text",
           value: value ?? '',
-          onChange: (e) => onDataChange(fieldPath, e.target.value),
-          onBlur: () => setEditingField(null),
+          onChange: (e) => onDataChange && onDataChange(fieldPath, e.target.value),
+          onBlur: () => setEditing(null),
           onKeyDown: handleKeyDown,
           autoFocus: true,
           spellCheck: true,
@@ -835,7 +890,7 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
           rows: usePre ? 3 : undefined
         })
       ) : (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', flexWrap: 'nowrap', width: '100%', minHeight: '20px' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', flexWrap: 'nowrap', width: '100%', minHeight: '20px', ...(valueStyle || {}) }}>
           {prefix && !isValEmpty && <span style={{ opacity: 0.85, fontWeight: 500 }}>{prefix}</span>}
           {(() => {
             if (typeof value === 'object' && value !== null && !React.isValidElement(value)) {
@@ -845,7 +900,14 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
               return <div style={{ whiteSpace: 'pre-wrap' }}>{value}</div>;
             }
             if (isValEmpty) {
-              return <span style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.85rem', userSelect: 'none' }}></span>;
+              const isSupervisoryField = String(fieldPath?.[fieldPath.length - 1] || '').toLowerCase().includes('supervisory') ||
+                (Array.isArray(fieldPath) && fieldPath.some(p => String(p).toLowerCase().includes('supervisory')));
+              const isGreenSupervisory = isSupervisoryField && validation?.style?.backgroundColor === '#91ff00ff';
+              return (
+                <span style={{ color: '#155724', fontStyle: 'italic', fontSize: '0.8rem', userSelect: 'none' }}>
+                  {isGreenSupervisory ? '(Not Present)' : ''}
+                </span>
+              );
             }
             return (
               <HighlightKeywords

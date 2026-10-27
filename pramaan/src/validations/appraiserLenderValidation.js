@@ -217,7 +217,11 @@ export const checkPropertyAddressHtmlConsistency = (field, text, allData, fieldP
     return null;
 };
 
-export const checkAppraiserLicenseGroup = (field, text, allData) => {
+export const checkAppraiserLicenseGroup = (field, text, allData, fieldPath) => {
+    const isSupervisory = String(field || '').toLowerCase().includes('supervisory') ||
+        (Array.isArray(fieldPath) && fieldPath.some(p => String(p).toLowerCase().includes('supervisory')));
+    if (isSupervisory) return null;
+
     const groupFields = [
         "State Certification #",
         "or State License #",
@@ -244,7 +248,11 @@ export const checkAppraiserLicenseGroup = (field, text, allData) => {
     };
 };
 
-export const checkAppraiserFieldsNotBlank = (field, text) => {
+export const checkAppraiserFieldsNotBlank = (field, text, allData, fieldPath) => {
+    const isSupervisory = String(field || '').toLowerCase().includes('supervisory') ||
+        (Array.isArray(fieldPath) && fieldPath.some(p => String(p).toLowerCase().includes('supervisory')));
+    if (isSupervisory) return null;
+
     const fieldsToCheck = [
         "Signature",
         "Name",
@@ -399,84 +407,48 @@ export const checkSupervisoryAppraiserFields = (field, text, allData, fieldPath)
 
     if (!isSupervisoryKey) return null;
 
-    // Get the supervisory signature status
-    const certObj = allData?.CERTIFICATION || allData?.SUPERVISORY_APPRAISER || allData || {};
-    const signatureVal = String(
-        certObj['Supervisory Signature'] ||
-        certObj['Supervisory Appraiser Signature'] ||
-        certObj['Signature (Supervisory)'] ||
-        allData?.['Supervisory Signature'] ||
-        ''
-    ).trim();
-
-    const isPresent = signatureVal &&
-        signatureVal.toLowerCase() !== 'not present' &&
-        signatureVal.toLowerCase() !== 'n/a' &&
-        signatureVal.toLowerCase() !== 'none' &&
-        signatureVal.toLowerCase() !== 'false' &&
-        signatureVal.toLowerCase() !== 'no';
+    // Determine clean display field name
+    let displayField = fieldStr;
+    if (!displayField.toLowerCase().startsWith('supervisory')) {
+        displayField = `Supervisory ${displayField}`;
+    }
 
     const val = String(text || '').trim();
 
-    // 1. IF Supervisory Appraiser Signature IS PRESENT:
-    if (isPresent) {
-        // License / Cert # check: at least one of State Cert # or State License # must be present
-        if (fieldStr.includes('State Certification #') || fieldStr.includes('State License #')) {
-            const certNo = String(certObj['Supervisory State Certification #'] || certObj['State Certification #'] || '').trim();
-            const licNo = String(certObj['Supervisory or State License #'] || certObj['or State License #'] || '').trim();
-            if (!certNo && !licNo) {
-                return { isError: true, skipBlankFilter: true, message: `'Supervisory State Certification #' or 'State License #' must be filled when Supervisory Appraiser signature is Present.` };
-            }
-            return { isMatch: true };
-        }
+    // Check if value is blank or not present
+    const isBlankOrNotPresent = (v) => {
+        if (v === undefined || v === null) return true;
+        const s = String(v).trim().toLowerCase();
+        return (
+            s === '' ||
+            s === 'not present' ||
+            s === 'n/a' ||
+            s === 'na' ||
+            s === 'none' ||
+            s === 'null' ||
+            s === 'undefined' ||
+            s === 'false' ||
+            s === 'no'
+        );
+    };
 
-        // Exterior inspection date check
-        if (fieldStr.includes('Exterior') && fieldStr.includes('Date')) {
-            const extChecked = String(certObj['Did inspect exterior of subject property from street'] || '').trim();
-            if ((extChecked.toLowerCase() === 'yes' || extChecked.toLowerCase() === 'true') && !val) {
-                return { isError: true, skipBlankFilter: true, message: `'Subject Property Date of Inspection (Exterior)' must not be blank when exterior inspection is selected.` };
-            }
-            return { isMatch: true };
-        }
+    const isNotPresent = isBlankOrNotPresent(val);
 
-        // Interior/Exterior inspection date check
-        if (fieldStr.includes('Interior') && fieldStr.includes('Date')) {
-            const intChecked = String(certObj['Did inspect interior and exterior of subject property'] || '').trim();
-            if ((intChecked.toLowerCase() === 'yes' || intChecked.toLowerCase() === 'true') && !val) {
-                return { isError: true, skipBlankFilter: true, message: `'Subject Property Date of Inspection (Interior/Exterior)' must not be blank when interior/exterior inspection is selected.` };
-            }
-            return { isMatch: true };
-        }
-
-        // Comparable Sales inspection date check
-        if (fieldStr.includes('Comparable Sales') && fieldStr.includes('Date')) {
-            const compChecked = String(certObj['Did inspect exterior of comparable sales from street'] || '').trim();
-            if ((compChecked.toLowerCase() === 'yes' || compChecked.toLowerCase() === 'true') && !val) {
-                return { isError: true, skipBlankFilter: true, message: `'Comparable Sales Date of Inspection' must not be blank when comparable sales inspection is selected.` };
-            }
-            return { isMatch: true };
-        }
-
-        // All other supervisory fields must not be blank when signature is Present
-        if (!val) {
-            return { isError: true, skipBlankFilter: true, message: `'${fieldStr}' in Supervisory Appraiser section must not be blank when Supervisory Appraiser signature is Present.` };
-        }
-        return { isMatch: true };
+    // If values are NOT present in the fields -> SHOW VALIDATED (Green)
+    if (isNotPresent) {
+        return {
+            isMatch: true,
+            skipBlankFilter: true,
+            message: `'${displayField}' is not present (validated).`
+        };
     }
 
-    // 2. IF Supervisory Appraiser Signature IS NOT PRESENT ('Not Present' or blank):
-    else {
-        // If field is the Signature field itself and value is 'Not Present' or empty, that's valid
-        if (fieldStr.toLowerCase().includes('signature') && (val.toLowerCase() === 'not present' || !val)) {
-            return { isMatch: true };
-        }
-
-        // All other fields in Supervisory Appraiser section MUST BE BLANK when signature is Not Present!
-        if (val && val.toLowerCase() !== 'not present' && val.toLowerCase() !== 'n/a' && val.toLowerCase() !== 'none' && val.toLowerCase() !== 'false' && val.toLowerCase() !== 'no') {
-            return { isError: true, skipBlankFilter: true, message: `'${fieldStr}' in Supervisory Appraiser section must be blank when Supervisory Appraiser signature is Not Present.` };
-        }
-        return { isMatch: true };
-    }
+    // If values ARE present in the fields -> SHOW ERROR (Red)
+    return {
+        isError: true,
+        skipBlankFilter: true,
+        message: `'${displayField}' in SUPERVISORY APPRAISER (ONLY IF REQUIRED) section must be blank / not present.`
+    };
 };
 
 export const checkUnpaidLender = (field, text, data) => {

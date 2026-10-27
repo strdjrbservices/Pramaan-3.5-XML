@@ -101,6 +101,7 @@ import * as incomeApproachValidation from '../../validations/incomeApproachValid
 import * as priorSaleHistoryValidation from '../../validations/priorSaleHistoryValidation';
 import * as htmlDataValidation from '../../validations/htmldatavaliadtion';
 import * as infoOfSalesValidation from '../../validations/infoOfSalesValidation';
+import * as costApproachValidation from '../../validations/costApproachValidation';
 import * as version1Validation from './Version1/version1Validation';
 import { checkUnpaidLenderStatus } from '../../utils/unpaidLenders';
 
@@ -1058,16 +1059,32 @@ function Subject({ defaultFormType }) {
       'as of': [reconciliationValidation.checkAsOfDate],
       'final value': [reconciliationValidation.checkFinalValueBracketing, reconciliationValidation.checkReconciliationFieldsNotBlank, reconciliationValidation.checkFinalValueConsistency],
       'Supervisory Signature': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Signature': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory Name': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Name': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory Company Name': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Company Name': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory Company Address': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Company Address': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory Telephone Number': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Telephone Number': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Phone': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory Email Address': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Email Address': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Email': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory Date of Signature': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Date of Signature': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory State Certification #': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser State Certification #': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory or State License #': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser or State License #': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser State License #': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory State': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser State': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory Expiration Date of Certification or License': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Expiration Date': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Expiration Date': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
+      'Supervisory Appraiser Expiration Date of Certification or License': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Did not inspect subject property': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Did inspect exterior of subject property from street': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Subject Property Date of Inspection (Exterior)': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
@@ -1273,6 +1290,27 @@ function Subject({ defaultFormType }) {
         registry[field].push(reconciliationValidation.checkAppraiserCredentialLevelConsistency);
       });
     }
+
+    const opinionOfSiteFields = [
+      "OPINION OF SITE VALUE = $ ................................................",
+      "OPINION OF SITE VALUE",
+      "Opinion of Site Value",
+      "Opinion of Site Value $",
+      "OPINION OF SITE VALUE $"
+    ];
+    opinionOfSiteFields.forEach(f => {
+      registry[f] = [costApproachValidation.checkOpinionOfSiteValue];
+    });
+
+    const remainingEconomicLifeFields = [
+      "Estimated Remaining Economic Life (HUD and VA only)",
+      "Remaining Economic Life",
+      "Estimated Remaining Economic Life",
+      "Estimated Remaining Economic Life Years"
+    ];
+    remainingEconomicLifeFields.forEach(f => {
+      registry[f] = [costApproachValidation.checkRemainingEconomicLife];
+    });
 
     return registry;
   };
@@ -6428,7 +6466,7 @@ function Subject({ defaultFormType }) {
       selectedFile: activeReportFile,
       xmlFile: xmlFile,
       reportFile: activeReportFile,
-      extractionAttempted, handleDataChange, editingField, setEditingField, isEditable, highlightedSubjectFields, highlightedContractFields, highlightedSiteFields, summaryFields, subjectFields, contractFields, neighborhoodFields, siteFields, improvementsFields, salesGridRows, salesGridRows1025, comparableSales, salesComparisonAdditionalInfoFields, salesHistoryFields, priorSaleHistoryFields, reconciliationFields, costApproachFields, incomeApproachFields, pudInformationFields, marketConditionsFields, marketConditionsRows, condoCoopProjectsRows, condoForeclosureFields, appraiserFields, supplementalAddendumFields, uniformResidentialAppraisalReportFields, appraisalAndReportIdentificationFields, projectSiteFields, projectInfoFields, projectAnalysisFields, unitDescriptionsFields, imageAnalysisFields, dataConsistencyFields, ComparableRentAdjustments, comparableRents, RentSchedulesFIELDS2, rentScheduleReconciliationFields, formType: selectedFormType, comparisonData, getComparisonStyle, SalesComparisonSection, EditableField, infoOfSalesFields, loading, stateRequirementFields, handleStateRequirementCheck, stateReqLoading, stateReqResponse, stateReqError, handleUnpaidOkCheck, unpaidOkLoading, unpaidOkResponse, unpaidOkError, handleClientRequirementCheck, clientReqLoading, clientReqResponse, clientReqError, handleFhaCheck, handleADUCheck, fhaLoading, fhaResponse, fhaError, ADULoading, handleEscalationCheck, escalationLoading, escalationResponse, escalationError, onDataChange: handleDataChange, handleExtract, manualValidations, handleManualValidation, SUBJECT_RENT_SCHEDULE, COMPARABLE_RENTAL_DATA, SubjectRentScheduleTable,
+      extractionAttempted, handleDataChange, editingField, setEditingField, isEditable: true, highlightedSubjectFields, highlightedContractFields, highlightedSiteFields, summaryFields, subjectFields, contractFields, neighborhoodFields, siteFields, improvementsFields, salesGridRows, salesGridRows1025, comparableSales, salesComparisonAdditionalInfoFields, salesHistoryFields, priorSaleHistoryFields, reconciliationFields, costApproachFields, incomeApproachFields, pudInformationFields, marketConditionsFields, marketConditionsRows, condoCoopProjectsRows, condoForeclosureFields, appraiserFields, supplementalAddendumFields, uniformResidentialAppraisalReportFields, appraisalAndReportIdentificationFields, projectSiteFields, projectInfoFields, projectAnalysisFields, unitDescriptionsFields, imageAnalysisFields, dataConsistencyFields, ComparableRentAdjustments, comparableRents, RentSchedulesFIELDS2, rentScheduleReconciliationFields, formType: selectedFormType, comparisonData, getComparisonStyle, SalesComparisonSection, EditableField, infoOfSalesFields, loading, stateRequirementFields, handleStateRequirementCheck, stateReqLoading, stateReqResponse, stateReqError, handleUnpaidOkCheck, unpaidOkLoading, unpaidOkResponse, unpaidOkError, handleClientRequirementCheck, clientReqLoading, clientReqResponse, clientReqError, handleFhaCheck, handleADUCheck, fhaLoading, fhaResponse, fhaError, ADULoading, handleEscalationCheck, escalationLoading, escalationResponse, escalationError, onDataChange: handleDataChange, handleExtract, manualValidations, handleManualValidation, SUBJECT_RENT_SCHEDULE, COMPARABLE_RENTAL_DATA, SubjectRentScheduleTable,
       onSubjectRevisionButtonClick: () => setRevisionLangDialogOpen(true),
       onContractRevisionButtonClick: () => setContractRevisionLangDialogOpen(true),
       onNeighborhoodRevisionButtonClick: () => setNeighborhoodRevisionLangDialogOpen(true),
@@ -6517,7 +6555,7 @@ function Subject({ defaultFormType }) {
           sections={visibleSectionsList}
           isOpen={isSidebarOpen || isSidebarLocked}
           isLocked={isSidebarLocked}
-          onLockToggle={() => { setIsSidebarLocked(!isSidebarLocked); setIsEditable(!isEditable); }}
+          onLockToggle={() => { setIsSidebarLocked(!isSidebarLocked); }}
           onMouseEnter={handleSidebarEnter}
           onMouseLeave={handleSidebarLeave}
           onSectionClick={handleSectionClick}
@@ -8143,6 +8181,7 @@ function Subject({ defaultFormType }) {
         onClose={() => setLenderClientAddressRevisionLangDialogOpen(false)}
         title="Lender/Client Address Revision Language"
         prompts={[
+          `Please update the lender address to the new address, as it was not updated in the system:\n3232 E Cesar Chavez St, Suite 1-320, Austin, TX 78702.`,
           `Please update the lender/client address ("${data['Address (Lender/Client)'] || '...'}") in the subject section to match the order form.`,
           `Please revise the lender/client address ("${data['Address (Lender/Client)'] || '...'}") to ensure street, city, state, and zip code match the engagement letter.`
         ]}

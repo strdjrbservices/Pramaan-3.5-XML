@@ -69,26 +69,25 @@ const Form1004D = () => {
     const PDF_VS_PDF_PROMPT = `1. Please confirm if all sections/fields in the subject section of the 1004D are filled.
 2. Compare 'Contract Price' and 'Date of Contract' from the 1004D (new PDF) to the contract section of the Original Appraisal (old PDF).
 3. Compare 'Effective Date' and 'Final Value' (as Original Appraised Value) from the 1004D (new PDF) to the 'Effective Date' and 'Final Value' in the Original Appraisal (old PDF).
-4. Compare 'Original Appraiser', 'Lender/Client', and 'Address' from the 1004D (new PDF) to the subject section's 'Appraiser', 'Lender/Client Name', and 'Address' of the Original Appraisal (old PDF).
-5. In the 1004D PDF, check the "SUMMARY APPRAISAL UPDATE REPORT" section. If it is checked, verify that the question "HAS THE MARKET VALUE OF THE SUBJECT PROPERTY DECLINED SINCE THE EFFECTIVE DATE OF THE PRIOR APPRAISAL?" is answered 'Yes' or 'No'. If 'Yes', a difference value must be present. If 'No', no difference value should be present.
- 
-Also, if this section is checked, the 'Effective Date' in the signature area must be present. The 'Inspection Date' is optional, but if present, it must be less than or equal to the 'Effective Date'.
- 
-6. In the 1004D PDF, check the "CERTIFICATION OF COMPLETION" section. If it is checked, verify that the question "HAVE THE IMPROVEMENTS BEEN COMPLETED IN ACCORDANCE WITH THE REQUIREMENTS AND CONDITIONS STATED IN THE ORIGINAL APPRAISAL REPORT?" is answered 'Yes' or 'No'. If 'Yes', the repairs/changes mentioned should match the reconciliation section of the Original Appraisal (old PDF), where the appraisal should be marked "subject to".
- 
-Also, if this section is checked, the 'Inspection Date' in the signature area must be present. The 'Effective Date' is optional, but if present, it must be greater than or equal to the 'Inspection Date'.
- 
- 
-7. Confirm the presence of a 'Subject street, front view' photo in the 1004D PDF.
-8. Confirm the presence of 'E&O and license' details in the 1004D PDF.
-9. Confirm the presence of a 'Subject photo addendum' in the 1004D PDF. This is mandatory if the "CERTIFICATION OF COMPLETION" section is checked.
+4. Client/Lender Information: At top of Page 1, the Original Client/Lender must match the Client/Lender on the original appraisal report. In the bottom signature card/certification section, the Client/Lender must match the Order Form.
+5. Form Completion:
+- 1004D Final Inspection: Complete only the Certification of Completion section. The Date of Inspection is required.
+- 1004D Appraisal Update: Complete only the Summary Appraisal Update Report section. The Effective Date of Appraisal Update is required (a Date of Inspection on an Appraisal Update report is acceptable).
+6. Original Repair Conditions: If the 1004D report does not appear to address the original repair conditions identified in the original appraisal report, STOP and ESCALATE.
+7. HUD Handbook 4000.1: For 1004D Appraisal Update reports, the appraiser is not required to comment on whether the subject meets HUD Handbook 4000.1.
+8. Street Photograph: A street photograph is not mandatory. Do not reject a report for a missing street photograph. If a street photograph is already included, accept it.
+9. Confirm the presence of 'E&O and license' details in the 1004D PDF.
+10. Confirm the presence of a 'Subject photo addendum' in the 1004D PDF. This is mandatory if the "CERTIFICATION OF COMPLETION" section is checked.
 
 For each item, provide a JSON object in a 'details' array. Each object must have 'sr_no', 'description' (the checklist item), 'original_appraisal_value' (value from old PDF), 'form_1004D_value' (value from new PDF), 'comment' (details of the finding), and 'status' ('Match', 'Mismatch', 'Not Found', or 'Present').`;
 
-    const HTML_VS_PDF_PROMPT = `1. The lender/client's name and lender/client address from the signature section of the 1004d PDF should match the lender/client's name and address in HTML.
-2. The inspection date of 1004D should match the inspection date of HTML.
+    const HTML_VS_PDF_PROMPT = `1. Client/Lender Information: In the bottom signature card/certification section of the 1004D PDF, the Client/Lender must match the Order Form / HTML. At the top of Page 1, the Original Client/Lender must match the original appraisal report.
+2. Required Dates: 1004D Final Inspection requires Date of Inspection (must match HTML if present). 1004D Appraisal Update requires Effective Date of Appraisal Update (Date of Inspection is also acceptable).
 3. The borrower's name and borrower address from HTML should match the subject section and certification section of 1004D.
 4. The appraiser's name on the HTML should match with the appraiser's name in 1004d certification section.
+5. Street Photograph: A street photograph is not mandatory. Do not reject a report for a missing street photograph. If a street photograph is already included, accept it.
+6. HUD Handbook 4000.1: For 1004D Appraisal Update reports, the appraiser is not required to comment on whether the subject meets HUD Handbook 4000.1.
+7. Original Repair Conditions: If the 1004D report does not appear to address the original repair conditions identified in the original appraisal report, STOP and ESCALATE.
 
 For each item, provide a JSON object in a 'details' array. Each object must have 'field' (the checklist item), 'pdf_value' (value from PDF), 'html_value' (value from HTML), 'comment' (details of the finding), and 'status' ('Match', 'Mismatch', 'Not Found', or 'Present').`;
 

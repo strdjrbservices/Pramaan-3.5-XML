@@ -16,7 +16,7 @@ const SalesComparisonSection = ({
   salesHistoryFields,
   salesComparisonAdditionalInfoFields,
   formType,
-  isEditable,
+  isEditable = true,
   allData,
   manualValidations,
   handleManualValidation,

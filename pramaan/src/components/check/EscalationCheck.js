@@ -42,16 +42,17 @@ export const ESCALATION_RULES = [
   { id: 20, requirement: "Value Increase Since Prior Sale", ruleText: "20. Value Increase Since Prior Sale: If there's an increase in value since the subject's prior sale." },
   { id: 21, requirement: "Duplicate Addresses", ruleText: "21. Duplicate Addresses: If the subject address is the same as any comparable sale or rental comparable." },
   { id: 22, requirement: "Highest and Best Use 'NO'", ruleText: "22. Highest and Best Use 'NO': If 'Highest and best use' is marked 'NO'." },
-  { id: 23, requirement: "Physical Deficiencies 'YES' but 'As-Is'", ruleText: "23. Physical Deficiencies 'YES' but 'As-Is': If 'Physical deficiencies' is marked 'YES' but the report is made 'as-is'." }
+  { id: 23, requirement: "Physical Deficiencies 'YES' but 'As-Is'", ruleText: "23. Physical Deficiencies 'YES' but 'As-Is': If 'Physical deficiencies' is marked 'YES' but the report is made 'as-is'." },
+  { id: 24, requirement: "Prior Services Statement", ruleText: "24. Prior Services Statement: If the appraiser indicates that they performed services on the subject property within the last three years, STOP and ESCALATE. Escalation Comment: The appraiser performed prior services on the subject property within the three-year period. Please refer to the screenshot and advise." }
 ];
 
 export const ESCALATION_CHECK_PROMPT = `
-Analyze the appraisal report for the following 23 escalation rules.
-You MUST process and include all 23 rules in the "details" array.
+Analyze the appraisal report for the following 24 escalation rules.
+You MUST process and include all 24 rules in the "details" array.
 Your output must be a single, clean JSON object. Do not include any text outside of the JSON object.
 The JSON object must have a "summary" (a one to two-line overview of findings) and a "details" array.
 Each object in the "details" array represents a rule check and must have the following keys:
-- "rule_number": An integer (1 to 23) corresponding to the rule number below.
+- "rule_number": An integer (1 to 24) corresponding to the rule number below.
 - "requirement": A string matching the exact rule name (e.g., "Assignment Type Mismatch").
 - "status": 'OK' if the rule is satisfied/passed, or 'Needs Escalation' if it fails/requires review.
 - "value_or_comment": A string containing a brief comment explaining the finding (e.g., confirming consistency or describing any mismatch), along with the page number.
@@ -80,6 +81,7 @@ Escalation Rules:
 21. Duplicate Addresses: If the subject address is the same as any comparable sale or rental comparable.
 22. Highest and Best Use 'NO': If 'Highest and best use' is marked 'NO'.
 23. Physical Deficiencies 'YES' but 'As-Is': If 'Physical deficiencies' is marked 'YES' but the report is made 'as-is'.
+24. Prior Services Statement: If the appraiser indicates that they performed services on the subject property within the last three years, STOP and ESCALATE. Escalation Comment: The appraiser performed prior services on the subject property within the three-year period. Please refer to the screenshot and advise.
 `;
 
 

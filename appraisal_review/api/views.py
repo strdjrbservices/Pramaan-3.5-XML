@@ -517,6 +517,17 @@ def compare_html_to_pdf_with_prompt(request):
         if old_file:
             old_tmp_path = _save_temp_file(old_file)
 
+        if html_file and ("1004d" in str(comment).lower() or "html" in str(comment).lower()):
+            if not html_tmp_path:
+                html_tmp_path = _save_temp_file(html_file)
+            with open(html_tmp_path, "r", encoding="utf-8", errors="replace") as hf:
+                html_content = hf.read()
+            pdf_tmp_path = _save_temp_file(pdf_file)
+            data = compare_report_to_html_offline(pdf_tmp_path, html_content)
+            if "comparison_results" in data:
+                data["details"] = data["comparison_results"]
+            return Response(data)
+
         pdf_results = verify_revision_request_offline(pdf_tmp_path, comment, old_path=old_tmp_path if old_tmp_path else None)
         if "comparison_summary" in pdf_results:
             pdf_results["details"] = pdf_results["comparison_summary"]
@@ -770,47 +781,62 @@ def extract_pdf(request):
                         if old_tmp_path and os.path.exists(old_tmp_path):
                             os.remove(old_tmp_path)
 
-            # 1. State Requirement Check (Supports both PDF and XML)
-            if category_clean in ["STATE_REQUIREMENT_CHECK", "STATE_REQUIREMENTS"] or any(
-                term in prompt_lower for term in [
-                    "state-specific", "state specific", "state requirement", "state req",
-                    "appraiser’s fee disclosure", "appraiser's fee disclosure", "fee disclosure",
-                    "amc license", "amc #", "1455.245"
-                ]
-            ):
-                return Response(evaluate_state_requirements(tmp_path, extracted_data=extracted_data_obj))
-
-            # 2. Client Requirement Check (Supports both PDF and XML)
-            elif category_clean in ["CLIENT_REQUIREMENT_CHECK", "CLIENT_REQUIREMENTS"] or any(
-                term in prompt_lower for term in [
-                    "client requirement", "client-specific", "client specific", "lender/client",
-                    "lenders/clients", "bpl mortgage", "visio lending", "ice lender", "equity wave",
-                    "homebridge", "foundation mortgage", "rain city", "rain city capital",
-                    "east coast capital", "east coast capital corp", "futures financial", "dart bank",
-                    "loanguys", "loan guys", "loanguys.com"
-                ]
-            ):
-                return Response(evaluate_client_requirements(tmp_path, extracted_data=extracted_data_obj, custom_prompt=custom_prompt))
-
-            # 3. Unpaid OK Lender Check (Supports both PDF and XML)
-            elif category_clean == "UNPAID_OK_CHECK" or "unpaid ok" in prompt_lower or ("unpaid" in prompt_lower and "lender" in prompt_lower):
-                return Response(evaluate_unpaid_ok(tmp_path, extracted_data=extracted_data_obj))
-
-            # 4. ADU Check (Supports both PDF and XML)
-            elif category_clean == "ADU_CHECK" or "accessory dwelling unit" in prompt_lower or "adu requirements" in prompt_lower or "adu" in prompt_lower:
-                return Response(evaluate_adu_requirements(tmp_path, extracted_data=extracted_data_obj))
-
-            # 5. Escalation Check (Supports both PDF and XML)
-            elif category_clean == "ESCALATION_CHECK" or "escalation" in prompt_lower:
+            # Priority 1: Match explicit category from caller (Strict check isolation)
+            if category_clean in ["ESCALATION_CHECK", "ESCALATION"]:
                 return Response(evaluate_escalation_check(tmp_path, extracted_data=extracted_data_obj))
 
-            # 6. FHA Requirement Check (Supports both PDF and XML)
-            elif category_clean in ["FHA_REQUIREMENT_CHECK", "FHA_CHECK", "FHA_REQUIREMENTS"] or any(
-                term in prompt_lower for term in [
-                    "fha-specific", "fha specific", "fha requirement", "fha req",
-                    "hud handbook 4000.1", "hud 4000.1", "fha case number"
-                ]
-            ):
+            if category_clean in ["CLIENT_REQUIREMENT_CHECK", "CLIENT_REQUIREMENTS"]:
+                return Response(evaluate_client_requirements(tmp_path, extracted_data=extracted_data_obj, custom_prompt=custom_prompt))
+
+            if category_clean in ["STATE_REQUIREMENT_CHECK", "STATE_REQUIREMENTS"]:
+                return Response(evaluate_state_requirements(tmp_path, extracted_data=extracted_data_obj))
+
+            if category_clean in ["UNPAID_OK_CHECK", "UNPAID_OK"]:
+                return Response(evaluate_unpaid_ok(tmp_path, extracted_data=extracted_data_obj))
+
+            if category_clean in ["ADU_CHECK", "ADU"]:
+                return Response(evaluate_adu_requirements(tmp_path, extracted_data=extracted_data_obj))
+
+            if category_clean in ["FHA_REQUIREMENT_CHECK", "FHA_CHECK", "FHA_REQUIREMENTS"]:
+                return Response(evaluate_fha_requirements(tmp_path, extracted_data=extracted_data_obj))
+
+            # Priority 2: Inferred routing from prompt when category is not explicitly specified
+            if any(term in prompt_lower for term in [
+                "escalation check", "escalation rules", "run escalation check", "escalation trigger"
+            ]):
+                return Response(evaluate_escalation_check(tmp_path, extracted_data=extracted_data_obj))
+
+            elif any(term in prompt_lower for term in [
+                "state-specific", "state specific", "state requirement", "state req",
+                "appraiser’s fee disclosure", "appraiser's fee disclosure", "fee disclosure",
+                "amc license", "amc #", "1455.245"
+            ]):
+                return Response(evaluate_state_requirements(tmp_path, extracted_data=extracted_data_obj))
+
+            elif any(term in prompt_lower for term in [
+                "client requirement", "client requirements", "client-specific", "client specific",
+                "lender requirement", "lender requirements", "homexpress", "home xpress", "june point",
+                "new american", "naf", "logan financial", "logan finance", "logan",
+                "nationwide mortgage", "nationwide", "nmb", "cv3", "cv3 financial", "civic", "ocmbc", "arc home",
+                "paramount residential", "prmg", "declining market", "1004d reports", "1004d validation", "1004d",
+                "the loan store", "loan store",
+                "hometown equity", "thelender", "the lender",
+                "x lend", "xlend", "x-lend",
+                "coast2coast", "coast 2 coast", "coast to coast", "c2c",
+                "bpl mortgage", "bpl"
+            ]):
+                return Response(evaluate_client_requirements(tmp_path, extracted_data=extracted_data_obj, custom_prompt=custom_prompt))
+
+            elif "unpaid ok" in prompt_lower or ("unpaid" in prompt_lower and "lender" in prompt_lower):
+                return Response(evaluate_unpaid_ok(tmp_path, extracted_data=extracted_data_obj))
+
+            elif "accessory dwelling unit" in prompt_lower or "adu requirements" in prompt_lower or "adu check" in prompt_lower:
+                return Response(evaluate_adu_requirements(tmp_path, extracted_data=extracted_data_obj))
+
+            elif any(term in prompt_lower for term in [
+                "fha-specific", "fha specific", "fha requirement", "fha req",
+                "hud handbook 4000.1", "hud 4000.1", "fha case number"
+            ]):
                 return Response(evaluate_fha_requirements(tmp_path, extracted_data=extracted_data_obj))
 
             # 7. XML Field Extraction (When not a specialized check request)

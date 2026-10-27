@@ -50,11 +50,92 @@ export const checkIndicatedValueByCostApproach = (field, text, data) => {
     return { isMatch: true };
 };
 
+export const checkOpinionOfSiteValue = (field, text, data) => {
+    const siteValueFields = [
+        "OPINION OF SITE VALUE = $ ................................................",
+        "OPINION OF SITE VALUE",
+        "Opinion of Site Value",
+        "Opinion of Site Value $",
+        "OPINION OF SITE VALUE $"
+    ];
+    if (!siteValueFields.includes(field)) return null;
+
+    let valStr = (text !== undefined && text !== null) ? String(text).trim() : '';
+    if (!valStr && data) {
+        const costData = data.COST_APPROACH || data.Cost_Approach || data;
+        const candidate = costData?.["OPINION OF SITE VALUE = $ ................................................"]
+            ?? costData?.["OPINION OF SITE VALUE"]
+            ?? costData?.["Opinion of Site Value"]
+            ?? costData?.["Opinion of Site Value $"]
+            ?? costData?.["OPINION OF SITE VALUE $"]
+            ?? data?.["OPINION OF SITE VALUE = $ ................................................"]
+            ?? data?.["OPINION OF SITE VALUE"]
+            ?? data?.["Opinion of Site Value"];
+        if (candidate !== undefined && candidate !== null) {
+            valStr = String(candidate).trim();
+        }
+    }
+
+    const cleanNum = valStr.replace(/[^0-9.]/g, '');
+    if (!valStr || (cleanNum !== '' && parseFloat(cleanNum) === 0)) {
+        return {
+            isError: true,
+            skipBlankFilter: true,
+            message: "'OPINION OF SITE VALUE' in Cost Calculations is mandatory and must not be blank."
+        };
+    }
+
+    return {
+        isMatch: true,
+        skipBlankFilter: true,
+        message: "'OPINION OF SITE VALUE' is present."
+    };
+};
+
+export const checkRemainingEconomicLife = (field, text, data) => {
+    const economicLifeFields = [
+        "Estimated Remaining Economic Life (HUD and VA only)",
+        "Remaining Economic Life",
+        "Estimated Remaining Economic Life",
+        "Estimated Remaining Economic Life Years"
+    ];
+    if (!economicLifeFields.includes(field)) return null;
+
+    let valStr = (text !== undefined && text !== null) ? String(text).trim() : '';
+    if (!valStr && data) {
+        const costData = data.COST_APPROACH || data.Cost_Approach || data;
+        const candidate = costData?.["Estimated Remaining Economic Life (HUD and VA only)"]
+            ?? costData?.["Remaining Economic Life"]
+            ?? costData?.["Estimated Remaining Economic Life"]
+            ?? data?.["Estimated Remaining Economic Life (HUD and VA only)"]
+            ?? data?.["Remaining Economic Life"]
+            ?? data?.["Estimated Remaining Economic Life"];
+        if (candidate !== undefined && candidate !== null) {
+            valStr = String(candidate).trim();
+        }
+    }
+
+    const cleanNum = valStr.replace(/[^0-9.]/g, '');
+    if (!valStr || (cleanNum !== '' && parseFloat(cleanNum) === 0)) {
+        return {
+            isError: true,
+            skipBlankFilter: true,
+            message: "'Remaining Economic Life' in Cost Approach is mandatory and must not be blank."
+        };
+    }
+
+    return {
+        isMatch: true,
+        skipBlankFilter: true,
+        message: "'Remaining Economic Life' is present."
+    };
+};
+
 export const checkCostApproachFieldsNotBlank = (field, text) => {
     const fieldsToCheck = [
         "Estimated", "Source of cost data", "Quality rating from cost service ",
         "Effective date of cost data ", "Comments on Cost Approach (gross living area calculations, depreciation, etc.)",
-        "OPINION OF SITE VALUE = $ ................................................", "Dwelling", "Garage/Carport ",
+        "Dwelling", "Garage/Carport ",
         " Total Estimate of Cost-New  = $ ...................", "Depreciation ",
         "Depreciated Cost of Improvements......................................................=$ ",
         "“As-is” Value of Site Improvements......................................................=$",
@@ -62,7 +143,6 @@ export const checkCostApproachFieldsNotBlank = (field, text) => {
         "Indicated Value by Cost Approach",
         "Depreciated Cost of Dwellings",
         "As Is Value of Site Improvements",
-        "Opinion of Site Value",
         "Above Grade Finished Area",
         "Cost Per Square Foot",
         "Depreciated Cost",
@@ -70,7 +150,6 @@ export const checkCostApproachFieldsNotBlank = (field, text) => {
         "Functional Depreciation",
         "External Depreciation",
         "Total Depreciation",
-        "Remaining Economic Life",
         "Effective Age",
         "Site Improvement Description",
         "Site Improvement Amount",

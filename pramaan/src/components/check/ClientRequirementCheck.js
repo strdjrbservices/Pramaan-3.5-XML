@@ -41,7 +41,7 @@ Based on the Lender/Client name in the document, verify if it matches any of a l
 Your output must be a single, clean JSON object. Do not include any text outside of the JSON object.
 The JSON object must have a "summary" (a one to two-line overview stating which lender/client is present and if their requirements are met) and a "details" array.
 Each object in the "details" array represents a requirement and must have the following keys:
-- "requirement": A string describing the client-specific rule being checked.
+- "requirement": A string describing the requirement rule being checked.
 - "status": A string, which must be one of 'Fulfilled', 'Not Fulfilled', 'Needs Review', or 'Not Applicable'.
 - "value_or_comment": A string containing the extracted value or a brief comment explaining the status. If a value is extracted, also include the page number.
 
@@ -69,28 +69,97 @@ Lender/Client List and their requirements:
   - The appraiser is required to include the following intended use verbiage in all reports for this client. If the appraisal does not include the following statements in the report, please reject as:
     1. Intended User: Equity Wave Lending, Inc. it's investors, assignees, and/or successors
     2. Intended Use: The making, arranging, or selling of a private money/hard money loan
-- Hometown equity:
-  - Smoke/CO Detectors: Please confirm if smoke/co detectors are installed and ask for photos.
+- Hometown Equity Mortgage / theLender:
+  - Smoke & CO Detectors:
+    - The appraiser must provide comments and photos of all smoke detectors and carbon monoxide (CO) detectors.
+    - Both detector types must be addressed in the report.
+    - If either the required comments or photos are missing, send a revision request.
+    - Rejection Comment: "Please confirm if smoke/CO detectors are installed and provide photos."
+  - UAD 3.6 Transition / Policy:
+    - UAD 3.6 is not permitted for these clients before October 1, 2026.
+    - If a UAD 3.6 order is received before October 1, 2026, STOP and ESCALATE immediately. Do not review the report.
+- theLender:
+  - Smoke & CO Detectors: Follow Hometown Equity Mortgage / theLender requirements (comments and photos of all smoke detectors and carbon monoxide detectors required; reject: "Please confirm if smoke/CO detectors are installed and provide photos.").
+  - UAD 3.6 Transition / Policy: UAD 3.6 is not permitted before October 1, 2026. If received before October 1, 2026, STOP and ESCALATE immediately. Do not review the report.
 - FOUNDATION MORTGAGE:
   - Short Term Rental (STR) Form: UPDATE: FOUNDATION MORTGAGE - They no longer accept Short Term Rentals on a 1007, so they provide this form for appraisers to complete with STRs. If the product type includes a "STR 1007", then this is the form that needs to be included, not a regular 1007. If a regular 1007 is used or the specific STR form is missing when STR 1007 is ordered, reject as: "UPDATE: FOUNDATION MORTGAGE - They no longer accept Short Term Rentals on a 1007, so they provide this form for appraisers to complete with STRs. If the product type includes a 'STR 1007', then this is the form that needs to be included, not a regular 1007."
-- BPL Mortgage, LLC:
-  - Smoke/CO Detectors: Ensure comments address whether detectors are present and required by law. Missing detectors alone do not require Subject-To status for BPL. Reject as: "Please address if smoke/CO detectors were present and required by law."
-  - Value Difference: If final value is over 10% higher than listing/purchase price, check comments; if missing, escalate. For As-Is with ARV, compare with As-Is value. Reject as: "Can the appraiser address any potential reasons from the contract why the purchase price is significantly lower than market value?"
-  - Prior Sale: Check prior sale history and improvements comments. Escalate if unexplained. Reject as: "Please address the increase in value since the subject's prior sale."
-  - Cost Approach: Must be completed. Reject as: "This client requires the Cost Approach to be completed for internal lending purposes. Whether the appraiser chooses to weight this approach is solely up to the appraiser."
-  - Freddie Mac: No need to review Freddie Mac unacceptable practices for BPL.
-  - Repairs/Deferred Maintenance: Check photos and request cost-to-cure for repairs/deferred maintenance. No cost-to-cure request is needed for 1004D reports with outstanding repairs. Reject as: "Please provide cost to cure for the repairs/deferred maintenance."
-  - Bedroom Photos: Label as Bedroom 1, Bedroom 2, etc. Reject as: "The bedroom photos need to be labeled as “Bedroom 1,” “Bedroom 2,” etc. Please revise accordingly."
-  - Comparable Distance Guidelines: Urban <= 1 mile, Suburban <= 1 mile, Rural <= 5 miles. Check comments for comps exceeding limits; reject if no explanation is provided.
-  - Multifamily Units: Subject and comparable unit counts should match. Request comments for differences.
-  - Q/C Ratings: All reports must include Quality (Q) and Condition (C) ratings for the subject and comps, including 1025/2090. For 1007, include the subject and all rental comps.
-  - Photo Limit: Maximum 6 subject photos per photo addendum page. Reject as: "Per client instructions, please include no more than 6 photos on each photo addendum page."
-  - Two-Value Reports: ARV comps must be Comp 1–3 and As-Is comps 4–6. Do not use the same comps for both values; escalate if repeated.
-  - Heating System: Must address whether the heating system works. “Mechanicals are functioning” is acceptable. Inability to test due to hot weather is also acceptable.
-  - BPL Special Requirements: Check special assessment comments; include the 1004MC addendum; verify comments for zero adjustments when Q/C differs; use 3 comps from the same city (otherwise comments required); escalate unclear occupancy/staging concerns to the WhatsApp group; duplicate client names on the order page are acceptable if the report displays the correct client name.
-  - BPL Retail: Escalate like VISIO if repairs exist, whether the report is As-Is or Subject-To (applies only when BPL Retail is the client).
-  - BPL As-Is & Kitchen Photos: BPL requires As-Is reports; stop and escalate Subject-To reports. Kitchen photos must show the stove/appliances (separate photos acceptable); if no stove is visible, request confirmation or comments. Request cost-to-cure for applicable repairs in As-Is reports (no cost-to-cure required for two-value ARV/As-Is reports where the repair budget is included).
-  - BPL & Coast2Coast Mortgage: Subject-To conditions permitted only for health and safety issues. Cosmetic repairs must be commented on, not made Subject-To. Escalate if unsure whether an item is cosmetic or health/safety related.
+- Coast2Coast / BPL Mortgage, LLC – Appraisal Review Requirements:
+  - 1. Client and Lender Instructions:
+    - If the order page shows Coast2Coast and the report shows Coast2Coast, follow BPL instructions.
+    - If the order page shows Coast2Coast and the report shows BPL, follow BPL instructions.
+    - If the order page shows Coast2Coast but the report shows a different lender, review the report normally.
+  - 2. Smoke and CO Detectors:
+    - Ensure the report addresses whether smoke/CO detectors are present and required by law.
+    - Rejection Comment: "Please address if smoke/CO detectors were present and required by law."
+    - BPL Reminder: Comments regarding smoke/CO detectors are required. The report does not need to be Subject To for missing detectors unless other repair items are required. If missing detectors are the only issue, the report should remain As-Is, with the appraiser commenting that they are missing.
+  - 3. Appraised Value vs. Purchase/Listing Price:
+    - If the final appraised value is 10% higher than the listing price or purchase/contract price, check for supporting commentary.
+    - For As-Is with ARV reports, compare the As-Is value.
+    - If supporting commentary is missing, escalate to the group.
+    - Always send a revision for the appraised value exceeding the purchase price.
+    - Rejection Comment: "Please address the appraised value being higher than the purchase price for the subject property."
+  - 4. Prior Sale History – BPL, ICE, etc.:
+    - If the final value is higher than the subject's prior sale price, check the Improvements section and Prior Sales History for comments explaining the increase.
+    - If no supporting comments are provided, escalate.
+    - Escalation Comment: "Please address the increase in value since the subject's prior sale."
+  - 5. Cost Approach:
+    - The Cost Approach must be completed.
+    - Rejection Comment: "This client requires the Cost Approach to be completed for their own internal lending purposes. Whether the appraiser chooses to weight this approach is solely up to the appraiser."
+  - 6. BPL – Cost to Cure:
+    - If repairs, deferred maintenance, or cosmetic issues are present, request a cost-to-cure amount.
+    - Exception: Do not request a cost to cure on failed 1004D reports where repairs are still needed.
+    - For two-value ARV/As-Is reports, no cost to cure is required because the repair budget reflects the costs of repairs.
+    - Rejection Comment: "Please provide cost to cure for the repairs/deferred maintenance."
+  - 7. Freddie Mac Unacceptable Practices:
+    - Do not perform the Freddie Mac Unacceptable Practices review for BPL.
+  - 8. Bedroom Photo Labels:
+    - Bedroom photos must be labeled sequentially, such as Bedroom 1, Bedroom 2, etc.
+    - Rejection Comment: 'The bedroom photos need to be labeled as "Bedroom 1", "Bedroom 2", etc. Please revise the labels of the bedroom photos accordingly.'
+  - 9. Comparable Distance Guidelines:
+    - Urban: 1 mile, Suburban: 1 mile, Rural: 5 miles.
+    - If a comparable exceeds the applicable distance guideline, check for supporting commentary. If no comment is provided, reject.
+    - Rejection Comment – Urban/Suburban: "Please address the use of Comp 2 exceeding the lender distance guideline of 1 mile."
+    - Rejection Comment – Rural: "Please address the use of Comp 2 exceeding the lender distance guideline of 5 miles."
+  - 10. Comparable Properties – City Requirements:
+    - BPL requires three comparable sales from the same city as the subject.
+    - If any sales or rental comparable is located in a different city, the report must include commentary explaining why. Apply the same requirement to rental comparables.
+    - Rejection Comment: "Sales Comps #2–4 and Rental Comp #3 are located in a different city than the subject. Please utilize comps located in the same city or address why that is not possible."
+  - 11. Multifamily Properties – Unit Count:
+    - The number of units in comparable properties should match the subject property's unit count. If unit counts differ, require the appraiser to address the discrepancy in the report.
+    - Rejection Comment: "The subject is a 3-unit property; however, Comp #1 is a 4-unit property and Comp #3 is a 2-unit property. Please address this in the report."
+  - 12. Quality and Condition Ratings:
+    - All reports must include Q (Quality) and C (Condition) ratings for the subject and all comparables. This requirement also applies to 1025 and 2090 reports. For 1007 reports, ratings are required for the subject and all rental comparables.
+    - Rejection Comment – Standard Reports: 'Per client requirement, please include "Q" and "C" ratings for "Quality" and "Condition" for the subject and all comps.'
+    - Rejection Comment – 1007: '1007: Per client requirement, please include "Q" and "C" ratings for "Quality" and "Condition" for the subject and all rental comps.'
+  - 13. Photo Addendum – Maximum Photos:
+    - A maximum of 6 subject photos per photo addendum page is allowed. If a page contains more than 6 photos, reject.
+    - Rejection Comment: "Per client instructions, please include no more than 6 photos on each photo addendum page."
+  - 14. Two-Value Assignments:
+    - The report must be completed Subject To for the As-Repaired Value (ARV). ARV comparables must be gridded as Comps 1–3. As-Is comparables must be gridded separately as Comps 4–6.
+    - The same comparables cannot be used for both values. If the same comps are used, escalate.
+    - Rejection Comment: "The client requires the report to be completed for the ARV. Please update the report to Subject To, with the ARV comps gridded as Comps 1–3 and the As-Is comps gridded as Comps 4–6."
+    - Escalation Comment: "As per the engagement letter, the same comps cannot be used for the As-Is and As-Repaired values. Please revise accordingly."
+  - 15. Heating System – BPL:
+    - The report must address whether the subject's heating system is functioning. A statement that the mechanical systems are functioning is acceptable. Inability to test due to hot weather is acceptable.
+    - Rejection Comment: "Please address whether the subject's heating system is functioning."
+  - 16. Special Assessments – BPL:
+    - If a special assessment is reported, check for supporting commentary. If commentary is missing, send a revision request.
+  - 17. Condition and Quality Adjustments – BPL:
+    - If the subject's condition or quality differs from a comparable and a zero adjustment is applied, check for explanatory commentary. If no comment is provided, request a revision.
+  - 18. Occupancy and Staging – BPL:
+    - If the interior photos show personal items or belongings and the property appears vacant or staged, escalate to the WhatsApp group for clarification. Do not independently conclude tenant occupancy based only on these items.
+  - 19. BPL Retail Orders – Repairs:
+    - For BPL Retail orders, continue the normal review process but escalate repair concerns as with Visio reports. If the report contains repairs but is marked either As-Is or Subject To, escalate. This applies when BPL is the client, not when another client is listed and BPL appears only as the lender on the report.
+  - 20. Property Photos – BPL:
+    - Carefully review all photos for repairs, deferred maintenance, and cosmetic issues. Kitchen photos must clearly show the stove/appliances. If no stove is visible, request a comment confirming whether a stove is present.
+    - Rejection Comment: "Please confirm whether a stove is present in the kitchen."
+  - 21. BPL – Report Condition Requirements:
+    - BPL generally requires As-Is reports only. If a report is marked Subject To, stop and escalate. Two-value reports may be completed Subject To for the ARV. Cosmetic repairs should be commented on but not made a condition of the report. Only health and safety issues should be made Subject To.
+  - 22. Cosmetic Repairs vs. Health and Safety Repairs:
+    - For BPL Mortgage and Coast2Coast Mortgage, only health and safety issues should be made Subject To. Cosmetic repairs should be addressed through commentary, not as conditions. If unsure whether an item is cosmetic or a health and safety issue, escalate.
+    - Rejection Comment: "Please confirm if [INSERT REPAIR ITEM] is a health and safety issue. If not, please remove it as a Subject To item and comment on any needed repair."
+  - 23. Duplicate Client Name:
+    - For recent BPL orders, the client name may appear twice on the order page. This is acceptable if the client display name appears correctly in the report.
 - Rain City Capital:
   - Conventional reports: Client requires conventional reports.
   - Health and safety: Health and safety issues must be a subject to condition. If health and safety issues exist and report is As-Is, reject as: "Health and safety issues must make the report Subject To."
@@ -107,22 +176,30 @@ Lender/Client List and their requirements:
   - Invoice (NY State Only): If the property state is NY, verify that an invoice is NOT included in the report. If an invoice is found, the status is "Needs Review" with the comment: "Can the appraiser please remove the invoice from the report? This will be delivered to the client as a separate document. Please also ask the appraiser to upload the invoice to the Supporting Documents section."
   - Client Email Address: Verify that the client's email address is present in the report. If it is missing, the status is "Needs Review" with the comment: "The report can be completed, but advise the team that we could not email the report to the client because there is no email address."
   - Invoice Upload (Non-NY): For states other than NY, if an invoice is required but not found in the report, the status is "Needs Review" with the comment: "Complete the order and advise the team that the appraiser needs to upload the invoice to the supporting documents."
-- Lend with Aloha LLC ISAOA/ATIMA_x000a_Malama Funding LLC ISAOA/ATIMA
+- Lend with Aloha LLC ISAOA/ATIMA / Malama Funding LLC ISAOA/ATIMA:
+  - Two-Value Reports:
+    - The report must be completed "Subject To", with the ARV comparables in slots 1–3. If completed otherwise, status should be "Not Fulfilled" with comment: "The report must be completed Subject To, with the ARV comparables in slots 1–3."
+    - As-Is comparables do not need to be gridded; the appraiser must provide commentary on the As-Is comparables in the report. If the As-Is comparables are gridded, that is also acceptable. If commentary is missing and comps are not gridded, status should be "Not Fulfilled" with comment: "As-Is comparables commentary missing from report. Per client instructions: As-Is comparables do not need to be gridded, but the appraiser must provide commentary on the As-Is comparables in the report (gridding them is also acceptable)."
+    - Single-Value Reports: If the report is single-value, status is "Fulfilled".
 - CIVIC:
-  - As-Is Value Order: For reports with two values (e.g., "As-Is" and "As-Repaired"), verify that the "As-Is" value is presented first.
-  - Unacceptable Practices: No need to review for FREDDIE Unacceptable Practices.
+  - As-Is Value Order: Only CIVIC and Capital Funding Financial require the As-Is value to be presented first on two-value reports. For reports with two values (e.g., "As-Is" and "As-Repaired"), verify that the "As-Is" value is presented first.
+  - Freddie Mac Unacceptable Practices: Do not perform the Freddie Mac Unacceptable Practices review for CV3 or CIVIC. Status should be "Fulfilled" with comment: "Do not perform the Freddie Mac Unacceptable Practices review for CV3 or CIVIC per client instructions."
 - National Loan Funding LLC/ Easy Street Capital, LLC:
-  - Prior Services: Check the prior services statement. If the appraiser indicates they 'did' or 'have' performed services on the subject property within the last 3 years, the status should be "Needs Review" with the comment: "The appraiser performed prior service on subject property within the three-year period, please refer the snap and advise".
+  - Prior Services Statement: If the appraiser indicates that they performed services on the subject property within the last three years, STOP and ESCALATE. Status should be "Needs Review" with comment: "The appraiser performed prior services on the subject property within the three-year period. Please refer to the screenshot and advise."
+  - Supervisory Section: If the appraiser signs the supervisory section and marks "Did Inspect" for both the interior and exterior of the subject property, no escalation is required. For comparable properties, either "Did" or "Did Not" is acceptable. If the supervisory section is signed and "Did Inspect" for both interior and exterior is not marked, status should be "Needs Review" with comment: "Supervisory appraiser signed the supervisory section, but did not mark 'Did Inspect' for both the interior and exterior of the subject property. Please escalate for review." If the supervisory section is not signed, status is "Fulfilled".
+  - Lender Address: The correct lender address for all orders is: 3232 E Cesar Chavez St, Suite 1-320, Austin, TX 78702. If a new report contains the old lender address, send a revision request. Reject as: "Please update the lender address to the following:\n\n3232 E Cesar Chavez St, Suite 1-320, Austin, TX 78702."
 - Capital Funding Financial:
-  - As-Is Value First: On any 2-value reports (e.g., "As-Is" and "As-Repaired"), verify that the "As-Is" value is presented first in the reconciliation section. If the report is completed for the "As-Repaired Value" first, the status should be "Not Fulfilled" with the comment: "The client requires the report to be completed for the As-Is value. Please update the report to show the As-Is value in the Reconciliation section, with the As-Is comps included in the grid as comps #1-#3."
+  - Two-Value Reports (As-Is with ARV): For all two-value reports (As-Is with ARV), the As-Is value must be presented first. The As-Is value must be reflected in the Reconciliation section, with the As-Is comparables included in the grid as Comparables 1–3. If the report is completed for the As-Repaired Value first, the status should be "Not Fulfilled" and reject with the following comment: "The client requires the report to be completed for the As-Is value. Please update the report to show the As-Is value in the Reconciliation section, with the As-Is comparables included in the grid as Comparables 1–3." If the report is completed for the As-Is value first or is single-value, the status is "Fulfilled".
 - Sierra Pacific Mortgage Company
   - 1004MC must needed
 - Temple View:
-  - Two-Value Report Requirements: For reports with two values ("As-Is" and "As-Repaired"):
-    1. Report Condition: Verify the report is completed "subject to" the hypothetical condition that repairs have been completed.
-    2. ARV Comps: Confirm at least 3 "As-Repaired Value" (ARV) comps are gridded in the sales comparison approach.
-    3. As-Is Comps: Verify that 3 "As-Is" comps are referenced. They are not required to be gridded, but if they are not, there must be comments identifying the 3 comps used and explaining how the "As-Is" value was reconciled. If the appraiser chooses to grid them, that is also acceptable.
-    4. Value Basis: The final value should be subject to the repair bid.
+  - Two-Value Reports:
+    - The report must be completed "Subject To", with the ARV comparables in slots 1–3. If completed otherwise, status should be "Not Fulfilled" with comment: "The report must be completed Subject To, with the ARV comparables in slots 1–3."
+    - As-Is comparables do not need to be gridded; the appraiser must provide commentary on the As-Is comparables in the report. If the As-Is comparables are gridded, that is also acceptable. If commentary is missing and comps are not gridded, status should be "Not Fulfilled" with comment: "As-Is comparables commentary missing from report. Per client instructions: As-Is comparables do not need to be gridded, but the appraiser must provide commentary on the As-Is comparables in the report (gridding them is also acceptable)."
+    - Single-Value Reports: If the report is single-value, status is "Fulfilled".
+- June Point Lending:
+  - Form 1004MC Required: Form 1004MC (Market Conditions Addendum) is required. If missing, status is "Not Fulfilled" with comment: "Form 1004MC (Market Conditions Addendum) is required for June Point Lending. Please include Form 1004MC." If present, status is "Fulfilled".
+  - Standard Review Process: Standard appraisal review guidelines apply. Treat as a normal client.
 - Kind Lending:
   - ENV File: An ENV file is not required. XML and PDF files are sufficient.
   - 1004MC Form: The 1004MC form is not required.
@@ -137,13 +214,30 @@ Lender/Client List and their requirements:
   - ENV File: No ENV anymore. PDF is always ok.
   - Payment Status: Verify the order is marked as PAID.
 - The Loan Store:
+  - 1. Page Numbers in Revision Requests:
+    - Do not mention page numbers in revision language for ENV reports.
+    - Page numbers may be used for regular XML/PDF reports only.
+  - 2. Utah – Water Heater Requirements:
+    - For properties in Utah, verify that the appraiser addresses whether the water heater is double strapped.
+  - 3. 1007 Rent Schedule:
+    - If the product is only a 1007 Rent Schedule, an ENV is not required. PDF-only submission is acceptable.
+  - 4. Environmental Addendum – Commercial Reports:
+    - All commercial appraisal reports must include an Environmental Addendum.
+    - If missing, reject with the following comment: "The client requires an Environmental Addendum to be included in all commercial appraisals. Please include it."
+  - 5. Lender/Client Name:
+    - Remove "Inc" from the lender/client name. The correct name is The Loan Store.
+  - 6. Product Type Mismatch:
+    - If the product type does not match the appraisal report, STOP and ESCALATE.
+  - 7. ENV Revision Not Addressed:
+    - If a requested revision has not been addressed, begin the rejection request with:
+      We are not seeing the below addressed in the ENV:
+
+      (Revision Request)
+
+      Thank you!
+  - 8. Initial Report – HOLD:
+    - Hold all initial reports for The Loan Store as per Kedar Sir's instructions.
   - 1004MC Form: Verify the 1004MC form is included and completed.
-  - Double-Strapped Water Heaters (UT Only): If the property state is UT, verify the report includes a comment on whether the water heater is double-strapped.
-  - Environmental Addendum (Commercial Only): For commercial reports, verify that an "Environmental Addendum" or "Form 69F2" is included. If not, status is "Not Fulfilled" with comment: "The client requires Environmental Addendum Form 69F2 to be included in all commercial appraisals. Please include."
-  - General Instructions:
-    - For 1007 Rent Schedule reports, an ENV file is not required; a PDF is acceptable.
-    - An ENV file is not generally required for this client.
-    - When creating revisions, do not mention page numbers, especially for ENV files.
 - Champions funding:
   - E&O Insurance: Verify that the appraiser's E&O (Errors and Omissions) insurance document is attached to the report. If not attached, status is "Not Fulfilled" with comment: "Per client instructions for their assignments, please attach appraiser's E&O to the report."
   - Value vs. Predominant Value: Check if the appraised value is more than 10% higher or lower than the 'predominant value' from the neighborhood section. If it is, and no explanatory comment exists, the status is "Not Fulfilled".
@@ -154,49 +248,198 @@ Lender/Client List and their requirements:
  
 - Futures Financial:
   - Reviewer Level: Only senior members should review these reports.
-  - Product Type Requirements:
-    - If the product type is As-is with ARV, then an as-is report will be OK, just make sure 2 values are there (both 'As-Is' and 'ARV' values). If 2 values are not present, reject to provide both values.
+  - Orders of FRANCIS, Richel / Product Type Requirements:
+    - If the product type is As-is with ARV then as-is report will be OK just make sure 2 values are there (both 'As-Is' and 'ARV' values). If 2 values are not present, reject as: "Product type is 'As-is with ARV'. Per Futures Financial requirements: If the product type is As-is with ARV then as-is report will be OK just make sure 2 values are there. Only 1 value was detected in the report. Please ensure both 'As-Is' and 'ARV' values are provided."
     - The report needs to be 'subject-to' only when product type says Desktop. If the product type is Desktop and the report is not completed 'Subject To', reject as: "Product type is 'Desktop'. Per Futures Financial requirements: The report needs to be 'subject-to' only when product type says Desktop. Please revise report to 'Subject To'."
 - Cardinal financial company:
   - No 1004MC is OK
 - Deephaven Mortgage LLC:
   - Built-Up Status: If "Built Up" in the neighborhood section is "Over 75%", the status should be "Needs Review" with the comment: "Please confirm if 75% built-up status impacts marketability of the subject property."
 - OCMBC:
-  - Smoke/CO Detectors: Verify the report comments on whether smoke/CO detectors were present. If not mentioned, status is "Not Fulfilled" with comment: "Please comment if smoke/CO detectors were or were not present."
-  - Water Heater Strapping: Verify the report comments on whether the hot water heater is properly double strapped and if this is required by law. If not mentioned, status is "Not Fulfilled" with comment: "Please comment if the hot water heater is properly double strapped and if these are required by law."
+  - Smoke/CO Detectors: Make sure to reject for Smoke/CO Detectors. Verify the report comments on whether smoke/CO detectors were or were not present. If missing or not addressed, status is "Not Fulfilled" and reject as: "Please comment if smoke/CO detectors were or were not present."
+  - Water Heater Double Strapping: Make sure to reject for whether the water heater is double strapped and if these are required by law. Verify the report comments on whether the hot water heater is properly double strapped and whether these are required by law. If missing or not addressed, status is "Not Fulfilled" and reject as: "Please comment if the hot water heater is properly double strapped and if these are required by law."
 - Loanguys.com inc:
   - Quality and Condition Ratings: All reports must use the "Q" and "C" ratings for "Quality" and "Condition" for the subject and all comps. This is needed on 1025 and 2090 reports also. All reports! If missing, reject as: "Per client requirement, please include 'Q' and 'C' ratings for 'Quality' and 'Condition' for the subject and all comps."
 - Paramount Residential Mortgage Group:
-  - Lender Name Formatting: Verify if the lender name "Paramount Residential Mortgage Group" includes "INC". If it does, the status should be "Needs Review" with the comment: "Lender name includes 'INC'. Per client, if this is the only revision needed, it can be disregarded and the report submitted."
-- Arc Home:
-  - Short Term Rental (STR) Requirements: If the product type is "Short term rental" or "STR", verify the appraiser has addressed local short-term rental regulations (zoning allowances, licensing). If not addressed, status is "Needs Review" with comment: "This is an STR order, please escalate for review. Appraiser must address short term rental regulations, such as whether the local jurisdiction allows short term rentals per the zoning requirements or if they require the owners to obtain a license."
+  - Lender Name Formatting: Verify if the lender name "Paramount Residential Mortgage Group" includes "INC".
+    - Team Note: Moving forward, if below is the only revision for this client, you can disregard and submit. No approval needed. Let me know if you have any questions.
+    - If "INC" is included, status should be "Needs Review" with comment: "Lender name includes 'INC'. Team - Please note that moving forward, if below is the only revision for this client, you can disregard and submit. No approval needed. Let me know if you have any questions.\n\n1. Please remove the 'INC' from lender name: Paramount Residential Mortgage Group."
+    - If "INC" is not included, status is "Fulfilled".
+- Arc Home LLC:
+  - Short Term Rental (STR) Escalation & Regulations:
+    - If an ARC order includes STR, STOP and ESCALATE for review and revision instructions.
+    - When they have "Short term rental" or "STR" in the product type, the appraiser must address short term rental regulations, such as whether the local jurisdiction allows short term rentals per the zoning requirements or if they require the owners to obtain a license.
+  - If not an STR order, status is "Fulfilled".
 - CV3 Financial:
-  - Borrower Name: Verify that the 'Borrower' field contains the entity name (e.g., an LLC) and that a comment in an addendum mentions the individual borrower's name. If the borrower is an entity and the individual's name is not commented, the status is "Not Fulfilled" with a comment like "Please comment that the individual borrower is [Individual's Name]."
-  - Unacceptable Practices: No need to review for FREDDIE Unacceptable Practices.
+  - Borrower Name and Entity Name: The borrower name field should include the "Entity Name", and then the appraiser should comment the individual borrower's name on an addendum in the report.
+    - Example: Entity: Lindsey Estates LLC, Individual Borrower: Richard Lindsey. "Lindsey Estates LLC" should be in the Borrower name field. Then the appraiser should comment that 'the individual borrower is Richard Lindsey' (or 'The order from the client includes Richard Lindsey named as the individual borrower').
+    - If the borrower field contains an entity name and the individual borrower is not commented on an addendum, status is "Not Fulfilled" and reject as: "Please comment that the individual borrower is [Individual's Name]."
+    - If there is any confusion, please escalate. We will discuss in Friday's meeting.
+  - Freddie Mac Unacceptable Practices: Do not perform the Freddie Mac Unacceptable Practices review for CV3 or CIVIC. Status should be "Fulfilled" with comment: "Do not perform the Freddie Mac Unacceptable Practices review for CV3 or CIVIC per client instructions."
 - Nationwide Mortgage Bankers:
-  - Hurricane Damage Statement (FL): If the property state is Florida (FL), verify the report addresses any potential damage from "Hurricane Helene" and "Hurricane Milton". If not addressed, status is "Not Fulfilled" with comment: "Please address if the subject has suffered any damage from the recent hurricanes Helene and Milton."
-  - Hurricane Damage Statement (GA, NC, SC, TN, VA): If the property state is Georgia (GA), North Carolina (NC), South Carolina (SC), Tennessee (TN), or Virginia (VA), verify the report addresses any potential damage from "Hurricane Helene". If not addressed, status is "Not Fulfilled" with comment: "Please address if the subject has suffered any damage from the recent hurricane Helene."
+  - Hurricane Damage Statement (Florida): Effective immediately, all appraisals for the state of Florida must state if there was any hurricane damage from Helene or Milton. If the subject is located in Florida and the appraiser does not address "Hurricane Helene" or "Hurricane Milton", reject as: "Please address if the subject has suffered any damage from the recent hurricanes Helene and Milton."
+  - Hurricane Damage Statement (Georgia, North Carolina, South Carolina, Tennessee, Virginia): Effective immediately, all appraisals in Georgia, North Carolina, South Carolina, Tennessee, and Virginia must state that there is no hurricane damage from Helene. If the subject is located in any of these states and the appraiser does not address "Hurricane Helene", reject as: "Please address if the subject has suffered any damage from the recent hurricane Helene."
 - Logan Financial / Logan Finance:
-  - Smoke/CO Detectors: Verify the report includes commentary on the presence of smoke/CO detectors and includes photos. If not, status is "Not Fulfilled" with comment: "Please confirm if smoke/CO detectors are present/required and include photos."
+  - Smoke/CO Detectors: Commentary on their presence in the dwelling + photos are needed. Verify the report includes commentary on the presence of smoke/CO detectors in the dwelling and includes photos. If not provided or missing, status is "Not Fulfilled" and reject as: "Please confirm if smoke/CO detectors are present/required and include photos"
 
-- New American Funding:
-  - Health and Safety Repairs: Verify that any identified health and safety issues (including required smoke/CO detectors and water heater straps) are made "subject to repair". If not, status is "Not Fulfilled".
-  - 1004MC Form: The 1004MC form is not required.
-  - ROV Review (C2C/Fastapp orders): For "Coast to Coast" or "Fastapp" orders, if the report is a revision from an ROV, it should be reviewed and then escalated for completion approval. Status should be "Needs Review" with comment: "ROV is good to go. Escalate to team before completing."
+- New American Funding (NAF):
+  - 1004MC: A 1004MC is not required for New American Funding orders. Status is "Fulfilled" with comment: "A 1004MC is not required for New American Funding orders."
+  - ROV (Reconsideration of Value) – Review and Escalation: For all NAF ROVs under Coast to Coast (C2C) and Fastapp, review the ROV and revised report, then escalate. Do not complete or reject the ROV until approval is received. All NAF ROVs must be approved before completion, including rush orders and orders without a file number. Status is "Needs Review" with escalation format:
+    [File #]
+    New American Funding, LLC
+    Paid
+    ROV is good to go
+  - Health and Safety Issues: All health and safety issues must be made Subject To Repair, including smoke detectors, carbon monoxide detectors, and water heater straps when required. If health and safety issues are present and report is completed As-Is, status is "Not Fulfilled".
 - Haus Capital:
-  - Report Condition: If the appraisal is made "Subject To", the status should be "Needs Review" with the comment: "Report is 'Subject To'. Please advise."
+  - Subject To Advise / Escalation: (Remember they may have a different lender on the report). If the report is made "Subject To" when the client is Haus, advise and escalate as: "The client is Haus and report made subject to [reason], please advise". Status should be "Needs Review". You can review and reject as normal, but advise whenever a report is "Subject To" for Haus. If the report is "As-Is", status is "Fulfilled".
 - Homebridge Financial Services:
   - MLS Comparables: At least 2 sold MLS comparables are required within the subject’s town/municipality and market area. If unavailable, provide detailed commentary explaining why nearby towns are comparable. Rental comps do not require MLS sources. If fewer than 2 sold MLS comparables are found in the subject's town/municipality and detailed commentary is missing, status is "Not Fulfilled" with comment: "Per Homebridge requirements: At least 2 sold MLS comparables are required within the subject's town/municipality and market area. Please provide detailed commentary explaining why nearby towns are comparable."
   - Homebridge Supervisory Appraiser: The assigned appraiser may sign as the Supervisory Appraiser without inspecting the property. The only exception is when a trainee signs as the original appraiser on an FHA assignment. If a trainee signs as original appraiser on an FHA assignment and the supervisory appraiser did not inspect, status is "Not Fulfilled" with comment: "Per Homebridge requirements: Trainee signed as original appraiser on an FHA assignment, so the Supervisory Appraiser is required to inspect the property."
+- Eastview Investment Partners:
+  - Desk Review Escalation: Every desk review report must be escalated for Eastview Investment Partners. If the report is a desk review, the status should be "Needs Review" with the comment: "This is a desk review report for Eastview Investment Partners. Every desk review report must be escalated." (For other clients, escalation is not required).
+  - Desk Review Form Type: For Eastview Investment Partners, the Desk Review (2006) short form is not accepted. The client requires the FRE 1033 Desk Review to be completed. If the report uses the Desk Review (2006) short form, the status should be "Not Fulfilled" and reject as: "The client requires the FRE 1033 Desk Review to be completed. Please provide the FRE 1033 form." (For other clients, Desk Review (2006) short form is acceptable).
+- Homeland Lending, LLC:
+  - Client Instructions: Right now no instructions for Homeland Lending, LLC. Follow standard appraisal guidelines. Status should be "Fulfilled" with the comment: "Right now no instructions for Homeland Lending, LLC."
+- CrossCountry Mortgage:
+  - 3.6 Transition: CrossCountry Mortgage is transitioning to 3.6 on 10/14. Status should be "Fulfilled" with comment: "CrossCountry Mortgage is transitioning to 3.6 on 10/14."
+  - EAD SSRs (3.6 FHA Reports): EAD SSRs should produce for 3.6 FHA reports now for the clients we run SSRs for. If any issues or if EAD SSR is not producing, the status should be "Needs Review" with comment: "EAD SSRs should produce for 3.6 FHA reports now for the clients we run SSRs for. If any issues, please escalate." If the report is not an FHA report, status is "Fulfilled" or "Not Applicable" with comment: "Report is not an FHA report. EAD SSR requirement applies to 3.6 FHA reports."
+- Churchill Real Estate:
+  - Rural Property – HOLD and Escalate: If the property is marked as "Rural", place the report on HOLD and escalate for review. Status should be "Needs Review" with comment: "Property is marked as 'Rural'. Per client instructions, place report on HOLD and escalate for review." If not rural, status should be "Fulfilled".
+  - FIRREA (1989) Compliance Commentary: Ensure the appraisal report includes a statement/comment confirming compliance with FIRREA requirements (1989), similar to the Ice Lender requirement. If FIRREA commentary is missing, the status should be "Not Fulfilled" and reject as: "Per client instructions: All appraisal reports must contain commentary indicating that the report was prepared in accordance with FIRREA requirements."
+  - Two-Value Reports – Required Format: The main report must be completed "Subject To" with the "As Repaired" value reflected under Comparables 1–3. The additional grid must be used to develop the "As Is" value. If it is a two-value report and not completed "Subject To", status should be "Not Fulfilled" with comment: "Per client instructions: The main report must be completed 'Subject To' with the 'As Repaired' value reflected under Comparables 1–3, and the additional grid must be used to develop the 'As Is' value." If it is a single-value report, status is "Fulfilled" or "Not Applicable".
+- LXAI LLC:
+  - Engagement Letter & Lender Address: Please upload the new engagement letter, as the current engagement letter shows the old address. Status should be "Not Fulfilled" and reject as: "So sorry but please update the lender address to their new address as it was not quite updated in the system. A new engagement letter with this address has been uploaded:"
+- Standard Mortgage Capital LLC:
+  - SSR Generation: SSRs 'should' generate now for this client. Verify that SSR (Submission Summary Report) is generated and present without issues. If SSR is missing, not producing, or has issues/errors, the status should be "Needs Review" with comment: "SSRs 'should' generate now for this client. Please advise if any issues with SSRs for Standard Mortgage Capital LLC." If SSR is generated successfully, status is "Fulfilled".
+- TPC Legacy LLC:
+  - Modular / Manufactured Home Foundation Commentary: For modular or manufactured homes, verify the report includes commentary stating whether the subject is affixed or will be affixed to a permanent foundation. If comment is not provided, the status should be "Not Fulfilled" and reject as: "Appraiser must comment if the subject is already affixed or will be affixed, to a permanent foundation ."
+  - Form 1004C (New Construction) Foundation Commentary: On the 1004C form for new construction, verify the report comments if the subject is already affixed or will be affixed to a permanent foundation. If comment is not provided, the status should be "Not Fulfilled" and reject as: "Appraiser to comment if the subject is already affixed or will be affixed, to a permanent foundation ."
+- Dynamo Capital:
+  - As-Is Comparables Requirement: If As-Is comparables are not provided in the report, the status should be "Not Fulfilled" and reject as: "Please include the As-Is development and valuation on an additional addendum attached to the report." If As-Is comparables / development and valuation are provided on an addendum or grid, status is "Fulfilled".
+  - Two-Value Reports Format: The second value may be provided in narrative format and does not require a separate grid. Two product types are available: "Subject To (ARV) with As-Is" and "As-Is with Subject To (ARV)". If completed Subject To with an As-Repaired Value, the second value (As-Is) may be provided in narrative format. If completed As-Is, the ARV value may be provided in narrative format. Requirements depend on the product type ordered.
+- HomeXpress Mortgage:
+  - Auto Review: Run the Auto Review on ValueLink for all HomeXpress Mortgage reports.
+  - Review Process: Review the appraisal report first. Then select “Run CrossCheck Results.” Review all errors and cross-verify them against the appraisal report.
+  - Required Review Format: Always use the following format:
+    Auto Review shows action required for the below points:
+    - List the Auto Review points.
+
+    As per the manual review, the below revisions are required:
+    - List the manual review revisions.
+  - Kedar Sir – HOLD and Escalate: Hold the report for Kedar Sir's review. Always escalate when the specified escalation criteria are met.
+- Two-Value Reports (General):
+  - Second Value Format & Product Types: The second value may be provided in narrative format and does not require a separate grid. Two product types are available: "Subject To (ARV) with As-Is" and "As-Is with Subject To (ARV)". If the report is completed Subject To with an As-Repaired Value, the second value (As-Is) may be provided in narrative format. If the report is completed As-Is, the ARV value may be provided in narrative format. Requirements depend on the product type ordered.
+- Declining Market:
+  - Required Commentary: If the appraiser indicates that the property is located in a declining market, the report must include clear and specific commentary explaining:
+    - Reason for Selection: Why the appraiser determined that the market is declining.
+    - Impact on Appraised Value: How the declining market conditions affect the appraised value.
+  - Rejection Comment (If Commentary Is Missing):
+    Please ensure the client's instructions are addressed. If the appraiser indicates that the property is located in a declining market, please provide clear and specific commentary explaining why the declining market condition was selected and how it impacts the appraised value.
+  - If not in a declining market, status is "Fulfilled".
+- 1004D Reports – Appraisal Validation Requirements:
+  - Form Completion:
+    - 1004D Final Inspection: Complete only the Certification of Completion section.
+    - 1004D Appraisal Update: Complete only the Appraisal Update section.
+  - Client/Lender Information:
+    - At the top of Page 1, the Original Client/Lender must match the Client/Lender on the original appraisal report.
+    - In the bottom signature card/certification section, the Client/Lender must match the Order Form.
+  - Required Dates:
+    - 1004D Final Inspection: The Date of Inspection is required.
+    - 1004D Appraisal Update: The Effective Date of Appraisal Update is required. (A Date of Inspection on a 1004D Appraisal Update report is acceptable).
+  - HUD Handbook 4000.1:
+    - For 1004D Appraisal Update reports, the appraiser is not required to comment on whether the subject meets HUD Handbook 4000.1.
+  - Street Photograph:
+    - A street photograph is not mandatory. Do not reject a report for a missing street photograph. If a street photograph is already included, accept it.
+  - Original Repair Conditions – HOLD and Escalate:
+    - If the 1004D report does not appear to address the original repair conditions identified in the original appraisal report, STOP and ESCALATE.
+- X Lend:
+  - 1. As-Is Reports – Repairs:
+    - Reports must be completed As-Is, without major repairs.
+    - If the report is marked As-Is but includes major repairs, safety issues, or structural issues, STOP and ESCALATE.
+    - Do not complete or reject the report until confirmation is received.
+    - Escalation Comment:
+      This is an X Lend report. The report is made As-Is, but the subject property has repairs. Please refer to the screenshot and advise.
+  - 2. Cosmetic Repairs:
+    - Cosmetic repairs are acceptable on As-Is reports if the appraiser specifically confirms that the repairs are cosmetic.
+    - No escalation is required when repairs are cosmetic and clearly identified as such.
+  - 3. BPL Mortgage, LLC – Lender-Specific Guidelines:
+    - If the client is X Lend and the lender is BPL Mortgage, LLC, follow BPL guidelines when the report is As-Is with no major repairs.
+    - For cosmetic repairs, check the cost to cure.
+    - Deferred maintenance is acceptable and is not considered a major repair; however, request a cost-to-cure amount.
+    - Safety or structural issues are considered major repairs.
+  - 4. Escalation:
+    - If the report is marked Subject To or contains major repairs but is presented as As-Is, STOP and ESCALATE before rejecting or completing the report.
 `;
 
+const CLIENT_OPTIONS = [
+  { value: '', label: 'Auto-detect from Report' },
+  { value: '1004D Reports', label: '1004D Reports – Appraisal Validation Requirements' },
+  { value: 'Declining Market', label: 'Declining Market' },
+  { value: 'Arc Home', label: 'Arc Home' },
+  { value: 'Best2Lend LLC', label: 'Best2Lend LLC' },
+  { value: 'BPL Mortgage, LLC', label: 'BPL Mortgage, LLC' },
+  { value: 'Capital Funding Financial', label: 'Capital Funding Financial' },
+  { value: 'Cardinal Financial Company', label: 'Cardinal Financial Company' },
+  { value: 'Champions Funding', label: 'Champions Funding' },
+  { value: 'Churchill Real Estate', label: 'Churchill Real Estate' },
+  { value: 'CIVIC', label: 'CIVIC' },
+  { value: 'Coast2Coast', label: 'Coast2Coast – Appraisal Review Requirements' },
+  { value: 'CrossCountry Mortgage', label: 'CrossCountry Mortgage' },
+  { value: 'CV3 Financial', label: 'CV3 Financial' },
+  { value: 'Dart Bank', label: 'Dart Bank' },
+  { value: 'Deephaven Mortgage LLC', label: 'Deephaven Mortgage LLC' },
+  { value: 'Dynamo Capital', label: 'Dynamo Capital' },
+  { value: 'East Coast Capital Corp', label: 'East Coast Capital Corp' },
+  { value: 'Eastview Investment Partners', label: 'Eastview Investment Partners' },
+  { value: 'Equity Wave Lending, Inc', label: 'Equity Wave Lending, Inc' },
+  { value: 'Foundation Mortgage', label: 'Foundation Mortgage' },
+  { value: 'Futures Financial', label: 'Futures Financial' },
+  { value: 'GFL Capital Mortgage', label: 'GFL Capital Mortgage' },
+  { value: 'Haus Capital', label: 'Haus Capital' },
+  { value: 'Homebridge Financial Services', label: 'Homebridge Financial Services' },
+  { value: 'Homeland Lending, LLC', label: 'Homeland Lending, LLC' },
+  { value: 'HomeXpress Mortgage', label: 'HomeXpress Mortgage' },
+  { value: 'Hometown Equity', label: 'Hometown Equity Mortgage / theLender' },
+  { value: 'TheLender', label: 'theLender (Hometown Equity Mortgage)' },
+  { value: 'Ice Lender Holdings LLC', label: 'Ice Lender Holdings LLC' },
+  { value: 'June Point Lending', label: 'June Point Lending' },
+  { value: 'Kind Lending', label: 'Kind Lending' },
+  { value: 'Lend with Aloha', label: 'Lend with Aloha LLC ISAOA/ATIMA' },
+  { value: 'Malama Funding', label: 'Malama Funding LLC ISAOA/ATIMA (formerly Lend with Aloha)' },
+  { value: 'Logan Financial', label: 'Logan Financial / Logan Finance' },
+  { value: 'LoanDepot', label: 'LoanDepot' },
+  { value: 'Loanguys.com inc', label: 'Loanguys.com inc' },
+  { value: 'LXAI LLC', label: 'LXAI LLC' },
+  { value: 'National Loan Funding', label: 'National Loan Funding / Easy Street' },
+  { value: 'Nationwide Mortgage Bankers', label: 'Nationwide Mortgage Bankers' },
+  { value: 'New American Funding', label: 'New American Funding (NAF)' },
+  { value: 'OCMBC', label: 'OCMBC' },
+  { value: 'Paramount Residential Mortgage Group', label: 'Paramount Residential Mortgage Group (PRMG)' },
+  { value: 'Plaza Home Mortgage', label: 'Plaza Home Mortgage' },
+  { value: 'Rain City Capital', label: 'Rain City Capital' },
+  { value: 'Sierra Pacific Mortgage Company', label: 'Sierra Pacific Mortgage Company' },
+  { value: 'Standard Mortgage Capital LLC', label: 'Standard Mortgage Capital LLC' },
+  { value: 'Temple View', label: 'TempleView / Temple View' },
+  { value: 'The Loan Store', label: 'The Loan Store' },
+  { value: 'TheLender', label: 'TheLender' },
+  { value: 'TPC Legacy LLC', label: 'TPC Legacy LLC' },
+  { value: 'Two-Value Reports', label: 'Two-Value Reports (General)' },
+  { value: 'Visio Lending', label: 'Visio Lending' },
+  { value: 'X Lend', label: 'X Lend' },
+];
+
 const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) => {
+  const [selectedClient, setSelectedClient] = useState('');
   const [filterValue, setFilterValue] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedIndex, setCopiedIndex] = useState(null);
 
   const handleCheck = () => {
-    onPromptSubmit(CLIENT_REQUIREMENT_PROMPT);
+    if (selectedClient) {
+      onPromptSubmit(`Lender: ${selectedClient}\n\n${CLIENT_REQUIREMENT_PROMPT}`);
+    } else {
+      onPromptSubmit(CLIENT_REQUIREMENT_PROMPT);
+    }
   };
 
   const handleCopy = (text, idx) => {
@@ -600,15 +843,32 @@ const ClientRequirementCheck = ({ onPromptSubmit, loading, response, error }) =>
       </div>
       <div className="card-body">
         <Stack spacing={2}>
-          <Button
-            onClick={handleCheck}
-            variant="contained"
-            color="secondary"
-            disabled={loading}
-            sx={{ fontWeight: 600 }}
-          >
-            {loading ? <CircularProgress size={24} color="inherit" /> : 'Check Client Requirements'}
-          </Button>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }}>
+            <FormControl size="small" sx={{ minWidth: 320, flex: 1, bgcolor: '#ffffff' }}>
+              <InputLabel id="client-select-label">Client / Lender (Auto-detect or Select)</InputLabel>
+              <Select
+                labelId="client-select-label"
+                value={selectedClient}
+                label="Client / Lender (Auto-detect or Select)"
+                onChange={(e) => setSelectedClient(e.target.value)}
+              >
+                {CLIENT_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button
+              onClick={handleCheck}
+              variant="contained"
+              color="secondary"
+              disabled={loading}
+              sx={{ fontWeight: 600, height: 40, px: 3, whiteSpace: 'nowrap' }}
+            >
+              {loading ? <CircularProgress size={24} color="inherit" /> : 'Check Client Requirements'}
+            </Button>
+          </Stack>
           {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
           {response && renderResponse()}
         </Stack>

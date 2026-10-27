@@ -3,7 +3,7 @@ import { Paper, Box, Typography, TableContainer, Table, TableHead, TableBody, Ta
 import { EditableField } from './EditableField';
 import { checkMarketConditionsTableFields } from '../../../validations/marketConditionsValidation';
 
-export const MarketConditionsTable = ({ id, title, data, onDataChange, editingField, setEditingField, marketConditionsRows = [], manualValidations, handleManualValidation, isEditable }) => {
+export const MarketConditionsTable = ({ id, title, data, onDataChange, editingField, setEditingField, marketConditionsRows = [], manualValidations, handleManualValidation, isEditable = true }) => {
   const timeframes = ["Prior 7-12 Months", "Prior 4-6 Months", "Current-3 Months", "Overall Trend"];
 
   const getMarketConditionValue = (row, tf) => {

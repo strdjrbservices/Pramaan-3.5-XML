@@ -3,7 +3,7 @@ import { Paper, Box, Typography, Tooltip, IconButton, LinearProgress } from '@mu
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import { EditableField } from './EditableField';
 
-export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondary', usePre = false, extractionAttempted, onDataChange, editingField, setEditingField, highlightedFields = [], allData, loading, loadingSection, manualValidations, handleManualValidation, onRevisionButtonClick, revisionHandlers, showBlankValidation = false, hideEmptyFields = false }) => {
+export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondary', usePre = false, extractionAttempted, onDataChange, editingField, setEditingField, highlightedFields = [], allData, loading, loadingSection, manualValidations, handleManualValidation, onRevisionButtonClick, revisionHandlers, showBlankValidation = false, hideEmptyFields = false, isEditable = true }) => {
 
   const renderNeighborhoodTotal = () => {
     if (id !== 'neighborhood-section' || !data) return null;
@@ -236,15 +236,22 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
 
     const isHighlighted = highlightedFields.includes(field);
     let isItemMissing = false;
+    const computedFieldPath = (() => {
+      const baseFieldPath = Array.isArray(field) ? field : [field];
+      return onDataChange && onDataChange.length === 2 ? baseFieldPath : [id.replace('-section', '').toUpperCase(), ...baseFieldPath];
+    })();
+
     return (
       <div key={field} className={`subject-grid-item ${isHighlighted ? 'highlighted-field' : ''}`}>
-        <span className="field-label">{field}</span>
+        <span
+          className="field-label"
+          onClick={() => setEditingField && setEditingField(computedFieldPath)}
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+        >
+          {field}
+        </span>
         <EditableField
-          fieldPath={(() => {
-            const baseFieldPath = Array.isArray(field) ? field : [field];
-
-            return onDataChange.length === 2 ? baseFieldPath : [id.replace('-section', '').toUpperCase(), ...baseFieldPath];
-          })()}
+          fieldPath={computedFieldPath}
           value={renderGridItemValue(field)}
           onDataChange={onDataChange}
           editingField={editingField}
@@ -283,14 +290,28 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
       );
     }
 
+    let certVal = data ? renderValue(data[fieldPath]) : '';
+    if ((certVal === undefined || certVal === null || certVal === '') && typeof fieldPath === 'string' && fieldPath.startsWith('Supervisory ')) {
+      const subKey = fieldPath.replace('Supervisory ', '');
+      const altKey = `Supervisory Appraiser ${subKey}`;
+      if (data?.[altKey]) certVal = renderValue(data[altKey]);
+      else if (data?.SUPERVISORY_APPRAISER?.[subKey]) certVal = renderValue(data.SUPERVISORY_APPRAISER[subKey]);
+      else if (data?.SUPERVISORY_APPRAISER?.[fieldPath]) certVal = renderValue(data.SUPERVISORY_APPRAISER[fieldPath]);
+    }
+
     return (
       <div style={{ borderBottom: '1px solid #dee2e6', paddingBottom: '3px', marginBottom: '6px' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-          <span style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.7rem', minWidth: '100px', whiteSpace: 'nowrap' }}>{label}</span>
+          <span
+            onClick={() => setEditingField && setEditingField([fieldPath])}
+            style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.7rem', minWidth: '100px', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}
+          >
+            {label}
+          </span>
           <div style={{ flexGrow: 1 }}>
             <EditableField
               fieldPath={[fieldPath]}
-              value={data ? renderValue(data[fieldPath]) : ''}
+              value={certVal}
               onDataChange={onDataChange}
               editingField={editingField}
               setEditingField={setEditingField}
@@ -311,14 +332,48 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
 
   const renderCostField = (label, fieldPath) => {
     const costData = data?.COST_APPROACH || data || {};
-    const val = costData?.[fieldPath] ?? costData?.[label] ?? data?.COST_APPROACH?.[fieldPath] ?? data?.COST_APPROACH?.[label] ?? data?.[fieldPath] ?? data?.[label] ?? '';
+    let val = costData?.[fieldPath] ?? costData?.[label] ?? data?.COST_APPROACH?.[fieldPath] ?? data?.COST_APPROACH?.[label] ?? data?.[fieldPath] ?? data?.[label] ?? '';
+    const isOpinionOfSite = label === 'OPINION OF SITE VALUE' || fieldPath.includes('OPINION OF SITE VALUE');
+    const isEconomicLife = label === 'Remaining Economic Life' || fieldPath.includes('Remaining Economic Life');
+
+    if ((val === undefined || val === null || String(val).trim() === '') && isOpinionOfSite) {
+      val = costData?.['Opinion of Site Value']
+        ?? costData?.['Opinion of Site Value $']
+        ?? costData?.['OPINION OF SITE VALUE $']
+        ?? allData?.COST_APPROACH?.['OPINION OF SITE VALUE = $ ................................................']
+        ?? allData?.COST_APPROACH?.['OPINION OF SITE VALUE']
+        ?? allData?.COST_APPROACH?.['Opinion of Site Value']
+        ?? allData?.COST_APPROACH?.['Opinion of Site Value $']
+        ?? allData?.['OPINION OF SITE VALUE = $ ................................................']
+        ?? allData?.['OPINION OF SITE VALUE']
+        ?? allData?.['Opinion of Site Value']
+        ?? '';
+    }
+    if ((val === undefined || val === null || String(val).trim() === '') && isEconomicLife) {
+      val = costData?.['Remaining Economic Life']
+        ?? costData?.['Estimated Remaining Economic Life (HUD and VA only)']
+        ?? costData?.['Estimated Remaining Economic Life']
+        ?? allData?.COST_APPROACH?.['Estimated Remaining Economic Life (HUD and VA only)']
+        ?? allData?.COST_APPROACH?.['Remaining Economic Life']
+        ?? allData?.COST_APPROACH?.['Estimated Remaining Economic Life']
+        ?? allData?.['Estimated Remaining Economic Life (HUD and VA only)']
+        ?? allData?.['Remaining Economic Life']
+        ?? allData?.['Estimated Remaining Economic Life']
+        ?? '';
+    }
     const valStr = renderValue(val);
     const targetPath = ['COST_APPROACH', fieldPath];
 
     return (
       <div style={{ borderBottom: '1px solid #dee2e6', paddingBottom: '3px', marginBottom: '6px' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-          <span style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.7rem', minWidth: '120px', whiteSpace: 'nowrap' }}>{label}</span>
+          <span
+            onClick={() => setEditingField && setEditingField(targetPath)}
+            style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.7rem', minWidth: '120px', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}
+          >
+            {label}
+            {(isOpinionOfSite || isEconomicLife) && <span style={{ color: '#d32f2f', marginLeft: '3px', fontWeight: 'bold' }}>*</span>}
+          </span>
           <div style={{ flexGrow: 1 }}>
             <EditableField
               fieldPath={targetPath}
@@ -450,7 +505,10 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
 
     return (
       <div style={{ borderBottom: '1px solid #e9ecef', paddingBottom: '3px', marginBottom: '4px' }}>
-        <div style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.7rem', marginBottom: '2px' }}>
+        <div
+          onClick={() => setEditingField && setEditingField(targetPath)}
+          style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.7rem', marginBottom: '2px', cursor: 'pointer', userSelect: 'none' }}
+        >
           {label}
         </div>
         {options.length > 0 && (
@@ -1472,47 +1530,43 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
             </div>
 
             {/* Right: SUPERVISORY APPRAISER */}
-            {(!hideEmptyFields || hasSupervisoryData) && (
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '12px', borderBottom: '2px solid #343a40', paddingBottom: '4px' }}>
-                  SUPERVISORY APPRAISER (ONLY IF REQUIRED)
-                </div>
-                {(!hideEmptyFields || (data && data["Supervisory Signature"])) && (
-                  <div style={{ borderBottom: '1px solid #dee2e6', paddingBottom: '3px', marginBottom: '6px' }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                      <span style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.7rem', minWidth: '100px', whiteSpace: 'nowrap' }}>Signature</span>
-                      <div style={{ flexGrow: 1 }}>
-                        <EditableField
-                          fieldPath={["Supervisory Signature"]}
-                          value={data ? renderValue(data["Supervisory Signature"]) : ''}
-                          onDataChange={onDataChange}
-                          editingField={editingField}
-                          setEditingField={setEditingField}
-                          isEditable={true}
-                          allData={allData}
-                          manualValidations={manualValidations}
-                          handleManualValidation={handleManualValidation}
-                          revisionHandlers={revisionHandlers}
-                          inputClassName="form-control form-control-sm field-value"
-                          inputStyle={{ width: '100%', border: 'none', background: 'transparent', padding: 0, fontSize: '0.8rem', height: 'auto' }}
-                          valueStyle={{ fontFamily: "'Caveat', 'Dancing Script', 'Brush Script MT', cursive, sans-serif", fontSize: '1.25rem', color: '#1a252c', fontStyle: 'italic' }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {renderCertField("Name", "Supervisory Name")}
-                {renderCertField("Company Name", "Supervisory Company Name")}
-                {renderCertField("Company Address", "Supervisory Company Address")}
-                {renderCertField("Telephone Number", "Supervisory Telephone Number")}
-                {renderCertField("Email Address", "Supervisory Email Address")}
-                {renderCertField("Date of Signature", "Supervisory Date of Signature")}
-                {renderCertField("State Certification #", "Supervisory State Certification #")}
-                {renderCertField("or State License #", "Supervisory or State License #")}
-                {renderCertField("State", "Supervisory State")}
-                {renderCertField("Expiration Date", "Supervisory Expiration Date of Certification or License")}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '12px', borderBottom: '2px solid #343a40', paddingBottom: '4px' }}>
+                SUPERVISORY APPRAISER (ONLY IF REQUIRED)
               </div>
-            )}
+              <div style={{ borderBottom: '1px solid #dee2e6', paddingBottom: '3px', marginBottom: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                  <span style={{ fontWeight: 'bold', color: '#495057', fontSize: '0.7rem', minWidth: '100px', whiteSpace: 'nowrap' }}>Signature</span>
+                  <div style={{ flexGrow: 1 }}>
+                    <EditableField
+                      fieldPath={["Supervisory Signature"]}
+                      value={data ? renderValue(data["Supervisory Signature"] || data["Supervisory Appraiser Signature"] || '') : ''}
+                      onDataChange={onDataChange}
+                      editingField={editingField}
+                      setEditingField={setEditingField}
+                      isEditable={true}
+                      allData={allData}
+                      manualValidations={manualValidations}
+                      handleManualValidation={handleManualValidation}
+                      revisionHandlers={revisionHandlers}
+                      inputClassName="form-control form-control-sm field-value"
+                      inputStyle={{ width: '100%', border: 'none', background: 'transparent', padding: 0, fontSize: '0.8rem', height: 'auto' }}
+                      valueStyle={{ fontFamily: "'Caveat', 'Dancing Script', 'Brush Script MT', cursive, sans-serif", fontSize: '1.25rem', color: '#1a252c', fontStyle: 'italic' }}
+                    />
+                  </div>
+                </div>
+              </div>
+              {renderCertField("Name", "Supervisory Name")}
+              {renderCertField("Company Name", "Supervisory Company Name")}
+              {renderCertField("Company Address", "Supervisory Company Address")}
+              {renderCertField("Telephone Number", "Supervisory Telephone Number")}
+              {renderCertField("Email Address", "Supervisory Email Address")}
+              {renderCertField("Date of Signature", "Supervisory Date of Signature")}
+              {renderCertField("State Certification #", "Supervisory State Certification #")}
+              {renderCertField("or State License #", "Supervisory or State License #")}
+              {renderCertField("State", "Supervisory State")}
+              {renderCertField("Expiration Date", "Supervisory Expiration Date of Certification or License")}
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '24px', borderTop: '2px solid #495057', paddingTop: '16px' }}>

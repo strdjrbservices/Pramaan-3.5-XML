@@ -1756,24 +1756,29 @@ class MapExtractor:
         - Sales Grid Comparables (1..N) with address, proximity, price
         - Rental Schedule Comparables (1..N) with address, proximity, rent
         """
-        refs = {"subject": None, "sales_comps": [], "rental_comps": []}
+        subject_record: Optional[Dict[str, Any]] = None
+        sales_comps: List[Dict[str, Any]] = []
+        rental_comps: List[Dict[str, Any]] = []
         is_xml_file = file_path.lower().endswith(".xml")
 
         # 1. Extract from XML clean_data / MISMO tags
         if is_xml_file:
             try:
                 try:
-                    from appraisal_review.api.xml_extractor import extract_fields_from_xml
+                    from api.xml_extractor import extract_fields_from_xml
                 except ImportError:
-                    api_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "appraisal_review", "api")
-                    if api_dir not in sys.path:
-                        sys.path.insert(0, api_dir)
-                    from xml_extractor import extract_fields_from_xml
+                    try:
+                        from appraisal_review.api.xml_extractor import extract_fields_from_xml  # type: ignore[import-not-found]
+                    except ImportError:
+                        api_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "appraisal_review", "api")
+                        if api_dir not in sys.path:
+                            sys.path.insert(0, api_dir)
+                        from xml_extractor import extract_fields_from_xml  # type: ignore[import-not-found]
                 xml_data = extract_fields_from_xml(file_path)
                 clean = xml_data.get("clean_data", {})
                 sub = clean.get("Subject", {})
                 if sub:
-                    refs["subject"] = {
+                    subject_record = {
                         "street": sub.get("Property Address") or sub.get("Street Address") or "",
                         "city": sub.get("City") or "",
                         "state": sub.get("State") or "",
@@ -1784,10 +1789,10 @@ class MapExtractor:
                 for k, v in sgrid.items():
                     if k != "Subject" and isinstance(v, dict):
                         m = re.search(r'\d+', k)
-                        cnum = int(m.group(0)) if m else len(refs["sales_comps"]) + 1
+                        cnum = int(m.group(0)) if m else len(sales_comps) + 1
                         st = v.get("Street Address") or v.get("Address") or ""
                         addr = v.get("Address") or st
-                        refs["sales_comps"].append({
+                        sales_comps.append({
                             "comp_num": cnum,
                             "street": st,
                             "address": addr,
@@ -1798,12 +1803,12 @@ class MapExtractor:
                 for k, v in rgrid.items():
                     if isinstance(v, dict) and any(x in k.upper() for x in ["RENTAL", "COMPARABLE NO"]):
                         m = re.search(r'\d+', k)
-                        cnum = int(m.group(0)) if m else len(refs["rental_comps"]) + 1
-                        if not any(r["comp_num"] == cnum for r in refs["rental_comps"]):
+                        cnum = int(m.group(0)) if m else len(rental_comps) + 1
+                        if not any(r["comp_num"] == cnum for r in rental_comps):
                             addr = v.get("Address") or ""
                             m_st = re.match(r'^([^,]+)', addr)
                             st = m_st.group(1).strip() if m_st else addr
-                            refs["rental_comps"].append({
+                            rental_comps.append({
                                 "comp_num": cnum,
                                 "street": st,
                                 "address": addr,
@@ -1814,25 +1819,25 @@ class MapExtractor:
                 print(f"Notice: XML reference extraction: {e}")
 
         # 2. Extract from PDF text if missing
-        if doc and (not refs["sales_comps"] or not refs["rental_comps"] or not refs["subject"]):
+        if doc and (not sales_comps or not rental_comps or not subject_record):
             for pno in range(len(doc)):
                 page = doc[pno]
                 txt = page.get_text()
 
                 # Subject fallback
-                if not refs["subject"] and ("SUBJECT PROPERTY" in txt.upper() or "UNIFORM RESIDENTIAL" in txt.upper()):
+                if not subject_record and ("SUBJECT PROPERTY" in txt.upper() or "UNIFORM RESIDENTIAL" in txt.upper()):
                     m_addr = re.search(r'Property\s+Address\s*[:\n]\s*([^\n]+)', txt, re.I)
                     if m_addr:
-                        refs["subject"] = {"street": m_addr.group(1).strip(), "address": m_addr.group(1).strip()}
+                        subject_record = {"street": m_addr.group(1).strip(), "address": m_addr.group(1).strip()}
 
                 # Rental Photo Page (Form DLSTRNT)
-                if not refs["rental_comps"] and ("RENTAL PHOTO PAGE" in txt.upper() or "DLSTRNT" in txt.upper()):
+                if not rental_comps and ("RENTAL PHOTO PAGE" in txt.upper() or "DLSTRNT" in txt.upper()):
                     for m in re.finditer(r'Rental\s+(\d+)\s*\n(?:[^\n]*\n){1,15}?(\d+\s+[^\n]+)\s*\n([0-9.]+\s*miles?[^\n]*)', txt, re.I):
                         r_num = int(m.group(1))
                         r_addr = m.group(2).strip()
                         r_prox = m.group(3).strip()
-                        if not any(r["comp_num"] == r_num for r in refs["rental_comps"]):
-                            refs["rental_comps"].append({
+                        if not any(r["comp_num"] == r_num for r in rental_comps):
+                            rental_comps.append({
                                 "comp_num": r_num,
                                 "street": r_addr,
                                 "address": r_addr,
@@ -1840,9 +1845,13 @@ class MapExtractor:
                                 "monthly_rent": ""
                             })
 
-        refs["sales_comps"].sort(key=lambda x: x["comp_num"])
-        refs["rental_comps"].sort(key=lambda x: x["comp_num"])
-        return refs
+        sales_comps.sort(key=lambda x: x["comp_num"])
+        rental_comps.sort(key=lambda x: x["comp_num"])
+        return {
+            "subject": subject_record,
+            "sales_comps": sales_comps,
+            "rental_comps": rental_comps
+        }
 
     def extract_all_exhibits_data(self, file_path: str, exhibit_type: Optional[str] = None) -> Dict[str, Any]:
         """

@@ -422,6 +422,13 @@ html {
   align-items: center;
   width: 100% !important;
   min-height: 24px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease, outline 0.15s ease;
+}
+
+.editable-field-container:hover {
+  outline: 1px dashed rgba(0, 90, 156, 0.45);
+  background-color: rgba(0, 90, 156, 0.03);
 }
 
 .editable-field-container .edit-icon {

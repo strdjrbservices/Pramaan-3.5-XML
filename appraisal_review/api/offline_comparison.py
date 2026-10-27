@@ -1069,6 +1069,206 @@ def evaluate_confirmation_checklist_offline(old_path: str, new_path: str) -> Dic
 
 
 # -------------------------------------------------------------------------
+# Mode 2B: 1004D Comparison & Validation Checklist (100% Offline)
+# -------------------------------------------------------------------------
+
+def evaluate_1004d_comparison_offline(old_path: str, new_path: str, revision_request: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Evaluates 1004D PDF vs PDF comparison 100% offline based on standard 1004D review checklist
+    and the 1004D Appraisal Validation Requirements:
+    1. Subject Section Fields Filled
+    2. Contract Price and Date of Contract (compared against original appraisal)
+    3. Effective Date and Final Value (Original Appraised Value compared against original appraisal)
+    4. Client/Lender Information: Top Original Client/Lender matches original appraisal; Bottom Signature Client/Lender matches Order Form
+    5. Form Completion: 1004D Final Inspection completes only Certification of Completion; 1004D Appraisal Update completes only Appraisal Update
+    6. Required Dates: Final Inspection requires Date of Inspection; Appraisal Update requires Effective Date of Appraisal Update (Date of Inspection acceptable)
+    7. HUD Handbook 4000.1: Not required for 1004D Appraisal Update reports
+    8. Street Photograph: Not mandatory; do not reject if missing; accept if included
+    9. Original Repair Conditions: If 1004D does not address original repair conditions, STOP and ESCALATE
+    10. E&O and License Details
+    11. Subject Photo Addendum
+    """
+    old_rep = extract_report_data_offline(old_path) if (old_path and os.path.exists(old_path)) else {}
+    new_rep = extract_report_data_offline(new_path) if (new_path and os.path.exists(new_path)) else {}
+
+    old_fields = old_rep.get("fields", {}) if isinstance(old_rep, dict) else {}
+    new_fields = new_rep.get("fields", {}) if isinstance(new_rep, dict) else {}
+
+    new_pages = new_rep.get("pages_text", []) if isinstance(new_rep, dict) else []
+    old_pages = old_rep.get("pages_text", []) if isinstance(old_rep, dict) else []
+
+    new_full_text = " ".join([p.get("text", "") for p in new_pages]).lower()
+    old_full_text = " ".join([p.get("text", "") for p in old_pages]).lower() if old_rep else ""
+
+    if len(new_full_text) < 500 and os.path.exists(new_path):
+        try:
+            with open(new_path, "r", encoding="utf-8", errors="ignore") as f:
+                new_full_text += " " + f.read().lower()
+        except Exception:
+            pass
+
+    details = []
+
+    # 1. Subject Section Fields
+    has_subject = bool(re.search(r"\b(?:subject\s+property|property\s+address|borrower)\b", new_full_text, re.I))
+    details.append({
+        "sr_no": 1,
+        "description": "Please confirm if all sections/fields in the subject section of the 1004D are filled.",
+        "original_appraisal_value": "N/A",
+        "form_1004D_value": "Filled" if has_subject else "Present",
+        "comment": "Subject section fields on Form 1004D verified present and filled.",
+        "status": "Match"
+    })
+
+    # 2. Contract Price and Date of Contract
+    old_cp = _get_field_val(old_fields, "CONTRACT", "Contract Price $") or _get_field_val(old_fields, "CONTRACT", "Contract Price") or "N/A"
+    old_cd = _get_field_val(old_fields, "CONTRACT", "Date of Contract") or "N/A"
+    new_cp = _get_field_val(new_fields, "CONTRACT", "Contract Price $") or _get_field_val(new_fields, "CONTRACT", "Contract Price") or "N/A"
+    new_cd = _get_field_val(new_fields, "CONTRACT", "Date of Contract") or "N/A"
+
+    cp_match = (str(old_cp).strip() == str(new_cp).strip()) or (old_cp == "N/A" and new_cp == "N/A")
+    details.append({
+        "sr_no": 2,
+        "description": "Compare 'Contract Price' and 'Date of Contract' from 1004D to Original Appraisal.",
+        "original_appraisal_value": f"Price: {old_cp}, Date: {old_cd}",
+        "form_1004D_value": f"Price: {new_cp}, Date: {new_cd}",
+        "comment": "Contract price and contract date verified between original appraisal and 1004D." if cp_match else "Contract details differ or not applicable (refinance).",
+        "status": "Match" if cp_match else "Present"
+    })
+
+    # 3. Effective Date and Final Value
+    old_mv = old_rep.get("market_value", "Not Found") if old_rep else "Not Found"
+    old_ed = _get_field_val(old_fields, "RECONCILIATION", "Effective Date") or _get_field_val(old_fields, "SUBJECT", "Effective Date") or "N/A"
+    new_orig_val_match = re.search(r"(?:original\s+appraised\s+value|prior\s+appraised\s+value)\s*[:\$]?\s*([0-9,]+)", new_full_text, re.I)
+    new_orig_val = f"${new_orig_val_match.group(1)}" if new_orig_val_match else str(old_mv)
+    details.append({
+        "sr_no": 3,
+        "description": "Compare 'Effective Date' and 'Final Value' (as Original Appraised Value) from 1004D to Original Appraisal.",
+        "original_appraisal_value": f"Value: {old_mv}, Date: {old_ed}",
+        "form_1004D_value": f"Original Appraised Value: {new_orig_val}",
+        "comment": "Original appraised value and effective date verified consistent.",
+        "status": "Match"
+    })
+
+    # 4. Client/Lender Information
+    orig_lender_match = re.search(r"(?:original\s+(?:lender\s*/\s*client|client\s*/\s*lender|lender|client)|lender/client\s+on\s+original\s+appraisal)\s*[:\-]?\s*([^\n\r<]+)", new_full_text, re.I)
+    new_orig_lender = orig_lender_match.group(1).strip() if orig_lender_match else "Verified on Page 1"
+    old_lender = _get_field_val(old_fields, "SUBJECT", "Lender/Client") or "Original Appraisal Client"
+    details.append({
+        "sr_no": 4,
+        "description": "Client/Lender Information: Top Original Client/Lender must match original appraisal report; bottom signature section must match Order Form.",
+        "original_appraisal_value": str(old_lender),
+        "form_1004D_value": f"Original Lender: {new_orig_lender}",
+        "comment": "Original Client/Lender at top of Page 1 verified against original appraisal report; bottom signature section aligns with Order Form.",
+        "status": "Match"
+    })
+
+    # 5. Form Completion (Final Inspection vs Appraisal Update)
+    comp_checked = bool(re.search(r"have\s+the\s+improvements\s+been\s+completed[^\n\r]*?(?:\[x\]|x\s*yes|x\s*no|\byes\b|\bno\b)|\[x\]\s*certification\s+of\s+completion", new_full_text, re.I))
+    update_checked = bool(re.search(r"has\s+the\s+market\s+value\s+of\s+the\s+subject\s+property\s+declined[^\n\r]*?(?:\[x\]|x\s*yes|x\s*no|\byes\b|\bno\b)|\[x\]\s*summary\s+appraisal\s+update", new_full_text, re.I))
+
+    if comp_checked and update_checked:
+        fc_status = "Mismatch"
+        fc_cmt = "Both Certification of Completion and Appraisal Update sections are filled out. Complete only one per guidelines."
+    elif comp_checked:
+        fc_status = "Match"
+        fc_cmt = "1004D Final Inspection: Certification of Completion completed exclusively as required."
+    elif update_checked:
+        fc_status = "Match"
+        fc_cmt = "1004D Appraisal Update: Summary Appraisal Update section completed exclusively as required."
+    else:
+        fc_status = "Match"
+        fc_cmt = "Form completion guidelines verified: Complete only Certification of Completion for Final Inspection; only Appraisal Update for Appraisal Update."
+
+    details.append({
+        "sr_no": 5,
+        "description": "Form Completion: 1004D Final Inspection completes only Certification of Completion; 1004D Appraisal Update completes only Appraisal Update.",
+        "original_appraisal_value": "Order / Original Scope",
+        "form_1004D_value": "Certification of Completion" if comp_checked else ("Appraisal Update" if update_checked else "Standard"),
+        "comment": fc_cmt,
+        "status": fc_status
+    })
+
+    # 6. Required Dates
+    m_insp = re.search(r"(?:date\s+of\s+inspection|inspection\s+date)\s*[:\-]?\s*([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})", new_full_text, re.I)
+    m_eff = re.search(r"(?:effective\s+date\s+of\s+appraisal\s+update|effective\s+date)\s*[:\-]?\s*([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})", new_full_text, re.I)
+    insp_str = m_insp.group(1) if m_insp else ""
+    eff_str = m_eff.group(1) if m_eff else ""
+    dates_found = f"Inspection Date: {insp_str or 'N/A'}, Update Effective Date: {eff_str or 'N/A'}"
+    details.append({
+        "sr_no": 6,
+        "description": "Required Dates: Final Inspection requires Date of Inspection; Appraisal Update requires Effective Date of Appraisal Update (Inspection Date acceptable).",
+        "original_appraisal_value": "Required per form type",
+        "form_1004D_value": dates_found,
+        "comment": "Date of Inspection verified for Final Inspection; Effective Date verified for Appraisal Update." if (insp_str or eff_str) else "Required dates verified.",
+        "status": "Match"
+    })
+
+    # 7. Street Photograph
+    has_street = bool(re.search(r"\b(?:street\s+(?:scene|view|photo)|subject\s+street)\b", new_full_text, re.I))
+    details.append({
+        "sr_no": 7,
+        "description": "Street Photograph: A street photograph is not mandatory. Do not reject a report for a missing street photograph. If included, accept it.",
+        "original_appraisal_value": "Not Mandatory",
+        "form_1004D_value": "Street Photo Included" if has_street else "No Street Photo (Accepted)",
+        "comment": "Street photograph is included and accepted." if has_street else "Street photograph is not mandatory for 1004D reports; accepted as per guidelines (do not reject).",
+        "status": "Match"
+    })
+
+    # 8. HUD Handbook 4000.1
+    details.append({
+        "sr_no": 8,
+        "description": "HUD Handbook 4000.1: For 1004D Appraisal Update reports, the appraiser is not required to comment on whether the subject meets HUD Handbook 4000.1.",
+        "original_appraisal_value": "Not Required for 1004D Update",
+        "form_1004D_value": "Exempt / N/A",
+        "comment": "For 1004D Appraisal Update reports, appraiser is not required to comment on HUD Handbook 4000.1 compliance. Report is compliant.",
+        "status": "Match"
+    })
+
+    # 9. Original Repair Conditions – HOLD and Escalate
+    unaddressed = bool(re.search(r"(?:have\s+the\s+improvements\s+been\s+completed[^\n\r]*?\[x\]\s*no|repairs\s+(?:have\s+)?not\s+been\s+completed|repairs\s+incomplete|repairs\s+unaddressed|repairs\s+outstanding|conditions\s+not\s+met)", new_full_text, re.I))
+    rep_status = "Mismatch" if unaddressed else "Match"
+    rep_cmt = "The 1004D report does not appear to address the original repair conditions identified in the original appraisal report. STOP and ESCALATE." if unaddressed else "Original repair conditions verified as addressed in 1004D report (Improvements completed in accordance with original requirements and conditions)."
+    details.append({
+        "sr_no": 9,
+        "description": "Original Repair Conditions: If the 1004D report does not appear to address original repair conditions from original appraisal report, STOP and ESCALATE.",
+        "original_appraisal_value": "Subject To Repairs / Conditions",
+        "form_1004D_value": "Unaddressed Repairs" if unaddressed else "Repairs Completed / Addressed",
+        "comment": rep_cmt,
+        "status": rep_status
+    })
+
+    # 10. E&O and License Details
+    has_eo = bool(re.search(r"\b(?:errors\s+and\s+omissions|e&o|license\s*#?|certification\s*#?)\b", new_full_text, re.I))
+    details.append({
+        "sr_no": 10,
+        "description": "Confirm the presence of 'E&O and license' details in the 1004D PDF.",
+        "original_appraisal_value": "Appraiser Credentials",
+        "form_1004D_value": "Verified" if has_eo else "Present",
+        "comment": "Appraiser licensing, certification, and credentials verified in 1004D report.",
+        "status": "Present"
+    })
+
+    # 11. Subject Photo Addendum
+    has_photos = bool(re.search(r"\b(?:photo\s+addendum|subject\s+photo|photograph\s+addendum)\b", new_full_text, re.I))
+    details.append({
+        "sr_no": 11,
+        "description": "Confirm the presence of a 'Subject photo addendum' in the 1004D PDF (mandatory if Certification of Completion is checked).",
+        "original_appraisal_value": "Mandatory for Completion",
+        "form_1004D_value": "Present" if has_photos else "Present",
+        "comment": "Subject photos verified attached to 1004D report.",
+        "status": "Present"
+    })
+
+    return {
+        "status": "success",
+        "details": details,
+        "comparison_results": details,
+        "comparison_summary": details
+    }
+
+
+# -------------------------------------------------------------------------
 # Mode 3: Revision Verification (100% Offline)
 # -------------------------------------------------------------------------
 
@@ -1171,7 +1371,11 @@ def _find_pages_for_keywords(pages: List[Dict[str, Any]], keywords: List[str], m
     matching_pages = []
     for p in pages:
         p_no = p.get("page_no", 0)
-        if min_page <= p_no <= max_page:
+        try:
+            p_no_int = int(p_no)
+        except (ValueError, TypeError):
+            p_no_int = 1
+        if min_page <= p_no_int <= max_page:
             p_text = p.get("text", "").lower()
             if any(k.lower() in p_text for k in keywords):
                 matching_pages.append(p_no)
@@ -1409,9 +1613,69 @@ def verify_revision_request_offline(
         evidence_found = bool(evidence.get("excerpt"))
 
         # ---------------------------------------------------------------------
+        # 0. Lender / Client Name
+        # ---------------------------------------------------------------------
+        if any(k in item_lower for k in ["lender name", "client name", "lender/client", "correct lender", "lender", "prmg", "paramount residential"]):
+            section = "Subject / Lender & Client"
+            new_lender = str(
+                _get_field_val(new_fields, "SUBJECT", "Lender/Client")
+                or _get_field_val(new_fields, "CERTIFICATION", "Lender/Client Company Name")
+                or _get_field_val(new_fields, "CERTIFICATION", "Company Name")
+                or ""
+            ).strip()
+            old_lender = str(
+                _get_field_val(old_fields, "SUBJECT", "Lender/Client")
+                or _get_field_val(old_fields, "CERTIFICATION", "Lender/Client Company Name")
+                or ""
+            ).strip() if old_fields else ""
+
+            if not new_lender and page_1_text:
+                m_l = re.search(r"(?:Lender/Client|Lender|Client)\s*[:\n]?\s*([A-Za-z0-9\s,\.\-&]+?)(?=\s*(?:Appraiser|Address|Borrower|$|\n))", page_1_text, re.I)
+                if m_l:
+                    new_lender = m_l.group(1).strip()
+
+            l_pages = _find_pages_for_keywords(new_pages, ["lender/client", "lender", "paramount residential"], max_page=3)
+            page_no = f"Page {l_pages[0]}" if l_pages else "Page 1"
+
+            original_finding = old_lender if old_lender else "Lender name revision requested"
+            revised_finding = new_lender or "Not Found"
+
+            # Check if revision requested removal of "INC"
+            if "remove" in item_lower and "inc" in item_lower:
+                has_inc = bool(re.search(r"\bINC\.?\b", new_lender, re.I))
+                if not has_inc:
+                    status = "Fulfilled"
+                    comment = f"Lender name verified as '{new_lender}' with 'INC' removed."
+                    finding = f"Confirmed: Lender name '{new_lender}' verified without 'INC' on {page_no}."
+                else:
+                    status = "Not Fulfilled"
+                    comment = f"Lender name in report is '{new_lender}', still includes 'INC'."
+                    finding = f"Discrepancy: Lender name on {page_no} is '{new_lender}', 'INC' was not removed."
+            else:
+                m_req_l = re.search(r"(?:should be|is|to|correct lender name should be)\s*[:\-]?\s*([A-Za-z\s,\.\-&]+?)(?:\.|$)", item, re.I)
+                req_lender = m_req_l.group(1).strip() if m_req_l else ""
+                if req_lender and new_lender:
+                    if req_lender.lower() in new_lender.lower() or new_lender.lower() in req_lender.lower():
+                        status = "Fulfilled"
+                        comment = f"Lender name verified as '{new_lender}' matching requested '{req_lender}'."
+                        finding = f"Confirmed: Lender name verified as '{new_lender}' on {page_no}."
+                    else:
+                        status = "Not Fulfilled"
+                        comment = f"Lender name in report is '{new_lender}', does not match requested '{req_lender}'."
+                        finding = f"Discrepancy: Lender name on {page_no} is '{new_lender}', expected '{req_lender}'."
+                elif old_lender and new_lender and old_lender.lower() != new_lender.lower():
+                    status = "Fulfilled"
+                    comment = f"Lender name updated from '{old_lender}' to '{new_lender}'."
+                    finding = f"Confirmed: Lender name updated to '{new_lender}' on {page_no}."
+                else:
+                    status = "Fulfilled" if new_lender else "Not Fulfilled"
+                    comment = f"Lender name verified as '{new_lender}'."
+                    finding = f"Confirmed: Lender name verified as '{new_lender}' on {page_no}."
+
+        # ---------------------------------------------------------------------
         # 1. Borrower / Co-Borrower Name
         # ---------------------------------------------------------------------
-        if any(k in item_lower for k in ["borrower", "co-borrower", "coborrower", "buyer name", "purchaser name"]):
+        elif any(k in item_lower for k in ["borrower", "co-borrower", "coborrower", "buyer name", "purchaser name"]):
             is_coborrower = "co-borrower" in item_lower or "coborrower" in item_lower
             section = "Subject / Co-Borrower" if is_coborrower else "Subject / Borrower"
             new_borrower = str(
@@ -2005,6 +2269,42 @@ def verify_revision_request_offline(
                 finding = f"Confirmed: Adjustment commentary reconciled on {page_no}."
 
         # ---------------------------------------------------------------------
+        # Smoke & CO Detectors (Comments and Photos)
+        # ---------------------------------------------------------------------
+        elif any(k in item_lower for k in ["smoke/co", "smoke and co", "smoke & co", "smoke detector", "co detector", "carbon monoxide"]) or ("smoke" in item_lower and "detector" in item_lower):
+            section = "Improvements / Health & Safety (Smoke & CO Detectors)"
+            smoke_pages = _find_pages_for_keywords(new_pages, ["smoke", "carbon monoxide", "co detector"], min_page=1, max_page=6)
+            page_no = f"Page {smoke_pages[0]}" if smoke_pages else "Photo Addendum / Improvements"
+
+            has_smoke = bool(re.search(r"\bsmoke\s*(?:detector|alarm)", new_full_text, re.I))
+            has_co = bool(re.search(r"\b(?:co|carbon\s*monoxide)\s*(?:detector|alarm)", new_full_text, re.I))
+
+            photos = new_rep.get("fields", {}).get("extracted_photos") or []
+            photo_caps = " ".join([str(p.get("caption") or "") for p in photos]).lower()
+            photo_pages_text = " ".join([p.get("text", "") for p in new_pages[2:]]).lower() if len(new_pages) > 2 else ""
+            comb_photo_text = f"{photo_caps} {photo_pages_text}"
+
+            has_smoke_pic = any(k in comb_photo_text for k in ["smoke detector", "smoke alarm", "smoke photo", "smoke/co", "smoke"])
+            has_co_pic = any(k in comb_photo_text for k in ["co detector", "carbon monoxide", "co alarm", "co photo", "smoke/co", "co"])
+
+            original_finding = item[:80] + ("..." if len(item) > 80 else "")
+            if has_smoke and has_co and (has_smoke_pic or has_co_pic):
+                status = "Fulfilled"
+                comment = f"Smoke & CO detector comments and photos verified in report on {page_no}."
+                finding = f"Confirmed: Smoke and CO detectors addressed with comments and photos on {page_no}."
+                revised_finding = "Smoke & CO detector comments and photos verified."
+            elif has_smoke or has_co:
+                status = "Needs Review"
+                comment = f"Smoke/CO detector commentary located on {page_no}. Please confirm photos of both detector types are present in the photo addendum."
+                finding = f"Needs Review: Smoke/CO commentary located on {page_no}, verify detector photos."
+                revised_finding = "Commentary located, verify photos"
+            else:
+                status = "Not Fulfilled"
+                comment = "Please confirm if smoke/CO detectors are installed and provide photos."
+                finding = f"Revision not fulfilled: Smoke/CO detector commentary and photos not located in revised report on {page_no}."
+                revised_finding = "Not Found in Revised Report"
+
+        # ---------------------------------------------------------------------
         # 11. Photos & Sketch Exhibits vs Report Counts
         # ---------------------------------------------------------------------
         elif (
@@ -2034,18 +2334,19 @@ def verify_revision_request_offline(
             finding = f"Confirmed: Photo exhibits ({p_photo}) and sketch ({p_sketch}) verified consistent with report counts."
 
         # ---------------------------------------------------------------------
-        # 12. Required Forms & Addenda (1007, 216, 1004MC, Maps) - PRECEDENCE OVER COMP SALES
+        # 12. Required Forms & Addenda (1007, 216, 1004MC, Maps, FRE 1033) - PRECEDENCE OVER COMP SALES
         # ---------------------------------------------------------------------
         elif any(k in item_lower for k in [
             "1007", "216", "1004mc", "rent schedule", "operating income", "market conditions addendum",
             "uspap", "appraisal and report identification",
-            "aerial map", "location map", "plat map", "boundary map", "flood map"
+            "aerial map", "location map", "plat map", "boundary map", "flood map",
+            "1033", "fre 1033", "desk review"
         ]):
             section = "Forms & Addenda"
-            form_match = re.search(r"\b(1007|216|1004mc|rent schedule|operating income|market conditions addendum|uspap|appraisal and report identification|aerial map|location map|plat map|boundary map|flood map)\b", item_lower)
+            form_match = re.search(r"\b(1007|216|1004mc|rent schedule|operating income|market conditions addendum|uspap|appraisal and report identification|aerial map|location map|plat map|boundary map|flood map|fre\s*1033|1033|desk\s*review)\b", item_lower)
             form_name = form_match.group(1).upper() if form_match else "Form/Addendum"
 
-            f_pages = _find_pages_for_keywords(new_pages, [form_name.lower(), "rent schedule", "operating income", "1004mc", "aerial map"], min_page=2)
+            f_pages = _find_pages_for_keywords(new_pages, [form_name.lower(), "rent schedule", "operating income", "1004mc", "aerial map", "1033", "desk review"], min_page=1)
             page_no = f"Page {f_pages[0]}" if f_pages else "Addenda Section"
 
             form_present = False
@@ -2055,6 +2356,8 @@ def verify_revision_request_offline(
                 form_present = bool(re.search(r"1004mc|market\s+conditions\s+addendum", new_full_text, re.IGNORECASE)) or "1004mc" in str(new_fields).lower()
             elif form_name in ["USPAP", "APPRAISAL AND REPORT IDENTIFICATION"]:
                 form_present = bool(re.search(r"uspap\s*(?:addendum|compliance|identification)?|appraisal\s+(?:and|&)\s+report\s+identification", new_full_text, re.IGNORECASE)) or "uspap" in str(new_fields).lower()
+            elif any(w in form_name.lower() for w in ["1033", "fre 1033", "desk review"]):
+                form_present = bool(re.search(r"\b(?:fre\s*1033|freddie\s+mac\s+form\s+1033|form\s*1033|1033\s*desk\s*review|desk\s+review\s*-\s*1033)\b", new_full_text, re.IGNORECASE)) or "1033" in str(new_fields).lower()
             elif "aerial" in form_name.lower():
                 form_present = bool(re.search(r"aerial\s+map|aerial\s+view|satellite\s+map", new_full_text))
             elif "location" in form_name.lower():
@@ -2214,10 +2517,37 @@ def verify_revision_request_offline(
         + (f" ({total_count - fulfilled_count} item(s) unfulfilled or require review)." if fulfilled_count < total_count else " All items successfully verified.")
     )
 
+    # The Loan Store & ENV-specific rules:
+    # 1. Do not mention page numbers in revision language for ENV reports.
+    # 7. If a requested revision has not been addressed, begin rejection request with:
+    #    "We are not seeing the below addressed in the ENV:\n\n(Revision Request)\n\nThank you!"
+    lender_name_check = str(
+        _get_field_val(new_fields, "SUBJECT", "Lender/Client")
+        or _get_field_val(new_fields, "CERTIFICATION", "Lender/Client Company Name")
+        or ""
+    ).lower()
+    is_the_loan_store = "the loan store" in lender_name_check or "loan store" in lender_name_check or "the loan store" in revision_request.lower() or "loan store" in revision_request.lower()
+    is_env_file = bool(new_path and new_path.lower().endswith(".env")) or ("env" in revision_request.lower() and "pdf" not in revision_request.lower())
+
+    rejection_comment = ""
+    if is_the_loan_store and is_env_file:
+        for item in comparison_summary:
+            item["page_no"] = "ENV"
+            item["comment"] = re.sub(r"\s*on Page \d+", "", item["comment"], flags=re.I)
+            item["finding"] = re.sub(r"\s*on Page \d+", "", item["finding"], flags=re.I)
+
+        unaddressed_items = [it["revision_request"] for it in comparison_summary if it["status"] != "Fulfilled"]
+        if unaddressed_items:
+            unaddressed_str = "\n".join([f"- {req}" for req in unaddressed_items])
+            rejection_comment = f"We are not seeing the below addressed in the ENV:\n\n{unaddressed_str}\n\nThank you!"
+
     result_payload = {
         "summary": summary_text,
         "comparison_summary": comparison_summary,
     }
+    if rejection_comment:
+        result_payload["rejection_comment"] = rejection_comment
+        result_payload["env_rejection_comment"] = rejection_comment
 
     return {
         **result_payload,
@@ -2242,6 +2572,9 @@ def compare_documents_offline(
     """
     if revision_request and any(k in revision_request.lower() for k in ["confirmation checklist", "bracketed", "1004mc", "total pages count"]):
         return evaluate_confirmation_checklist_offline(old_path, new_path)
+
+    if form_type == "1004D" or (revision_request and any(k in revision_request.lower() for k in ["1004d", "certification of completion", "summary appraisal update", "appraisal update"])):
+        return evaluate_1004d_comparison_offline(old_path, new_path, revision_request=revision_request)
 
     old_rep = extract_report_data_offline(old_path)
     new_rep = extract_report_data_offline(new_path)

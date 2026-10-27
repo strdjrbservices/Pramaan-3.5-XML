@@ -9,7 +9,7 @@ import {
 import { EditableField } from './FormComponents';
 import { checkCondoCoopProjectsTableFields } from '../../../validations/form1073Validation';
 
-export const SubjectRentScheduleTable = ({ data, onDataChange, editingField, setEditingField, isEditable, allData, extractionAttempted, manualValidations, handleManualValidation, revisionHandlers }) => {
+export const SubjectRentScheduleTable = ({ data, onDataChange, editingField, setEditingField, isEditable = true, allData, extractionAttempted, manualValidations, handleManualValidation, revisionHandlers }) => {
     const units = [1, 2, 3, 4];
 
     const getValue = (field) => {
@@ -356,7 +356,7 @@ export const SubjectRentScheduleTable = ({ data, onDataChange, editingField, set
     );
 };
 
-export const ComparableAddressConsistency = ({ data, comparableSales, extractionAttempted, onDataChange, editingField, setEditingField, isEditable, allData }) => {
+export const ComparableAddressConsistency = ({ data, comparableSales, extractionAttempted, onDataChange, editingField, setEditingField, isEditable = true, allData }) => {
     return (
         <Paper id="comparable-address-consistency-section" elevation={1} sx={{ mb: 4, borderRadius: 2, overflow: 'hidden', borderTop: '3px solid', borderTopColor: 'grey.900' }}>
             <Box sx={{ bgcolor: 'grey.50', color: 'text.primary', borderBottom: '1px solid', borderColor: 'grey.200', px: 2, py: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 10 }}>
@@ -470,7 +470,7 @@ export const ComparableAddressConsistency = ({ data, comparableSales, extraction
     );
 };
 
-export const MarketConditionsTable = ({ data, marketConditionsRows, marketConditionsFields, extractionAttempted, onDataChange, editingField, setEditingField, isEditable, allData }) => {
+export const MarketConditionsTable = ({ data, marketConditionsRows, marketConditionsFields, extractionAttempted, onDataChange, editingField, setEditingField, isEditable = true, allData }) => {
     const timeframes = ["Prior 7-12 Months", "Prior 4-6 Months", "Current-3 Months", "Overall Trend"];
 
     const getMarketConditionValue = (row, tf) => {
@@ -610,7 +610,7 @@ export const MarketConditionsTable = ({ data, marketConditionsRows, marketCondit
     );
 };
 
-export const CondoCoopProjectsTable = ({ id, title, data, onDataChange, editingField, setEditingField, isEditable, condoCoopProjectsRows, condoCoopProjectsFields, extractionAttempted, allData }) => {
+export const CondoCoopProjectsTable = ({ id, title, data, onDataChange, editingField, setEditingField, isEditable = true, condoCoopProjectsRows, condoCoopProjectsFields, extractionAttempted, allData }) => {
     const timeframes = ["Prior 7–12 Months", "Prior 4–6 Months", "Current – 3 Months", "Overall Trend"];
 
     const getTableValue = (fullLabel, timeframe) => {
@@ -668,7 +668,7 @@ export const CondoCoopProjectsTable = ({ id, title, data, onDataChange, editingF
     );
 };
 
-export const SalesComparisonSection = ({ data, salesGridRows, comparableSales, extractionAttempted, handleDataChange, editingField, setEditingField, formType, comparisonData, getComparisonStyle, isEditable, allData }) => {
+export const SalesComparisonSection = ({ data, salesGridRows, comparableSales, extractionAttempted, handleDataChange, editingField, setEditingField, formType, comparisonData, getComparisonStyle, isEditable = true, allData }) => {
     const getCompData = (sale) => {
         if (!data || typeof data !== 'object') return {};
         if (data[sale] && typeof data[sale] === 'object') return data[sale];
