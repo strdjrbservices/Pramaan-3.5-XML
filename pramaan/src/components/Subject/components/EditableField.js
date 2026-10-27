@@ -22,7 +22,7 @@ import { checkUnitDescriptionsFieldsNotBlank } from '../../../validations/unitDe
 import { checkProjectSiteFieldsNotBlank } from '../../../validations/projectSiteValidation';
 import { checkPriorSaleHistoryFieldsNotBlank } from '../../../validations/priorSaleHistoryValidation';
 import { checkInfoOfSalesFieldsNotBlank } from '../../../validations/infoOfSalesValidation';
-import { checkRentScheduleAsOfDateConsistency, checkRentScheduleToBeAmountConsistency, checkIncomeApproachIndicatedValueConsistency } from '../../../validations/form1004And1007Validation';
+import { checkRentScheduleAsOfDateConsistency, checkRentScheduleToBeAmountConsistency, checkIncomeApproachIndicatedValueConsistency, checkCostApproachMatchConsistency } from '../../../validations/form1004And1007Validation';
 import { Tooltip, IconButton } from '@mui/material';
 import { PlaylistAdd as PlaylistAddIcon, CheckCircle as CheckCircleIcon } from '@mui/icons-material';
 
@@ -307,7 +307,7 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'Indicated Value by: Sales Comparison Approach $': [checkFinalValueConsistency, checkCostApproachDeveloped],
     'opinion of the market value, as defined, of the real property that is the subject of this report is $': [checkFinalValueConsistency],
     'APPRAISED VALUE OF SUBJECT PROPERTY $': [checkFinalValueConsistency],
-    'Cost Approach (if developed)': [checkCostApproachDeveloped],
+    'Cost Approach (if developed)': [checkCostApproachDeveloped, checkCostApproachMatchConsistency],
     'This appraisal is made "as is", subject to completion per plans and specifications on the basis of a hypothetical condition that the improvements have been completed, subject to the following repairs or alterations on the basis of a hypothetical condition that the repairs or alterations have been completed, or subject to the following required inspection based on the extraordinary assumption that the condition or deficiency does not require alteration or repair:': [checkAppraisalCondition],
     'as of': [checkAsOfDate, checkRentScheduleAsOfDateConsistency],
 
@@ -554,6 +554,18 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
 
   if (!validationRegistry['Income Approach (if developed) $']) validationRegistry['Income Approach (if developed) $'] = [];
   validationRegistry['Income Approach (if developed) $'].push(checkIncomeApproachIndicatedValueConsistency);
+
+  if (!validationRegistry['Cost Approach (if developed)']) validationRegistry['Cost Approach (if developed)'] = [];
+  validationRegistry['Cost Approach (if developed)'].push(checkCostApproachMatchConsistency);
+
+  if (!validationRegistry['Cost Approach (if developed) $']) validationRegistry['Cost Approach (if developed) $'] = [];
+  validationRegistry['Cost Approach (if developed) $'].push(checkCostApproachMatchConsistency);
+
+  if (!validationRegistry['Indicated Value By Cost Approach......................................................=$']) validationRegistry['Indicated Value By Cost Approach......................................................=$'] = [];
+  validationRegistry['Indicated Value By Cost Approach......................................................=$'].push(checkCostApproachMatchConsistency);
+
+  if (!validationRegistry['Indicated Value by Cost Approach']) validationRegistry['Indicated Value by Cost Approach'] = [];
+  validationRegistry['Indicated Value by Cost Approach'].push(checkCostApproachMatchConsistency);
 
   const pudInformationFieldsToValidate = [
     "PUD Fees $", "PUD Fees (per month)", "PUD Fees (per year)",

@@ -1055,7 +1055,7 @@ function Subject({ defaultFormType }) {
       'Indicated Value by: Sales Comparison Approach $': [reconciliationValidation.checkFinalValueConsistency, reconciliationValidation.checkCostApproachDeveloped],
       'opinion of the market value, as defined, of the real property that is the subject of this report is $': [reconciliationValidation.checkFinalValueConsistency],
       'APPRAISED VALUE OF SUBJECT PROPERTY $': [reconciliationValidation.checkFinalValueConsistency],
-      'Cost Approach (if developed)': [reconciliationValidation.checkCostApproachDeveloped],
+      'Cost Approach (if developed)': [reconciliationValidation.checkCostApproachDeveloped, form1004And1007Validation.checkCostApproachMatchConsistency],
       'This appraisal is made "as is", subject to completion per plans and specifications on the basis of a hypothetical condition that the improvements have been completed, subject to the following repairs or alterations on the basis of a hypothetical condition that the repairs or alterations have been completed, or subject to the following required inspection based on the extraordinary assumption that the condition or deficiency does not require alteration or repair:': [reconciliationValidation.checkAppraisalCondition],
       'as of': [reconciliationValidation.checkAsOfDate, form1004And1007Validation.checkRentScheduleAsOfDateConsistency],
       'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF': [form1004And1007Validation.checkRentScheduleAsOfDateConsistency],
@@ -1203,6 +1203,18 @@ function Subject({ defaultFormType }) {
 
     if (!registry['Income Approach (if developed) $']) registry['Income Approach (if developed) $'] = [];
     registry['Income Approach (if developed) $'].push(form1004And1007Validation.checkIncomeApproachIndicatedValueConsistency);
+
+    if (!registry['Cost Approach (if developed)']) registry['Cost Approach (if developed)'] = [];
+    registry['Cost Approach (if developed)'].push(form1004And1007Validation.checkCostApproachMatchConsistency);
+
+    if (!registry['Cost Approach (if developed) $']) registry['Cost Approach (if developed) $'] = [];
+    registry['Cost Approach (if developed) $'].push(form1004And1007Validation.checkCostApproachMatchConsistency);
+
+    if (!registry['Indicated Value By Cost Approach......................................................=$']) registry['Indicated Value By Cost Approach......................................................=$'] = [];
+    registry['Indicated Value By Cost Approach......................................................=$'].push(form1004And1007Validation.checkCostApproachMatchConsistency);
+
+    if (!registry['Indicated Value by Cost Approach']) registry['Indicated Value by Cost Approach'] = [];
+    registry['Indicated Value by Cost Approach'].push(form1004And1007Validation.checkCostApproachMatchConsistency);
 
     if (!registry['I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF']) registry['I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF'] = [];
     registry['I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF'].push(form1004And1007Validation.checkRentScheduleAsOfDateConsistency);
@@ -1805,6 +1817,16 @@ function Subject({ defaultFormType }) {
           errors.push(['Reconciliation', 'Income Approach (if developed) $', incRes.message, ['RECONCILIATION', 'Income Approach (if developed) $']]);
         }
       } catch (e) { }
+
+      try {
+        const reconCostVal = form1004And1007Validation.getSectionFieldValue(allData, ['RECONCILIATION', 'Reconciliation'], ['Cost Approach (if developed)', 'Cost Approach (if developed) $']);
+        if (reconCostVal && String(reconCostVal).trim() !== '') {
+          const costRes = form1004And1007Validation.checkCostApproachMatchConsistency('Cost Approach (if developed)', reconCostVal, allData, ['RECONCILIATION', 'Cost Approach (if developed)'], null, selectedFormType);
+          if (costRes && costRes.isError) {
+            errors.push(['Reconciliation', 'Cost Approach (if developed)', costRes.message, ['RECONCILIATION', 'Cost Approach (if developed)']]);
+          }
+        }
+      } catch (e) { }
     }
 
     const isV1Form = isV1FormType;
@@ -2032,6 +2054,16 @@ function Subject({ defaultFormType }) {
         const incRes = form1004And1007Validation.checkIncomeApproachIndicatedValueConsistency('Income Approach (if developed) $', reconIncVal, allData, ['RECONCILIATION', 'Income Approach (if developed) $'], null, selectedFormType);
         if (incRes && incRes.isMatch) {
           successes.push(['Reconciliation', 'Income Approach (if developed) $', incRes.message || 'Passed', ['RECONCILIATION', 'Income Approach (if developed) $']]);
+        }
+      } catch (e) { }
+
+      try {
+        const reconCostVal = form1004And1007Validation.getSectionFieldValue(allData, ['RECONCILIATION', 'Reconciliation'], ['Cost Approach (if developed)', 'Cost Approach (if developed) $']);
+        if (reconCostVal && String(reconCostVal).trim() !== '') {
+          const costRes = form1004And1007Validation.checkCostApproachMatchConsistency('Cost Approach (if developed)', reconCostVal, allData, ['RECONCILIATION', 'Cost Approach (if developed)'], null, selectedFormType);
+          if (costRes && costRes.isMatch) {
+            successes.push(['Reconciliation', 'Cost Approach (if developed)', costRes.message || 'Passed', ['RECONCILIATION', 'Cost Approach (if developed)']]);
+          }
         }
       } catch (e) { }
     }

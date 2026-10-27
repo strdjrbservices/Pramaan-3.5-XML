@@ -1,3 +1,5 @@
+import { checkCostApproachMatchConsistency } from './form1004And1007Validation';
+
 export const checkCostNew = (field, text) => {
     if (field !== 'ESTIMATED/REPRODUCTION / REPLACEMENT COST NEW') return null;
 
@@ -28,12 +30,18 @@ export const checkSourceOfCostData = (field, text) => {
     return { isMatch: true };
 };
 
-export const checkIndicatedValueByCostApproach = (field, text, data) => {
-    if (field !== 'Indicated Value By Cost Approach......................................................=$') return null;
-    const formType = String(data?.formType || data?.['From Type'] || data?.['Form Type'] || '').trim();
-    if (formType === '1073') {
+export const checkIndicatedValueByCostApproach = (field, text, data, path, saleName, formType) => {
+    if (field !== 'Indicated Value By Cost Approach......................................................=$' && field !== 'Indicated Value by Cost Approach') return null;
+    const currentFormType = String(data?.formType || data?.['From Type'] || data?.['Form Type'] || formType || '').trim();
+    if (currentFormType === '1073') {
         return { isMatch: true };
     }
+
+    const matchRes = checkCostApproachMatchConsistency(field, text, data, path, saleName, currentFormType);
+    if (matchRes && matchRes.isError) {
+        return matchRes;
+    }
+
     const value = String(text || '').trim();
     const comments = String(
         data?.['Comments on Cost Approach (gross living area calculations, depreciation, etc.)'] || 
@@ -47,6 +55,11 @@ export const checkIndicatedValueByCostApproach = (field, text, data) => {
     if ((!value || value === '0') && !hasNotDevelopedComment) {
         return { isError: true, message: "If 'Indicated Value by Cost Approach' is blank, a comment explaining why it was not developed is required." };
     }
+
+    if (matchRes && matchRes.isMatch) {
+        return matchRes;
+    }
+
     return { isMatch: true };
 };
 
@@ -180,3 +193,6 @@ export const checkCostApproachFieldsNotBlank = (field, text) => {
     }
     return null;
 };
+
+export { checkCostApproachMatchConsistency } from './form1004And1007Validation';
+

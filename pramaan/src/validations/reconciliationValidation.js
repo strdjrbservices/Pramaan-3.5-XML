@@ -1,3 +1,5 @@
+import { checkCostApproachMatchConsistency, getSectionFieldValue } from './form1004And1007Validation';
+
 export const checkFinalValueConsistency = (field, text, allData) => {
     if (!allData) return null;
 
@@ -78,12 +80,26 @@ export const checkFinalValueConsistency = (field, text, allData) => {
     return { isMatch: true };
 };
 
-export const checkCostApproachDeveloped = (field, text, allData) => {
+export const checkCostApproachDeveloped = (field, text, allData, path, saleName, formType) => {
     if (field !== 'Cost Approach (if developed)') return null;
-    const costApproachValue = allData.COST_APPROACH?.['Indicated Value By Cost Approach......................................................=$'];
+    const costSections = ["COST_APPROACH", "Cost Approach", "cost_approach", "Cost_Approach"];
+    const costFieldNames = [
+        "Indicated Value By Cost Approach......................................................=$",
+        "Indicated Value by Cost Approach",
+        "INDICATED VALUE BY COST APPROACH"
+    ];
+    const costApproachValue = getSectionFieldValue(allData, costSections, costFieldNames)
+        || allData?.COST_APPROACH?.['Indicated Value By Cost Approach......................................................=$'];
+
     if (costApproachValue && (!text || String(text).trim() === '')) {
         return { isError: true, message: "Cost Approach is developed, so this field cannot be blank." };
     }
+
+    if (text !== undefined && text !== null && String(text).trim() !== '') {
+        const matchRes = checkCostApproachMatchConsistency(field, text, allData, path, saleName, formType);
+        if (matchRes) return matchRes;
+    }
+
     return { isMatch: true };
 };
 
@@ -568,5 +584,7 @@ export {
     checkRentScheduleAsOfDateConsistency,
     checkRentScheduleToBeAmountConsistency,
     checkIncomeApproachIndicatedValueConsistency,
-    is1004And1007Form
+    checkCostApproachMatchConsistency,
+    is1004And1007Form,
+    is1004Or1004And1007Form
 } from './form1004And1007Validation';

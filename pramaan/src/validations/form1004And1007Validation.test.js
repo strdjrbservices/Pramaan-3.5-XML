@@ -4,8 +4,10 @@ import {
     parseCurrencyOrNumber,
     checkRentScheduleAsOfDateConsistency,
     checkRentScheduleToBeAmountConsistency,
-    checkIncomeApproachIndicatedValueConsistency
+    checkIncomeApproachIndicatedValueConsistency,
+    checkCostApproachMatchConsistency
 } from './form1004And1007Validation';
+import { checkCostApproachDeveloped } from './reconciliationValidation';
 
 describe('Form Type 1004 + 1007 Validations', () => {
     describe('is1004And1007Form detector', () => {
@@ -352,4 +354,186 @@ describe('Form Type 1004 + 1007 Validations', () => {
             expect(res.message).toContain("cannot be blank");
         });
     });
+
+    describe('Rule 4: Cost Approach (if developed) from RECONCILIATION vs INDICATED VALUE BY COST APPROACH from Cost Approach', () => {
+        test('Returns null / does not enforce match if Cost Approach (if developed) is blank', () => {
+            const allData = {
+                formType: '1004 + 1007',
+                RECONCILIATION: {
+                    'Cost Approach (if developed)': ''
+                },
+                COST_APPROACH: {
+                    'Indicated Value By Cost Approach......................................................=$': '$300,000'
+                }
+            };
+
+            const res = checkCostApproachMatchConsistency(
+                'Cost Approach (if developed)',
+                '',
+                allData
+            );
+            expect(res).toBeNull();
+        });
+
+        test('Returns null if Cost Approach (if developed) is null or undefined or whitespace', () => {
+            const allData = {
+                formType: '1004 + 1007',
+                RECONCILIATION: {
+                    'Cost Approach (if developed)': '   '
+                },
+                COST_APPROACH: {
+                    'Indicated Value By Cost Approach......................................................=$': '$300,000'
+                }
+            };
+
+            const res = checkCostApproachMatchConsistency(
+                'Cost Approach (if developed)',
+                '   ',
+                allData
+            );
+            expect(res).toBeNull();
+        });
+
+        test('Validates matching amounts with different currency formats', () => {
+            const allData = {
+                formType: '1004 + 1007',
+                RECONCILIATION: {
+                    'Cost Approach (if developed)': '$300,000'
+                },
+                COST_APPROACH: {
+                    'Indicated Value By Cost Approach......................................................=$': '300000'
+                }
+            };
+
+            const resRecon = checkCostApproachMatchConsistency(
+                'Cost Approach (if developed)',
+                '$300,000',
+                allData
+            );
+            expect(resRecon.isMatch).toBe(true);
+            expect(resRecon.message).toContain("matches");
+            expect(resRecon.message).toContain("$300,000");
+
+            const resCost = checkCostApproachMatchConsistency(
+                'Indicated Value By Cost Approach......................................................=$',
+                '300000',
+                allData
+            );
+            expect(resCost.isMatch).toBe(true);
+        });
+
+        test('Errors when amounts differ', () => {
+            const allData = {
+                formType: '1004 + 1007',
+                RECONCILIATION: {
+                    'Cost Approach (if developed)': '$300,000'
+                },
+                COST_APPROACH: {
+                    'Indicated Value By Cost Approach......................................................=$': '$280,000'
+                }
+            };
+
+            const res = checkCostApproachMatchConsistency(
+                'Cost Approach (if developed)',
+                '$300,000',
+                allData
+            );
+            expect(res.isError).toBe(true);
+            expect(res.message).toContain("Value mismatch");
+            expect(res.message).toContain("$300,000");
+            expect(res.message).toContain("$280,000");
+
+            const resCost = checkCostApproachMatchConsistency(
+                'Indicated Value By Cost Approach......................................................=$',
+                '$280,000',
+                allData
+            );
+            expect(resCost.isError).toBe(true);
+            expect(resCost.message).toContain("Value mismatch");
+        });
+
+        test('Errors when Cost Approach (if developed) is not blank but Cost Approach indicated value is missing', () => {
+            const allData = {
+                formType: '1004 + 1007',
+                RECONCILIATION: {
+                    'Cost Approach (if developed)': '$300,000'
+                },
+                COST_APPROACH: {
+                    'Indicated Value By Cost Approach......................................................=$': ''
+                }
+            };
+
+            const res = checkCostApproachMatchConsistency(
+                'Cost Approach (if developed)',
+                '$300,000',
+                allData
+            );
+            expect(res.isError).toBe(true);
+            expect(res.message).toContain("missing");
+        });
+
+        test('Works for standard Form 1004 as well', () => {
+            const allData = {
+                formType: '1004',
+                RECONCILIATION: {
+                    'Cost Approach (if developed)': '$425,000'
+                },
+                COST_APPROACH: {
+                    'Indicated Value By Cost Approach......................................................=$': '$425,000'
+                }
+            };
+
+            const res = checkCostApproachMatchConsistency(
+                'Cost Approach (if developed)',
+                '$425,000',
+                allData
+            );
+            expect(res.isMatch).toBe(true);
+        });
+
+        test('checkCostApproachDeveloped integration with value matching', () => {
+            const matchData = {
+                formType: '1004',
+                RECONCILIATION: {
+                    'Cost Approach (if developed)': '$500,000'
+                },
+                COST_APPROACH: {
+                    'Indicated Value By Cost Approach......................................................=$': '$500,000'
+                }
+            };
+
+            // When matching
+            const matchRes = checkCostApproachDeveloped('Cost Approach (if developed)', '$500,000', matchData);
+            expect(matchRes.isMatch).toBe(true);
+
+            // When mismatching
+            const mismatchData = {
+                formType: '1004',
+                RECONCILIATION: {
+                    'Cost Approach (if developed)': '$500,000'
+                },
+                COST_APPROACH: {
+                    'Indicated Value By Cost Approach......................................................=$': '$450,000'
+                }
+            };
+            const mismatchRes = checkCostApproachDeveloped('Cost Approach (if developed)', '$500,000', mismatchData);
+            expect(mismatchRes.isError).toBe(true);
+            expect(mismatchRes.message).toContain("Value mismatch");
+
+            // When text is blank and Cost Approach is developed
+            const blankRes = checkCostApproachDeveloped('Cost Approach (if developed)', '', matchData);
+            expect(blankRes.isError).toBe(true);
+            expect(blankRes.message).toContain("Cost Approach is developed, so this field cannot be blank.");
+
+            // When text is blank and Cost Approach is also blank
+            const bothBlankData = {
+                COST_APPROACH: {
+                    'Indicated Value By Cost Approach......................................................=$': ''
+                }
+            };
+            const bothBlankRes = checkCostApproachDeveloped('Cost Approach (if developed)', '', bothBlankData);
+            expect(bothBlankRes.isMatch).toBe(true);
+        });
+    });
 });
+
