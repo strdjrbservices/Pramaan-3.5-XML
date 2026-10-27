@@ -640,7 +640,7 @@ function Subject({ defaultFormType }) {
   const [extractionAttempted, setExtractionAttempted] = useState(false);
   const [lastExtractionTime, setLastExtractionTime] = useState(null);
   const timerRef = useRef(null);
-  const [isEditable, setIsEditable] = useState(true);
+  const isEditable = true;
   const htmlFileInputRef = useRef(null);
   const contractFileInputRef = useRef(null);
   const engagementLetterFileInputRef = useRef(null);

@@ -1413,7 +1413,6 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
   }
 
   if (id === 'appraiser-section') {
-    const hasSupervisoryData = data && Object.keys(data).some(k => k.toLowerCase().includes('supervisory') && data[k] !== undefined && data[k] !== null && String(data[k]).trim() !== '');
     const hasAppraisedValue = data && data["APPRAISED VALUE OF SUBJECT PROPERTY $"] && String(data["APPRAISED VALUE OF SUBJECT PROPERTY $"]).trim() !== '';
     const hasSubjectInspection = data && (data["Did not inspect subject property"] === 'Yes' || data["Did inspect exterior of subject property from street"] === 'Yes' || data["Did inspect interior and exterior of subject property"] === 'Yes');
     const hasCompInspection = data && (data["Did not inspect exterior of comparable sales from street"] === 'Yes' || data["Did inspect exterior of comparable sales from street"] === 'Yes');
