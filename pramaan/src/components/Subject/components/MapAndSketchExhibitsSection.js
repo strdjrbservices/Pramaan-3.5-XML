@@ -1355,9 +1355,9 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
 };
 
 const EXHIBIT_STAGES = [
-  { key: 'location_map', label: 'Location Map & Comps', shortLabel: 'Location Map', tabIndex: 0 },
-  { key: 'aerial_map', label: 'Aerial Map', shortLabel: 'Aerial Map', tabIndex: 1 },
   { key: 'building_sketch', label: 'Building Sketch & Floor Plan', shortLabel: 'Building Sketch', tabIndex: 2 },
+  { key: 'aerial_map', label: 'Aerial Map', shortLabel: 'Aerial Map', tabIndex: 1 },
+  { key: 'location_map', label: 'Location Map & Comps', shortLabel: 'Location Map', tabIndex: 0 },
   { key: 'rental_map', label: 'Rentals & Other Maps', shortLabel: 'Rentals / Other', tabIndex: 3 }
 ];
 
@@ -1486,6 +1486,10 @@ export const MapAndSketchExhibitsSection = ({
           if (!response.ok) {
             const errJson = await response.json().catch(() => ({}));
             console.warn(`Extraction notice for ${stage.key}:`, errJson);
+            if (errJson?.message && errJson.message.toLowerCase().includes('file not found')) {
+              setErrorMessage('The appraisal file could not be found on the server. Please select or re-upload your XML or PDF report file using the file selector above.');
+              break;
+            }
             continue;
           }
 

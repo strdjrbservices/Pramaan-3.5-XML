@@ -85,12 +85,18 @@ class MapExtractor:
 
         # Check PyTesseract
         if pytesseract is not None:
-            # Common Windows Tesseract paths
+            # Common Tesseract paths (Linux / PythonAnywhere & Windows)
             common_tesseract_paths = [
+                "/usr/bin/tesseract",
+                "/usr/local/bin/tesseract",
                 r"C:\Program Files\Tesseract-OCR\tesseract.exe",
                 r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
                 os.path.expanduser(r"~\AppData\Local\Programs\Tesseract-OCR\tesseract.exe")
             ]
+            import shutil
+            which_tess = shutil.which("tesseract")
+            if which_tess:
+                common_tesseract_paths.insert(0, which_tess)
             for p in common_tesseract_paths:
                 if os.path.exists(p):
                     pytesseract.pytesseract.tesseract_cmd = p
@@ -1059,11 +1065,22 @@ class MapExtractor:
             cand_boxes = []
             for c in contours:
                 x, y, w, h = cv2.boundingRect(c)
-                # Geometry filter: covers compact bubble pins (w >= 50) and wide photo cards (w <= 850)
-                if 50 <= w <= 850 and 24 <= h <= 280 and 1500 <= (w * h) <= 220000:
+                # Geometry filter: covers compact bubble pins and wide photo cards
+                if color_name == "white":
+                    # White callout cards are substantial boxes (TOTAL, ACI, ClickForms)
+                    if w < 120 or h < 45 or (w * h) < 7000 or (w * h) > 220000:
+                        continue
                     ar = w / float(h)
-                    if 0.65 <= ar <= 6.5:
-                        cand_boxes.append((x, y, w, h))
+                    if not (1.0 <= ar <= 5.5):
+                        continue
+                else:
+                    if 50 <= w <= 850 and 24 <= h <= 280 and 1500 <= (w * h) <= 220000:
+                        ar = w / float(h)
+                        if not (0.65 <= ar <= 6.5):
+                            continue
+                    else:
+                        continue
+                cand_boxes.append((x, y, w, h))
 
             # Deduplicate concentric/overlapping boxes
             merged_boxes = []
@@ -1072,6 +1089,9 @@ class MapExtractor:
                 if not any(abs(x - ex[0]) < 50 and abs(y - ex[1]) < 40 for ex in merged_boxes):
                     merged_boxes.append(b)
 
+            # Cap candidate boxes per color mask to top 6 by area to prevent catastrophic CPU OCR slowdown
+            merged_boxes = sorted(merged_boxes, key=lambda b: (b[2] * b[3]), reverse=True)[:6]
+
             for x, y, w, h in merged_boxes:
                 # If pin has a long needle pointer extending downwards, crop just the callout bubble
                 eff_h = min(h, 60) if (w < 160 and h > 65) else h
@@ -1079,6 +1099,14 @@ class MapExtractor:
                 y0, y1 = max(0, y - pad), min(img.shape[0], y + eff_h + pad)
                 x0, x1 = max(0, x - pad), min(img.shape[1], x + w + pad)
                 crop = img[y0:y1, x0:x1]
+
+                # Fast edge/contrast check: skip blank or solid non-text crops (saves costly CPU OCR inference)
+                if crop.shape[0] >= 12 and crop.shape[1] >= 12:
+                    gray_c = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                    edges = cv2.Canny(gray_c, 100, 200)
+                    edge_ratio = cv2.countNonZero(edges) / float(crop.shape[0] * crop.shape[1])
+                    if edge_ratio < 0.015:
+                        continue
 
                 scale = 2.0
                 crop_scaled = cv2.resize(crop, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
@@ -1913,7 +1941,11 @@ class MapExtractor:
         for mp in map_pages:
             m_type = mp.get("map_type", "")
             is_rent = bool(re.search(r'rental', m_type, re.IGNORECASE))
-            pins = self.process_map_page(mp["page_obj"], mp["page_number"], mp["map_type"], file_path)
+            is_plat_flood = bool(re.search(r'plat|flood|hazard|parcel', m_type, re.IGNORECASE))
+            if is_plat_flood:
+                pins = []
+            else:
+                pins = self.process_map_page(mp["page_obj"], mp["page_number"], mp["map_type"], file_path)
             all_pins.extend(pins)
 
             # High-res preview of the map page
