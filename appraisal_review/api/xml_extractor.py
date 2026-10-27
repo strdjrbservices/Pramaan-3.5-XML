@@ -4078,10 +4078,28 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
     elif conf_comment:
         conf_desc = conf_comment
 
+    recon_elem = root.find(".//_RECONCILIATION")
     coa = root.find(".//_CONDITION_OF_APPRAISAL")
     reconcil_status = "As Is"
     if coa is not None and "subject" in coa.attrib.get("_Type", "").lower():
+        coa_type_str = coa.attrib.get("_Type", "")
+        if "repair" in coa_type_str.lower():
+            reconcil_status = "Subject to repairs"
+        elif "completion" in coa_type_str.lower():
+            reconcil_status = "Subject to completion"
+        elif "inspection" in coa_type_str.lower():
+            reconcil_status = "Subject to inspection"
+        else:
+            reconcil_status = "Subject To"
+    elif recon_elem is not None and "subject" in recon_elem.attrib.get("_ConditionsComment", "").lower() and not ("as is" in recon_elem.attrib.get("_ConditionsComment", "").lower() or "as-is" in recon_elem.attrib.get("_ConditionsComment", "").lower()):
         reconcil_status = "Subject To"
+
+    conditions_comment = ""
+    if recon_elem is not None:
+        conditions_comment = recon_elem.attrib.get("_ConditionsComment", "").strip()
+        conditions_comment = re.sub(r'^[:\s]+', '', conditions_comment).strip()
+    if not conditions_comment and coa is not None:
+        conditions_comment = coa.attrib.get("_Comment", "").strip()
 
     reconciliation_long_key = 'This appraisal is made "as is", subject to completion per plans and specifications on the basis of a hypothetical condition that the improvements have been completed, subject to the following repairs or alterations on the basis of a hypothetical condition that the repairs or alterations have been completed, or subject to the following required inspection based on the extraordinary assumption that the condition or deficiency does not require alteration or repair:'
 
@@ -4219,6 +4237,8 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "Signature Date": signed_date,
         reconciliation_long_key: reconcil_status,
         "Reconciliation Status": reconcil_status,
+        "Conditions Comment": conditions_comment,
+        "Subject To Comment": conditions_comment,
     }
 
     income_summary = ""

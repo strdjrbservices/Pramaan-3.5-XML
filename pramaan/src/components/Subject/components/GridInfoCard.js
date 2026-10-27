@@ -27,26 +27,69 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
   };
 
   const getDynamicFields = () => {
-    if ((id !== 'site-section' && id !== 'project-site-section') || !data) return fields;
+    if (!data) return fields;
 
     let dynamicFields = [...fields];
-    const zoningComplianceRaw = data?.['Zoning Compliance']
-      ?? data?.SITE?.['Zoning Compliance']
-      ?? allData?.SITE?.['Zoning Compliance']
-      ?? allData?.['Zoning Compliance'];
-    const zoningComplianceValue = (typeof zoningComplianceRaw === 'object' && zoningComplianceRaw !== null
-      ? (zoningComplianceRaw.choice || zoningComplianceRaw.value || '')
-      : String(zoningComplianceRaw || '')).trim().toLowerCase();
-    const complianceIndex = dynamicFields.indexOf('Zoning Compliance');
+    if (id === 'site-section' || id === 'project-site-section') {
+      const zoningComplianceRaw = data?.['Zoning Compliance']
+        ?? data?.SITE?.['Zoning Compliance']
+        ?? allData?.SITE?.['Zoning Compliance']
+        ?? allData?.['Zoning Compliance'];
+      const zoningComplianceValue = (typeof zoningComplianceRaw === 'object' && zoningComplianceRaw !== null
+        ? (zoningComplianceRaw.choice || zoningComplianceRaw.value || '')
+        : String(zoningComplianceRaw || '')).trim().toLowerCase();
+      const complianceIndex = dynamicFields.indexOf('Zoning Compliance');
 
-    if (complianceIndex !== -1) {
-      const isNonconforming = zoningComplianceValue.includes('nonconforming') || zoningComplianceValue.includes('grandfathered');
-      if (isNonconforming && !dynamicFields.includes('Legal Nonconforming (Grandfathered Use) comment')) {
-        dynamicFields.splice(complianceIndex + 1, 0, 'Legal Nonconforming (Grandfathered Use) comment');
-      } else if (zoningComplianceValue.includes('no zoning') && !dynamicFields.includes('No Zoning comment')) {
-        dynamicFields.splice(complianceIndex + 1, 0, 'No Zoning comment');
+      if (complianceIndex !== -1) {
+        const isNonconforming = zoningComplianceValue.includes('nonconforming') || zoningComplianceValue.includes('grandfathered');
+        if (isNonconforming && !dynamicFields.includes('Legal Nonconforming (Grandfathered Use) comment')) {
+          dynamicFields.splice(complianceIndex + 1, 0, 'Legal Nonconforming (Grandfathered Use) comment');
+        } else if (zoningComplianceValue.includes('no zoning') && !dynamicFields.includes('No Zoning comment')) {
+          dynamicFields.splice(complianceIndex + 1, 0, 'No Zoning comment');
+        }
       }
     }
+
+    if (id === 'reconciliation-section' || title === 'RECONCILIATION') {
+      const reconConditionField = 'This appraisal is made "as is", subject to completion per plans and specifications on the basis of a hypothetical condition that the improvements have been completed, subject to the following repairs or alterations on the basis of a hypothetical condition that the repairs or alterations have been completed, or subject to the following required inspection based on the extraordinary assumption that the condition or deficiency does not require alteration or repair:';
+      let conditionIndex = dynamicFields.indexOf(reconConditionField);
+      if (conditionIndex === -1) {
+        conditionIndex = dynamicFields.findIndex(f => typeof f === 'string' && f.toLowerCase().includes('this appraisal is made'));
+      }
+
+      const reconConditionRaw = data?.[reconConditionField]
+        ?? data?.RECONCILIATION?.[reconConditionField]
+        ?? allData?.RECONCILIATION?.[reconConditionField]
+        ?? allData?.[reconConditionField]
+        ?? data?.['Reconciliation Status']
+        ?? allData?.['Reconciliation Status']
+        ?? '';
+      const reconConditionValue = (typeof reconConditionRaw === 'object' && reconConditionRaw !== null
+        ? (reconConditionRaw.choice || reconConditionRaw.value || '')
+        : String(reconConditionRaw || '')).trim().toLowerCase();
+
+      const isSubjectTo = reconConditionValue.includes('subject');
+      const conditionsCommentRaw = data?.['Conditions Comment']
+        ?? data?.['Subject To Comment']
+        ?? data?.RECONCILIATION?.['Conditions Comment']
+        ?? data?.RECONCILIATION?.['Subject To Comment']
+        ?? allData?.RECONCILIATION?.['Conditions Comment']
+        ?? allData?.RECONCILIATION?.['Subject To Comment']
+        ?? allData?.['Conditions Comment']
+        ?? allData?.['Subject To Comment']
+        ?? '';
+
+      if (isSubjectTo || String(conditionsCommentRaw || '').trim() !== '') {
+        if (!dynamicFields.includes('Conditions Comment')) {
+          if (conditionIndex !== -1) {
+            dynamicFields.splice(conditionIndex + 1, 0, 'Conditions Comment');
+          } else {
+            dynamicFields.push('Conditions Comment');
+          }
+        }
+      }
+    }
+
     return dynamicFields;
   };
   const cardHeaderColors = {
@@ -203,20 +246,33 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
       const invVal = data?.['Invoice Attached'] ?? data?.['Invoice Present'] ?? data?.CERTIFICATION?.['Invoice Attached'] ?? data?.CERTIFICATION?.['Invoice Present'] ?? data?.SUBJECT?.['Invoice Attached'] ?? data?.SUBJECT?.['Invoice Present'] ?? data?.INVOICE?.['Invoice Attached'] ?? allData?.['Invoice Attached'] ?? allData?.['Invoice Present'] ?? allData?.CERTIFICATION?.['Invoice Attached'] ?? allData?.CERTIFICATION?.['Invoice Present'] ?? allData?.SUBJECT?.['Invoice Attached'] ?? allData?.INVOICE?.['Invoice Attached'];
       if (invVal) return renderValue(invVal);
     }
-    const val = data?.[field] 
-      ?? data?.CONTRACT?.[field] 
-      ?? data?.NEIGHBORHOOD?.[field] 
-      ?? data?.IMPROVEMENTS?.[field] 
-      ?? data?.COST_APPROACH?.[field] 
-      ?? data?.INCOME_APPROACH?.[field] 
-      ?? data?.PUD_INFO?.[field] 
+    if (field === 'Conditions Comment' || field === 'Subject To Comment') {
+      const condVal = data?.['Conditions Comment']
+        ?? data?.['Subject To Comment']
+        ?? data?.RECONCILIATION?.['Conditions Comment']
+        ?? data?.RECONCILIATION?.['Subject To Comment']
+        ?? data?.Reconciliation?.['Conditions Comment']
+        ?? data?.Reconciliation?.['Subject To Comment']
+        ?? allData?.RECONCILIATION?.['Conditions Comment']
+        ?? allData?.RECONCILIATION?.['Subject To Comment']
+        ?? allData?.['Conditions Comment']
+        ?? allData?.['Subject To Comment'];
+      if (condVal !== undefined && condVal !== null) return renderValue(condVal);
+    }
+    const val = data?.[field]
+      ?? data?.CONTRACT?.[field]
+      ?? data?.NEIGHBORHOOD?.[field]
+      ?? data?.IMPROVEMENTS?.[field]
+      ?? data?.COST_APPROACH?.[field]
+      ?? data?.INCOME_APPROACH?.[field]
+      ?? data?.PUD_INFO?.[field]
       ?? data?.PROJECT_INFO?.[field]
       ?? data?.['Project Information']?.[field]
       ?? data?.PROJECT_ANALYSIS?.[field]
       ?? data?.['Project Analysis']?.[field]
       ?? data?.clean_data?.['Project Information']?.[field]
       ?? data?.clean_data?.['Project Analysis']?.[field]
-      ?? data?.SITE?.[field] 
+      ?? data?.SITE?.[field]
       ?? data?.SUBJECT?.[field]
       ?? data?.RECONCILIATION?.[field]
       ?? data?.Reconciliation?.[field]
@@ -255,6 +311,50 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
       const baseFieldPath = Array.isArray(field) ? field : [field];
       return onDataChange && onDataChange.length === 2 ? baseFieldPath : [id.replace('-section', '').toUpperCase(), ...baseFieldPath];
     })();
+
+    if (field === 'Conditions Comment' || field === 'Subject To Comment') {
+      return (
+        <div
+          key={field}
+          className={`subject-grid-item ${isHighlighted ? 'highlighted-field' : ''}`}
+          style={{
+            gridColumn: '1 / -1',
+            backgroundColor: '#fffbeb',
+            border: '1px solid #fde68a',
+            borderRadius: '8px',
+            padding: '10px 14px',
+            margin: '6px 0 10px 0',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+          }}
+        >
+          <span
+            className="field-label"
+            onClick={() => setEditingField && setEditingField(computedFieldPath)}
+            style={{ cursor: 'pointer', userSelect: 'none', color: '#b45309', fontWeight: 'bold', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}
+          >
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }}></span>
+            Subject To / Conditions Comment
+          </span>
+          <EditableField
+            fieldPath={computedFieldPath}
+            value={renderGridItemValue(field)}
+            onDataChange={onDataChange}
+            editingField={editingField}
+            setEditingField={setEditingField}
+            usePre={true}
+            isMissing={isItemMissing}
+            inputClassName="form-control form-control-sm field-value-pre"
+            isEditable={true}
+            allData={allData}
+            manualValidations={manualValidations}
+            handleManualValidation={handleManualValidation}
+            revisionHandlers={revisionHandlers}
+            showBlankValidation={showBlankValidation}
+            inputStyle={{ width: '100%', border: 'none', background: 'transparent', padding: 0, height: 'auto', resize: 'vertical', fontSize: '0.9rem', color: '#1f2937' }}
+          />
+        </div>
+      );
+    }
 
     return (
       <div key={field} className={`subject-grid-item ${isHighlighted ? 'highlighted-field' : ''}`}>
@@ -523,11 +623,11 @@ export const GridInfoCard = ({ id, title, fields, data, cardClass = 'bg-secondar
   const getImpValue = (keys) => {
     const keyList = Array.isArray(keys) ? keys : [keys];
     for (const key of keyList) {
-      const val = data?.IMPROVEMENTS?.[key] 
-        ?? data?.Improvements?.[key] 
-        ?? data?.[key] 
-        ?? allData?.IMPROVEMENTS?.[key] 
-        ?? allData?.Improvements?.[key] 
+      const val = data?.IMPROVEMENTS?.[key]
+        ?? data?.Improvements?.[key]
+        ?? data?.[key]
+        ?? allData?.IMPROVEMENTS?.[key]
+        ?? allData?.Improvements?.[key]
         ?? allData?.[key];
       if (val !== undefined && val !== null && String(val).trim() !== '') {
         return { value: val, actualKey: key };

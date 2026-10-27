@@ -2158,7 +2158,8 @@ function Subject({ defaultFormType }) {
       'FHA Case No.': data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number'] || data?.Subject?.['FHA Case No.'] || data?.Subject?.['FHA Case #'] || data?.Subject?.['FHA Case Number'] || data?.SUBJECT?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case #'] || data?.SUBJECT?.['FHA Case Number'] || '',
       'Prior service comment': data['Prior service comment'] || data['Prior Service Comment'] || data['Prior Service'] || '',
       'E&O': eoVal,
-      'Invoice Attached': invVal
+      'Invoice Attached': invVal,
+      'Conditions Comment': data?.['Conditions Comment'] || data?.RECONCILIATION?.['Conditions Comment'] || data?.['Subject To Comment'] || data?.RECONCILIATION?.['Subject To Comment'] || ''
     };
 
     generateValidationLogPDF({
@@ -2281,7 +2282,7 @@ function Subject({ defaultFormType }) {
         newData.INCOME_APPROACH = { ...newData.INCOME_APPROACH, [fieldKey]: value };
         newData[fieldKey] = value;
       }
-      if (reconciliationFields.includes(fieldKey)) {
+      if (reconciliationFields.includes(fieldKey) || fieldKey === 'Conditions Comment' || fieldKey === 'Subject To Comment') {
         if (!newData.RECONCILIATION) newData.RECONCILIATION = {};
         newData.RECONCILIATION = { ...newData.RECONCILIATION, [fieldKey]: value };
         newData[fieldKey] = value;

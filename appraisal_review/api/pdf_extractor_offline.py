@@ -113,6 +113,8 @@ RECONCILIATION_FIELDS = [
     'Income Approach (if developed) $',
     'Income Approach (if developed) $ Comment',
     'This appraisal is made "as is", subject to completion per plans and specifications on the basis of a hypothetical condition that the improvements have been completed, subject to the following repairs or alterations on the basis of a hypothetical condition that the repairs or alterations have been completed, or subject to the following required inspection based on the extraordinary assumption that the condition or deficiency does not require alteration or repair:',
+    'Conditions Comment',
+    'Subject To Comment',
     "opinion of the market value, as defined, of the real property that is the subject of this report is $",
     "as of"
 ]
@@ -3419,6 +3421,27 @@ def extract_page_2_sales_grid_and_reconciliation(page_p2, page_extra_comps=None,
     y_op_words = [w for w in words if 'opinion' in w['text'].lower() and w['top'] > y_ind + 30.0]
     y_op = y_op_words[0]['top'] if y_op_words else (y_ind + 90.0)
 
+    # Conditions / Subject To Comment extraction
+    y_base_words = [w for w in words if 'based' in w['text'].lower() and (y_ind + 30.0) < w['top'] <= (y_op + 5.0)]
+    y_comment_limit = y_base_words[0]['top'] if y_base_words else (y_op - 8.0 if y_op else y_ind + 80.0)
+
+    c_words = [w for w in words if 25 <= w['x0'] <= 580 and (y_ind + 48.0) <= w['top'] <= y_comment_limit]
+    c_words = [w for w in c_words if w['text'].lower() not in ['reconciliation', 'freddie', 'fannie', 'form', 'march', '2005', 'page', '1004', '70', 'uad', 'version']]
+    c_words.sort(key=lambda w: (round(w['top'] / 4.0) * 4.0, w['x0']))
+    raw_cond = " ".join(w['text'] for w in c_words).strip()
+
+    cleaned_cond = re.sub(
+        r'^(?:(?:This\s+appraisal\s+is\s+made|\"as\s+is\"|\"as\s+is,\"|subject\s+to\s+completion[^\n:]*|subject\s+to\s+the\s+following\s+repairs[^\n:]*|subject\s+to\s+the\s+following\s+required\s+inspection[^\n:]*|inspection\s+based\s+on\s+the\s+extraordinary\s+assumption\s+that\s+the\s+condition\s+or\s+deficiency\s+does\s+not\s+require\s+alteration\s+or\s+repair)\s*:?\s*)+',
+        '',
+        raw_cond,
+        flags=re.IGNORECASE
+    ).strip()
+    cleaned_cond = re.sub(r'^[:\s]+', '', cleaned_cond).strip()
+
+    recon["Conditions Comment"] = cleaned_cond
+    recon["Subject To Comment"] = cleaned_cond
+    recon["Reconciliation Conditions Comment"] = cleaned_cond
+
     w_final_val = [w['text'] for w in words if 30 <= w['x0'] <= 140 and y_op - 5 <= w['top'] <= y_op + 30 and re.search(r'^\d[\d,]*$', w['text']) and w['text'] not in ["1004", "70", "2005", "2006", "9/2011", "2", "6", "1", "3", "4", "5"]]
     v_val = w_final_val[0] if w_final_val else ""
     if not v_val:
@@ -6141,6 +6164,23 @@ def extract_fields_from_pdf_offline(pdf_path):
                 elif prop_a:
                     sales_grid["Subject"]["Address"] = f"{prop_a} {city} {state} {zip_c}".strip()
             data["SALES_GRID"] = sales_grid
+            if not recon.get("Conditions Comment") or "see attached" in recon.get("Conditions Comment", "").lower():
+                m_subj_narrative = re.search(
+                    r'(?:(?:Conditions\s+of\s+Appraisal|Subject\s+to\s+Conditions)\s*\n+|Subject\s+to\s*:\s*)([^\n]+(?:\n[^\n]+){1,5})',
+                    full_doc_text,
+                    re.IGNORECASE
+                )
+                if m_subj_narrative:
+                    narr_comm = m_subj_narrative.group(1).strip()
+                    narr_comm = re.split(r'(?:\n\s*(?:Based on a complete|COST APPROACH|INCOME APPROACH|APPRAISER|SIGNATURE)|\Z)', narr_comm, flags=re.IGNORECASE)[0].strip()
+                    if narr_comm:
+                        existing_c = recon.get("Conditions Comment", "").strip()
+                        if existing_c and "see attached" in existing_c.lower():
+                            recon["Conditions Comment"] = f"{existing_c} {narr_comm}"
+                        else:
+                            recon["Conditions Comment"] = narr_comm
+                        recon["Subject To Comment"] = recon["Conditions Comment"]
+                        recon["Reconciliation Conditions Comment"] = recon["Conditions Comment"]
             data["RECONCILIATION"] = recon
 
             data["INFO_OF_SALES"] = extract_info_of_sales_section(p2, full_doc_text)
