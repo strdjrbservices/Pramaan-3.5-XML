@@ -734,6 +734,7 @@ function Subject({ defaultFormType }) {
   const [engagementLetterCompareResult, setEngagementLetterCompareResult] = useState(null);
   const [engagementLetterCompareError, setEngagementLetterCompareError] = useState('');
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [isHtmlReviewLoading, setIsHtmlReviewLoading] = useState(false);
   const [htmlExtractionTimer, setHtmlExtractionTimer] = useState(0);
   const htmlExtractionTimerRef = useRef(null);
@@ -2577,17 +2578,32 @@ function Subject({ defaultFormType }) {
 
 
   useEffect(() => {
-    const checkScrollTop = () => {
-      if (!showScrollTop && window.pageYOffset > 400) {
-        setShowScrollTop(true);
-      } else if (showScrollTop && window.pageYOffset <= 400) {
-        setShowScrollTop(false);
-      }
+    const handleScroll = () => {
+      const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+      const windowHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      const scrollHeight = Math.max(
+        document.body.scrollHeight,
+        document.documentElement.scrollHeight
+      );
+
+      setShowScrollTop(scrollY > 300);
+
+      const isScrollable = scrollHeight > windowHeight + 200;
+      const isNearBottom = scrollY + windowHeight >= scrollHeight - 300;
+      setShowScrollBottom(isScrollable && !isNearBottom);
     };
 
-    window.addEventListener('scroll', checkScrollTop);
-    return () => window.removeEventListener('scroll', checkScrollTop);
-  }, [showScrollTop]);
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleScroll, { passive: true });
+    const timer = setTimeout(handleScroll, 500);
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+      clearTimeout(timer);
+    };
+  }, [data]);
 
   useEffect(() => {
     setUsername(localStorage.getItem('username') || 'Unknown User');
@@ -2595,6 +2611,18 @@ function Subject({ defaultFormType }) {
 
   const scrollTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const scrollBottom = () => {
+    const maxScroll = Math.max(
+      document.body.scrollHeight,
+      document.documentElement.scrollHeight,
+      document.body.offsetHeight,
+      document.documentElement.offsetHeight,
+      document.body.clientHeight,
+      document.documentElement.clientHeight
+    );
+    window.scrollTo({ top: maxScroll, behavior: 'smooth' });
   };
 
   const formatTimeHHMMSS = (totalSeconds = 0) => {
@@ -8371,13 +8399,45 @@ function Subject({ defaultFormType }) {
           </Dialog>
         )}
       </div>
-      {
-        showScrollTop && (
-          <Fab color="primary" size="small" onClick={scrollTop} sx={{ position: 'fixed', bottom: 16, right: 16, zIndex: 1200 }}>
-            <KeyboardArrowUpIcon />
-          </Fab>
-        )
-      }
+      <Box
+        sx={{
+          position: 'fixed',
+          bottom: 16,
+          right: 16,
+          zIndex: 1200,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1.5,
+          alignItems: 'center',
+        }}
+      >
+        {showScrollTop && (
+          <Tooltip title="Go to top" placement="left">
+            <Fab
+              color="primary"
+              size="small"
+              onClick={scrollTop}
+              aria-label="scroll to top"
+              sx={{ boxShadow: 3 }}
+            >
+              <KeyboardArrowUpIcon />
+            </Fab>
+          </Tooltip>
+        )}
+        {showScrollBottom && (
+          <Tooltip title="Go to bottom" placement="left">
+            <Fab
+              color="primary"
+              size="small"
+              onClick={scrollBottom}
+              aria-label="scroll to bottom"
+              sx={{ boxShadow: 3 }}
+            >
+              <KeyboardArrowDownIcon />
+            </Fab>
+          </Tooltip>
+        )}
+      </Box>
       <NotepadDialog
         open={isNotepadOpen}
         onClose={() => setIsNotepadOpen(false)}
