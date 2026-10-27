@@ -503,7 +503,7 @@ export const checkUspapReportingOption = (field, text, allData) => {
                 message: "Restricted Appraisal Report is selected: Explanation comment is required under Comments on Appraisal and Report Identification."
             };
         }
-    } else if (isAppraisalReport || valLower.includes('present')) {
+    } else if (isAppraisalReport) {
         return {
             isMatch: true,
             message: "validated"

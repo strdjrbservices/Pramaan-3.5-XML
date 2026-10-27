@@ -401,8 +401,6 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'This report was prepared under the following USPAP reporting option: Appraisal Report A written report prepared under Standards Rule 2-2(a). Restricted Appraisal Report A written report prepared under Standards Rule 2-2(b).': [checkUspapReportingOption],
     'This report was prepared under the following USPAP reporting option:': [checkUspapReportingOption],
     'USPAP Reporting Option': [checkUspapReportingOption],
-    'USPAP / Appraisal and Report Identification': [checkUspapReportingOption],
-    'Appraisal and Report Identification': [checkUspapReportingOption],
     'This Report is one of the following types:': [checkUspapReportingOption],
 
     // General Validations

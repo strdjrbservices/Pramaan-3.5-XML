@@ -33,7 +33,17 @@ export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, 
       field === 'USPAP / Appraisal and Report Identification' ||
       field === 'Appraisal and Report Identification' ||
       field === 'USPAP Addendum' ||
-      field === 'USPAP' ||
+      field === 'USPAP'
+    ) {
+      candidateKeys.push(
+        'USPAP / Appraisal and Report Identification',
+        'Appraisal and Report Identification',
+        'USPAP Addendum',
+        'USPAP',
+        'has_uspap_identification',
+        'uspap_identification_presence'
+      );
+    } else if (
       field === 'USPAP Reporting Option' ||
       (typeof field === 'string' && field.includes('USPAP reporting option'))
     ) {
@@ -41,12 +51,7 @@ export const SubjectInfoCard = ({ id, title, fields, data, extractionAttempted, 
         'This report was prepared under the following USPAP reporting option:\nAppraisal Report A written report prepared under Standards Rule 2-2(a).\nRestricted Appraisal Report A written report prepared under Standards Rule 2-2(b).',
         'This report was prepared under the following USPAP reporting option:',
         'USPAP Reporting Option',
-        'USPAP / Appraisal and Report Identification',
-        'Appraisal and Report Identification',
-        'USPAP Addendum',
-        'USPAP',
-        'has_uspap_identification',
-        'uspap_identification_presence'
+        'USPAP Reporting Options'
       );
     }
 

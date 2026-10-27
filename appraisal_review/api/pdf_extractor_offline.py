@@ -6540,8 +6540,8 @@ def extract_fields_from_pdf_offline(pdf_path):
             data["USPAP Reporting Options"] = uspap_val_to_use
             data["Comments on Appraisal and Report Identification"] = uspap_comm
             data["Restricted Appraisal Report Comment"] = uspap_comm
-            data["USPAP / Appraisal and Report Identification"] = uspap_val_to_use
-            data["Appraisal and Report Identification"] = uspap_val_to_use
+            data["USPAP / Appraisal and Report Identification"] = uspap_present_pdf
+            data["Appraisal and Report Identification"] = uspap_present_pdf
             data["USPAP Addendum"] = uspap_present_pdf
             data["USPAP Present"] = "Yes" if has_uspap_pdf else "No"
             data["has_uspap_identification"] = has_uspap_pdf
@@ -6550,16 +6550,16 @@ def extract_fields_from_pdf_offline(pdf_path):
                 data["SUBJECT"][uspap_long_key] = uspap_val_to_use
                 data["SUBJECT"]["USPAP Reporting Option"] = uspap_val_to_use
                 data["SUBJECT"]["Comments on Appraisal and Report Identification"] = uspap_comm
-                data["SUBJECT"]["USPAP / Appraisal and Report Identification"] = uspap_val_to_use
-                data["SUBJECT"]["Appraisal and Report Identification"] = uspap_val_to_use
+                data["SUBJECT"]["USPAP / Appraisal and Report Identification"] = uspap_present_pdf
+                data["SUBJECT"]["Appraisal and Report Identification"] = uspap_present_pdf
                 data["SUBJECT"]["USPAP Addendum"] = uspap_present_pdf
                 data["SUBJECT"]["has_uspap_identification"] = has_uspap_pdf
             if "Subject" in data and isinstance(data["Subject"], dict):
                 data["Subject"][uspap_long_key] = uspap_val_to_use
                 data["Subject"]["USPAP Reporting Option"] = uspap_val_to_use
                 data["Subject"]["Comments on Appraisal and Report Identification"] = uspap_comm
-                data["Subject"]["USPAP / Appraisal and Report Identification"] = uspap_val_to_use
-                data["Subject"]["Appraisal and Report Identification"] = uspap_val_to_use
+                data["Subject"]["USPAP / Appraisal and Report Identification"] = uspap_present_pdf
+                data["Subject"]["Appraisal and Report Identification"] = uspap_present_pdf
                 data["Subject"]["USPAP Addendum"] = uspap_present_pdf
                 data["Subject"]["has_uspap_identification"] = has_uspap_pdf
             if "CERTIFICATION" in data and isinstance(data["CERTIFICATION"], dict):

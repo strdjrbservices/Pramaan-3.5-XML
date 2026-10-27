@@ -3680,8 +3680,6 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         "This report was prepared under the following USPAP reporting option:": uspap_reporting_option,
         "Comments on Appraisal and Report Identification": uspap_comment,
         "Restricted Appraisal Report Comment": uspap_comment,
-        "USPAP / Appraisal and Report Identification": uspap_reporting_option,
-        "Appraisal and Report Identification": uspap_reporting_option,
         "ADU File Check": adu_check,
         "Smoke detector comment": smoke_comment,
         "CO detector comment": co_comment,
