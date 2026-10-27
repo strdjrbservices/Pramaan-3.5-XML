@@ -46,6 +46,7 @@ import {
   AccessTime as AccessTimeIcon
 } from '@mui/icons-material';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import VisibilityTwoToneIcon from '@mui/icons-material/VisibilityTwoTone';
 import { Button, Stack, IconButton, Tooltip, Paper, Box, Typography, LinearProgress, Alert, Snackbar, Fade, CircularProgress, useTheme, CssBaseline, Dialog, DialogTitle, DialogContent, DialogActions, Grid, Fab, Autocomplete, TextField, Select, MenuItem, FormControl, InputLabel, InputAdornment, Chip, Popover, Divider } from '@mui/material';
 import jsPDF from 'jspdf';
@@ -850,6 +851,12 @@ function Subject({ defaultFormType }) {
   const isUnpaidOkLender = unpaidLenderStatus.isUnpaidOkLender;
   const unpaidLenderComment = unpaidLenderStatus.comment;
   const unpaidLenderName = unpaidLenderStatus.matchedLender;
+
+  const eoVal = data?.['E&O'] ?? data?.['E&O Present'] ?? data?.CERTIFICATION?.['E&O'] ?? data?.CERTIFICATION?.['E&O Present'] ?? (data?.['E&O Insurance'] || data?.CERTIFICATION?.['E&O Insurance'] ? 'Present' : '') ?? 'Absent';
+  const isEoPresent = String(eoVal).trim().toLowerCase() === 'present';
+
+  const invVal = data?.['Invoice Attached'] ?? data?.['Invoice Present'] ?? data?.CERTIFICATION?.['Invoice Attached'] ?? data?.CERTIFICATION?.['Invoice Present'] ?? data?.SUBJECT?.['Invoice Attached'] ?? data?.Subject?.['Invoice Attached'] ?? (data?.INVOICE?.['Invoice Attached'] || data?.INVOICE ? 'Yes' : '') ?? 'No';
+  const isInvoiceAttached = ['yes', 'true', 'attached', 'included', '1', 'present'].includes(String(invVal).trim().toLowerCase());
 
   const buildValidationRegistry = () => {
     const registry = {
@@ -2149,7 +2156,9 @@ function Subject({ defaultFormType }) {
       ...data,
       'Unpaid OK': data['Unpaid OK'] || (isUnpaidOkLender ? (unpaidLenderComment || `Unpaid lender found in the list:- ${unpaidLenderName}`) : (unpaidLenderStatus.lender ? 'Unpaid OK cannot proceed with review (Check lender requirement)' : 'Check lender requirement')),
       'FHA Case No.': data['FHA Case No.'] || data['FHA Case #'] || data['FHA Case Number'] || data?.Subject?.['FHA Case No.'] || data?.Subject?.['FHA Case #'] || data?.Subject?.['FHA Case Number'] || data?.SUBJECT?.['FHA Case No.'] || data?.SUBJECT?.['FHA Case #'] || data?.SUBJECT?.['FHA Case Number'] || '',
-      'Prior service comment': data['Prior service comment'] || data['Prior Service Comment'] || data['Prior Service'] || ''
+      'Prior service comment': data['Prior service comment'] || data['Prior Service Comment'] || data['Prior Service'] || '',
+      'E&O': eoVal,
+      'Invoice Attached': invVal
     };
 
     generateValidationLogPDF({
@@ -2241,6 +2250,23 @@ function Subject({ defaultFormType }) {
           ...(newData['Comparable Rental Data'][rentKey] || {}),
           [fieldKey]: value
         };
+      }
+
+      if (fieldKey === 'E&O' || fieldKey === 'E&O Present') {
+        if (!newData.CERTIFICATION) newData.CERTIFICATION = {};
+        newData.CERTIFICATION['E&O'] = value;
+        newData.CERTIFICATION['E&O Present'] = value;
+        newData['E&O'] = value;
+        newData['E&O Present'] = value;
+      }
+      if (fieldKey === 'Invoice Attached' || fieldKey === 'Invoice Present') {
+        if (!newData.CERTIFICATION) newData.CERTIFICATION = {};
+        if (!newData.SUBJECT) newData.SUBJECT = {};
+        if (!newData.Subject) newData.Subject = {};
+        newData.CERTIFICATION['Invoice Attached'] = value;
+        newData.SUBJECT['Invoice Attached'] = value;
+        newData.Subject['Invoice Attached'] = value;
+        newData['Invoice Attached'] = value;
       }
 
       if (rentScheduleReconciliationFields.includes(fieldKey)) {
@@ -7692,6 +7718,152 @@ function Subject({ defaultFormType }) {
                             isEditable={isEditable}
                             allData={data}
                           />
+                        </Paper>
+                      </Grid>
+
+                      {/* E&O - Insurance Compliance Check */}
+                      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: 1.5,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            height: '100%',
+                            borderColor: isEoPresent ? 'success.main' : 'warning.main',
+                            bgcolor: isEoPresent ? '#f0fdf4' : '#fff5f5'
+                          }}
+                        >
+                          <Box sx={{ overflow: 'hidden', flexGrow: 1, mr: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                              <Typography
+                                variant="caption"
+                                color="secondary.main"
+                                fontWeight="bold"
+                                noWrap
+                                sx={{ cursor: 'pointer' }}
+                                onClick={() => setEditingField && setEditingField(['E&O'])}
+                              >
+                                E&O
+                              </Typography>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '2px 8px',
+                                  borderRadius: '12px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 'bold',
+                                  backgroundColor: isEoPresent ? '#e8f5e9' : '#ffebee',
+                                  color: isEoPresent ? '#1b5e20' : '#c62828',
+                                  border: `1px solid ${isEoPresent ? '#a5d6a7' : '#ef9a9a'}`
+                                }}
+                              >
+                                {isEoPresent ? '● Present' : '○ Absent'}
+                              </span>
+                            </Box>
+                            <EditableField
+                              fieldPath={['E&O']}
+                              value={eoVal}
+                              onDataChange={(path, val) => {
+                                handleDataChange(['E&O'], val);
+                                handleDataChange(['CERTIFICATION', 'E&O'], val);
+                                handleDataChange(['E&O Present'], val);
+                                handleDataChange(['CERTIFICATION', 'E&O Present'], val);
+                              }}
+                              editingField={editingField}
+                              setEditingField={setEditingField}
+                              isEditable={isEditable}
+                              allData={data}
+                              manualValidations={manualValidations}
+                              handleManualValidation={handleManualValidation}
+                            />
+                          </Box>
+                          <Tooltip title="Scroll to Appraiser / E&O Insurance Section">
+                            <IconButton
+                              onClick={() => {
+                                const el = document.getElementById('appraiser-section');
+                                if (el) el.scrollIntoView({ behavior: 'smooth' });
+                              }}
+                              size="small"
+                              color="primary"
+                            >
+                              <VerifiedUserIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Paper>
+                      </Grid>
+
+                      {/* Invoice Attached - Compliance Check */}
+                      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: 1.5,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            height: '100%',
+                            borderColor: isInvoiceAttached ? 'success.main' : 'warning.main',
+                            bgcolor: isInvoiceAttached ? '#f0fdf4' : '#fff5f5'
+                          }}
+                        >
+                          <Box sx={{ overflow: 'hidden', flexGrow: 1, mr: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                              <Typography
+                                variant="caption"
+                                color="secondary.main"
+                                fontWeight="bold"
+                                noWrap
+                                sx={{ cursor: 'pointer' }}
+                                onClick={() => setEditingField && setEditingField(['Invoice Attached'])}
+                              >
+                                Invoice Attached
+                              </Typography>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '2px 8px',
+                                  borderRadius: '12px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 'bold',
+                                  backgroundColor: isInvoiceAttached ? '#e8f5e9' : '#ffebee',
+                                  color: isInvoiceAttached ? '#1b5e20' : '#c62828',
+                                  border: `1px solid ${isInvoiceAttached ? '#a5d6a7' : '#ef9a9a'}`
+                                }}
+                              >
+                                {isInvoiceAttached ? '● Attached' : '○ Not Attached'}
+                              </span>
+                            </Box>
+                            <EditableField
+                              fieldPath={['Invoice Attached']}
+                              value={invVal}
+                              onDataChange={(path, val) => {
+                                handleDataChange(['Invoice Attached'], val);
+                                handleDataChange(['CERTIFICATION', 'Invoice Attached'], val);
+                                handleDataChange(['SUBJECT', 'Invoice Attached'], val);
+                                handleDataChange(['Subject', 'Invoice Attached'], val);
+                              }}
+                              editingField={editingField}
+                              setEditingField={setEditingField}
+                              isEditable={isEditable}
+                              allData={data}
+                              manualValidations={manualValidations}
+                              handleManualValidation={handleManualValidation}
+                            />
+                          </Box>
+                          <Tooltip title="Scroll to Appraiser / Invoice Section">
+                            <IconButton
+                              onClick={() => {
+                                const el = document.getElementById('appraiser-section');
+                                if (el) el.scrollIntoView({ behavior: 'smooth' });
+                              }}
+                              size="small"
+                              color="primary"
+                            >
+                              <ReceiptLongIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         </Paper>
                       </Grid>
                     </Grid>
