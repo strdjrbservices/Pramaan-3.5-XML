@@ -38,6 +38,10 @@ const ComparableRentScheduleSection = ({
       aliases.push('Other Adjustment', 'Other: Adj', 'Other Adj');
     } else if (field === 'Other Adjustment') {
       aliases.push('Other: Adjustment', 'Other: Adj', 'Other Adj');
+    } else if (field === 'Design and Appeal') {
+      aliases.push('Design & Appeal', 'Design (Style)', 'Design and Appeal (Subject)', 'Design/Appeal');
+    } else if (field === 'Design and Appeal Adjustment') {
+      aliases.push('Design and Appeal Adj', 'Design & Appeal Adjustment', 'Design & Appeal Adj', 'Design (Style) Adjustment');
     } else if (field === 'Other (e.g., basement, etc.)') {
       aliases.push(
         'Other (e.g., basement)',
@@ -55,6 +59,30 @@ const ComparableRentScheduleSection = ({
         'Other (e.g., basement) Adj',
         'Other Basement Adj'
       );
+    } else if (field === 'Location/View') {
+      aliases.push('Location / View', 'Location', 'View');
+    } else if (field === 'Location/View Adjustment') {
+      aliases.push('Location / View Adjustment', 'Location Adjustment', 'View Adjustment', 'Location/View Adj');
+    } else if (field === 'Age') {
+      aliases.push('Actual Age', 'Age (Yrs)', 'Age (Years)');
+    } else if (field === 'Age Adjustment') {
+      aliases.push('Actual Age Adjustment', 'Age Adj');
+    } else if (field === 'Condition') {
+      aliases.push('Overall Condition', 'Condition Rating');
+    } else if (field === 'Condition Adjustment') {
+      aliases.push('Overall Condition Adjustment', 'Condition Adj');
+    } else if (field === 'Room Count Total') {
+      aliases.push('Total Rooms', 'Total', 'Rooms', 'Above Grade Room Count Total');
+    } else if (field === 'Room Count Bdrms') {
+      aliases.push('Bedrooms', 'Bdrms', 'Bedrooms Above Grade');
+    } else if (field === 'Room Count Baths') {
+      aliases.push('Baths', 'Bathrooms', 'Bath(s)', 'Bath(s) Above Grade');
+    } else if (field === 'Room Count Total Adjustment') {
+      aliases.push('Room Count Adjustment', 'Total Rooms Adjustment', 'Bedrooms Adjustment', 'Baths Adjustment');
+    } else if (field === 'Gross Living Area') {
+      aliases.push('Gross Living Area (GLA)', 'Square Feet of Gross Living Area Above Grade', 'GLA');
+    } else if (field === 'Gross Living Area Adjustment') {
+      aliases.push('Gross Living Area Adj', 'GLA Adjustment');
     }
     return [...new Set(aliases)];
   };

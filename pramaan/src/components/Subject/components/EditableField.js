@@ -4,7 +4,7 @@ import { checkTaxYear, checkRETaxes, checkSpecialAssessments, checkPUD, checkHOA
 import { checkZoning, checkNonconformingComment, checkZoningDescription, checkSpecificZoningClassification, checkHighestAndBestUse, checkFemaInconsistency, checkFemaFieldsConsistency, checkSiteSectionBlank, checkArea, checkYesNoWithComment, checkUtilities } from '../../../validations/siteValidation';
 import { checkVersion1UtilitySubfields, checkZoningClassificationDescription, checkSiteSizesConsistency, checkVersion1EffectiveDatesConsistency, checkAboveGradeFinishedAreaConsistency, checkYearBuiltConsistency, checkAppraiserNameConsistency, checkVersion1ComparableListingStatusConsistency, checkVersion1ComparableTransferTermsConsistency, checkVersion1YearBuiltAdjustmentConsistency, checkVersion1ConstructionMethodAdjustmentConsistency, checkVersion1SiteSizeAdjustmentConsistency, checkVersion1LocationAdjustmentConsistency, checkVersion1AttachedDetachedAdjustmentConsistency, checkVersion1HeatingAdjustmentConsistency, checkVersion1AmenitiesAdjustmentConsistency, checkVersion1QualityConditionConsistency, checkVersion1AreaAdjustmentConsistency, checkVersion1OverallQualityConditionAdjustmentConsistency, checkVersion1VehicleStorageAdjustmentConsistency } from '../Version1/version1Validation';
 import { checkHousingPriceAndAge, checkNeighborhoodUsageConsistency, checkSingleChoiceFields, checkNeighborhoodBoundaries, checkNeighborhoodFieldsNotBlank, checkOtherLandUseComment, checkOtherLandUse, checkSearchCriteriaDescription, checkNeighborhoodListPricesConsistency, checkNeighborhoodSalePricesConsistency, checkLocation, checkBuiltUp, checkGrowth, checkPropertyValues, checkDemandSupply } from '../../../validations/neighborhoodValidation';
-import { checkUnits, checkAccessoryUnit, checkNumberOfStories, checkPropertyType, checkConstructionStatusAndReconciliation, checkDesignStyle, checkYearBuilt, checkEffectiveAge, checkAdditionalFeatures, checkPropertyConditionDescription, checkPhysicalDeficienciesImprovements, checkNeighborhoodConformity, checkFoundationType, checkBasementDetails, checkEvidenceOf, checkMaterialCondition, checkHeatingFuel, checkCarStorage, checkImprovementsFieldsNotBlank } from '../../../validations/improvementsValidation';
+import { checkUnits, checkAccessoryUnit, checkNumberOfStories, checkPropertyType, checkConstructionStatusAndReconciliation, checkDesignStyle, checkSubjectDesignStyleConsistency, checkYearBuilt, checkEffectiveAge, checkAdditionalFeatures, checkPropertyConditionDescription, checkPhysicalDeficienciesImprovements, checkNeighborhoodConformity, checkFoundationType, checkBasementDetails, checkEvidenceOf, checkMaterialCondition, checkHeatingFuel, checkCarStorage, checkImprovementsFieldsNotBlank } from '../../../validations/improvementsValidation';
 import { checkConditionAdjustment, checkBedroomsAdjustment, checkBathsAdjustment, checkQualityOfConstructionAdjustment, checkProximityToSubject, checkSiteAdjustment, checkGrossLivingAreaAdjustment, checkSubjectAddressInconsistency, checkDesignStyleAdjustment, checkFunctionalUtilityAdjustment, checkEnergyEfficientItemsAdjustment, checkPorchPatioDeckAdjustment, checkHeatingCoolingAdjustment, checkDataSourceDOM, checkActualAgeAdjustment, checkLeaseholdFeeSimpleConsistency, checkDateOfSale, checkLocationConsistency, checkSalePrice, checkSubjectAgeConsistency, checkViewAdjustment } from '../../../validations/salesComparisonValidation';
 import { checkFinalValueConsistency, checkCostApproachDeveloped, checkAppraisalCondition, checkAsOfDate, checkFinalValueBracketing, checkReconciliationFieldsNotBlank, checkFiveValuesConsistency, checkEffectiveDatesConsistency, checkPropertyQualityConsistency, checkPropertyConditionConsistency, checkHbuConsistency, checkCostApproachConsistency, checkAttachmentTypeConsistency, checkPropertyRightsConsistency, checkAppraiserCredentialLevelConsistency } from '../../../validations/reconciliationValidation';
 import { checkLenderAddressInconsistency, checkLenderNameInconsistency, checkUnpaidLender, checkAppraiserFieldsNotBlank, checkLicenseNumberConsistency as checkAppraiserLicenseConsistency, checkDateGreaterThanToday, checkClientNameHtmlConsistency, checkClientAddressHtmlConsistency, checkBorrowerHtmlConsistency, checkPropertyAddressHtmlConsistency, checkAppraiserVendorNameConsistency, checkSupervisoryAppraiserFields, checkAppraiserLicenseGroup } from '../../../validations/appraiserLenderValidation';
@@ -12,7 +12,28 @@ import { checkCostNew, checkSourceOfCostData, checkIndicatedValueByCostApproach,
 import { checkResearchHistory, checkSubjectPriorSales, checkComparablePriorSales, checkDataSourceNotBlank, checkEffectiveDateIsCurrentYear, checkSubjectPriorSaleDate, checkCompPriorSaleDate } from '../../../validations/salesHistoryValidation';
 import { checkStateRequirements } from '../../../validations/stateValidation';
 import { checkLenderAddressInconsistency as checkLenderAddressHtmlInconsistency, checkSubjectLenderNameVsHtml, checkBorrowerNameVsHtml } from '../../../validations/htmldatavaliadtion';
-import { checkLeaseDates, checkOtherBasement, checkSubjectMonthlyRental, checkSubjectUtilities, checkSubjectFurniture, checkSubjectAdjustedMonthlyRent } from '../../../validations/rentScheduleValidation';
+import {
+  checkLeaseDates,
+  checkOtherBasement,
+  checkSubjectMonthlyRental,
+  checkSubjectUtilities,
+  checkSubjectFurniture,
+  checkSubjectAdjustedMonthlyRent,
+  checkRentSubjectDesignStyleConsistency,
+  checkRentDesignAppealAdjustment,
+  checkRentSubjectLocationViewConsistency,
+  checkRentLocationViewAdjustment,
+  checkRentSubjectAgeConsistency,
+  checkRentAgeAdjustment,
+  checkRentSubjectConditionConsistency,
+  checkRentConditionAdjustment,
+  checkRentSubjectRoomCountConsistency,
+  checkRentRoomCountAdjustment,
+  checkRentSubjectGrossLivingAreaConsistency,
+  checkRentGrossLivingAreaAdjustment,
+  checkRentSubjectOtherConsistency,
+  checkRentOtherAdjustment
+} from '../../../validations/rentScheduleValidation';
 import { checkIncomeApproachFieldsNotBlank, checkIncomeApproach1007Required, INCOME_APPROACH_1007_REQUIRED_FIELDS } from '../../../validations/incomeApproachValidation';
 import { checkPudInformationFieldsNotBlank, checkPudControlAndFees } from '../../../validations/pudInformationValidation';
 import { checkMarketConditionsFieldsNotBlank } from '../../../validations/marketConditionsValidation';
@@ -216,7 +237,11 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     '# of Stories': [checkNumberOfStories],
     'Type': [checkPropertyType],
     'Existing/Proposed/Under Const.': [checkConstructionStatusAndReconciliation],
-    'Design (Style)': [checkDesignStyle, checkDesignStyleAdjustment],
+    'Design (Style)': [checkDesignStyle, checkSubjectDesignStyleConsistency, checkDesignStyleAdjustment],
+    'Design and Appeal': [checkRentSubjectDesignStyleConsistency, checkRentDesignAppealAdjustment],
+    'Design and Appeal Adjustment': [checkRentDesignAppealAdjustment],
+    'Design & Appeal': [checkRentSubjectDesignStyleConsistency, checkRentDesignAppealAdjustment],
+    'Design & Appeal Adjustment': [checkRentDesignAppealAdjustment],
     'Year Built': [checkYearBuilt, checkYearBuiltConsistency, checkVersion1YearBuiltAdjustmentConsistency],
     'Year Built Adjustment': [checkVersion1YearBuiltAdjustmentConsistency],
     'Construction Method': [checkVersion1ConstructionMethodAdjustmentConsistency],
@@ -272,13 +297,18 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
 
     // Sales Comparison Validations
     'Address': [checkSubjectAddressInconsistency],
-    'Condition': [checkConditionAdjustment], 'Condition Adjustment': [checkConditionAdjustment],
+    'Condition': [checkRentSubjectConditionConsistency, checkRentConditionAdjustment, checkConditionAdjustment], 'Condition Adjustment': [checkRentConditionAdjustment, checkConditionAdjustment],
+    'Age': [checkRentSubjectAgeConsistency, checkRentAgeAdjustment, checkActualAgeAdjustment, checkSubjectAgeConsistency], 'Age Adjustment': [checkRentAgeAdjustment, checkActualAgeAdjustment],
     'Bedrooms': [checkBedroomsAdjustment], 'Bedrooms Adjustment': [checkBedroomsAdjustment],
     'Baths': [checkBathsAdjustment], 'Baths Adjustment': [checkBathsAdjustment],
+    'Room Count Total': [checkRentSubjectRoomCountConsistency, checkRentRoomCountAdjustment],
+    'Room Count Total Adjustment': [checkRentRoomCountAdjustment],
+    'Room Count Bdrms': [checkRentSubjectRoomCountConsistency, checkRentRoomCountAdjustment, checkBedroomsAdjustment],
+    'Room Count Baths': [checkRentSubjectRoomCountConsistency, checkRentRoomCountAdjustment, checkBathsAdjustment],
     'Quality of Construction': [checkQualityOfConstructionAdjustment], 'Quality of Construction Adjustment': [checkQualityOfConstructionAdjustment],
     'Proximity to Subject': [checkProximityToSubject],
     'Site': [checkSiteAdjustment, checkSiteSizesConsistency], 'Site Adjustment': [checkSiteAdjustment],
-    'Gross Living Area': [checkGrossLivingAreaAdjustment], 'Gross Living Area Adjustment': [checkGrossLivingAreaAdjustment],
+    'Gross Living Area': [checkRentSubjectGrossLivingAreaConsistency, checkRentGrossLivingAreaAdjustment, checkGrossLivingAreaAdjustment], 'Gross Living Area Adjustment': [checkRentGrossLivingAreaAdjustment, checkGrossLivingAreaAdjustment],
     'Design (Style) Adjustment': [checkDesignStyleAdjustment],
     'Functional Utility': [checkFunctionalUtilityAdjustment], 'Functional Utility Adjustment': [checkFunctionalUtilityAdjustment],
     'Energy Efficient Items': [checkEnergyEfficientItemsAdjustment], 'Energy Efficient Items Adjustment': [checkEnergyEfficientItemsAdjustment],
@@ -290,6 +320,7 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'Leasehold/Fee Simple': [checkLeaseholdFeeSimpleConsistency], 'Leasehold/Fee Simple Adjustment': [checkLeaseholdFeeSimpleConsistency],
     'Date of Sale/Time': [checkDateOfSale],
     'Location': [checkLocation, checkLocationConsistency, checkNeighborhoodFieldsNotBlank, checkVersion1LocationAdjustmentConsistency], 'Location Adjustment': [checkLocationConsistency, checkVersion1LocationAdjustmentConsistency],
+    'Location/View': [checkRentSubjectLocationViewConsistency, checkRentLocationViewAdjustment], 'Location/View Adjustment': [checkRentLocationViewAdjustment],
 
     // Rent Schedule Validations
     'Date Lease Begins': [checkLeaseDates],
@@ -299,6 +330,10 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'Furniture': [checkSubjectFurniture],
     'Adjusted Monthly Rent': [checkSubjectAdjustedMonthlyRent],
     'Other (e.g., basement, etc.)': [checkOtherBasement],
+    'Other:': [checkRentSubjectOtherConsistency, checkRentOtherAdjustment],
+    'Other: Adjustment': [checkRentOtherAdjustment],
+    'Other': [checkRentSubjectOtherConsistency, checkRentOtherAdjustment],
+    'Other Adjustment': [checkRentOtherAdjustment],
     'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF': [checkRentScheduleAsOfDateConsistency],
     'TO BE $': [checkRentScheduleToBeAmountConsistency],
 

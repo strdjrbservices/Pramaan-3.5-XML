@@ -261,6 +261,144 @@ export const checkDesignStyle = (field, text, allData, fieldPath, saleName) => {
     return { isMatch: true };
 };
 
+/**
+ * Extracts architectural style from a UAD-formatted Design (Style) string.
+ * Example: 'DT1;R Ranch'   -> { prefix: 'DT1', style: 'R Ranch' }
+ * Example: 'DT1.5;Colonial' -> { prefix: 'DT1.5', style: 'Colonial' }
+ * Example: 'R Ranch'       -> { prefix: '', style: 'R Ranch' }
+ */
+export const parseDesignStyle = (rawVal) => {
+    const str = String(rawVal || '').trim();
+    if (!str) return { prefix: '', style: '' };
+
+    if (str.includes(';')) {
+        const parts = str.split(';');
+        return {
+            prefix: parts[0].trim(),
+            style: parts.slice(1).join(';').trim()
+        };
+    }
+    return { prefix: '', style: str };
+};
+
+const normalizeDesignForCompare = (val) =>
+    String(val || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+
+/**
+ * Validates consistency between:
+ * 1) IMPROVEMENTS -> Design (Style) (e.g., 'R Ranch')
+ * 2) SALES COMPARISON APPROACH -> Subject -> Design (Style) (e.g., 'DT1;R Ranch')
+ */
+export const checkSubjectDesignStyleConsistency = (field, text, allData, fieldPath, saleName) => {
+    if (field !== 'Design (Style)') return null;
+    // Only validate the Subject property (comparable sales use checkDesignStyleAdjustment)
+    if (saleName && saleName !== 'Subject') return null;
+    if (!allData) return null;
+
+    // 1. Retrieve Improvements Design (Style)
+    const isImprovementsField = fieldPath && (fieldPath[0] === 'IMPROVEMENTS' || fieldPath[0] === 'Improvements');
+    const impRaw = isImprovementsField && text !== undefined && text !== null
+        ? String(typeof text === 'object' ? (text.value ?? '') : text).trim()
+        : String(
+            allData.IMPROVEMENTS?.['Design (Style)'] ||
+            allData.Improvements?.['Design (Style)'] ||
+            allData.clean_data?.IMPROVEMENTS?.['Design (Style)'] ||
+            allData.clean_data?.Improvements?.['Design (Style)'] ||
+            allData['Design (Style)'] ||
+            ''
+        ).trim();
+
+    // 2. Retrieve Sales Comparison Grid (Subject) Design (Style)
+    const isGridSubjectField = saleName === 'Subject' || (fieldPath && fieldPath[0] === 'Subject');
+    const gridRaw = isGridSubjectField && text !== undefined && text !== null
+        ? String(typeof text === 'object' ? (text.value ?? '') : text).trim()
+        : String(
+            allData.SALES_GRID?.Subject?.['Design (Style)'] ||
+            allData['Sales Grid']?.Subject?.['Design (Style)'] ||
+            allData.SALES_GRID?.SUBJECT?.['Design (Style)'] ||
+            allData['Sales Grid']?.SUBJECT?.['Design (Style)'] ||
+            allData.Subject?.['Design (Style)'] ||
+            allData.clean_data?.Subject?.['Design (Style)'] ||
+            allData.comparisonData?.Subject?.['Design (Style)'] ||
+            ''
+        ).trim();
+
+    // If either value is blank, allow the blank check validators to handle it
+    if (!impRaw || !gridRaw) return null;
+
+    // 3. Extract architectural styles (stripping UAD prefix like 'DT1;')
+    const impParsed = parseDesignStyle(impRaw);
+    const gridParsed = parseDesignStyle(gridRaw);
+
+    const impStyleNorm = normalizeDesignForCompare(impParsed.style);
+    const gridStyleNorm = normalizeDesignForCompare(gridParsed.style);
+
+    if (!impStyleNorm || !gridStyleNorm) return null;
+
+    // 4. Compare styles
+    const isExactMatch = impStyleNorm === gridStyleNorm;
+    const isSubstringMatch = impStyleNorm.includes(gridStyleNorm) || gridStyleNorm.includes(impStyleNorm);
+
+    // Common architectural style abbreviations / synonyms
+    const isAbbrMatch = (
+        (impStyleNorm.includes('rranch') && gridStyleNorm.includes('raisedranch')) ||
+        (gridStyleNorm.includes('rranch') && impStyleNorm.includes('raisedranch')) ||
+        (impStyleNorm.includes('splitlvl') && gridStyleNorm.includes('splitlevel')) ||
+        (gridStyleNorm.includes('splitlvl') && impStyleNorm.includes('splitlevel')) ||
+        (impStyleNorm.includes('contemp') && gridStyleNorm.includes('contemporary')) ||
+        (gridStyleNorm.includes('contemp') && impStyleNorm.includes('contemporary')) ||
+        (impStyleNorm.includes('trad') && gridStyleNorm.includes('traditional')) ||
+        (gridStyleNorm.includes('trad') && impStyleNorm.includes('traditional')) ||
+        (impStyleNorm.includes('col') && gridStyleNorm.includes('colonial')) ||
+        (gridStyleNorm.includes('col') && impStyleNorm.includes('colonial'))
+    );
+
+    if (!isExactMatch && !isSubstringMatch && !isAbbrMatch) {
+        return {
+            isError: true,
+            skipBlankFilter: true,
+            message: `Design (Style) mismatch: Improvements section indicates '${impRaw}', but Sales Comparison Grid (Subject) indicates '${gridRaw}'. Please reconcile and revise.`
+        };
+    }
+
+    // In Form Type 1004 + 1007, also cross-check with Rental Grid Subject 'Design and Appeal'
+    const formTypeStr = String(allData?.formType || allData?.selectedFormType || allData?.['Form Type'] || allData?.['From Type'] || '').toLowerCase();
+    if (formTypeStr.includes('1007')) {
+        const rentRaw = String(
+            allData['Single Family Rent Schedule']?.['Design and Appeal'] ||
+            allData['Subject Rent Schedule']?.['Design and Appeal'] ||
+            allData.Subject?.['Design and Appeal'] ||
+            allData.clean_data?.['Single Family Rent Schedule']?.['Design and Appeal'] ||
+            allData.clean_data?.['Subject Rent Schedule']?.['Design and Appeal'] ||
+            allData.clean_data?.Subject?.['Design and Appeal'] ||
+            ''
+        ).trim();
+
+        if (rentRaw) {
+            const rentParsed = parseDesignStyle(rentRaw);
+            const rentStyleNorm = normalizeDesignForCompare(rentParsed.style);
+            if (rentStyleNorm && impStyleNorm) {
+                const rentMatch = impStyleNorm === rentStyleNorm ||
+                    impStyleNorm.includes(rentStyleNorm) || rentStyleNorm.includes(impStyleNorm) ||
+                    ((impStyleNorm.includes('rranch') && rentStyleNorm.includes('raisedranch')) || (rentStyleNorm.includes('rranch') && impStyleNorm.includes('raisedranch'))) ||
+                    ((impStyleNorm.includes('splitlvl') && rentStyleNorm.includes('splitlevel')) || (rentStyleNorm.includes('splitlvl') && impStyleNorm.includes('splitlevel')));
+
+                if (!rentMatch) {
+                    return {
+                        isError: true,
+                        skipBlankFilter: true,
+                        message: `Design mismatch: Improvements section indicates '${impRaw}', but Rental Grid (Subject) indicates '${rentRaw}'. Please reconcile and revise.`
+                    };
+                }
+            }
+        }
+    }
+
+    return { isMatch: true, message: "validated" };
+};
+
 export const checkYearBuilt = (field, text) => {
     if (field !== 'Year Built') return null;
     if (!String(text || '').trim()) {

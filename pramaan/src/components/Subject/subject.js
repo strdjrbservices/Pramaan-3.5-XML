@@ -989,7 +989,7 @@ function Subject({ defaultFormType }) {
       '# of Stories': [improvementsValidation.checkNumberOfStories],
       'Type': [improvementsValidation.checkPropertyType],
       'Existing/Proposed/Under Const.': [improvementsValidation.checkConstructionStatusAndReconciliation],
-      'Design (Style)': [improvementsValidation.checkDesignStyle, salesComparisonValidation.checkDesignStyleAdjustment],
+      'Design (Style)': [improvementsValidation.checkDesignStyle, improvementsValidation.checkSubjectDesignStyleConsistency, salesComparisonValidation.checkDesignStyleAdjustment],
       'Year Built': [improvementsValidation.checkYearBuilt, version1Validation.checkYearBuiltConsistency, version1Validation.checkVersion1YearBuiltAdjustmentConsistency],
       'Year Built Adjustment': [version1Validation.checkVersion1YearBuiltAdjustmentConsistency],
       'Construction Method': [version1Validation.checkVersion1ConstructionMethodAdjustmentConsistency],
@@ -1123,6 +1123,10 @@ function Subject({ defaultFormType }) {
       'Furniture': [rentScheduleValidation.checkSubjectFurniture],
       'Adjusted Monthly Rent': [rentScheduleValidation.checkSubjectAdjustedMonthlyRent],
       'Other (e.g., basement, etc.)': [rentScheduleValidation.checkOtherBasement],
+      'Design and Appeal': [rentScheduleValidation.checkRentSubjectDesignStyleConsistency, rentScheduleValidation.checkRentDesignAppealAdjustment],
+      'Design and Appeal Adjustment': [rentScheduleValidation.checkRentDesignAppealAdjustment],
+      'Design & Appeal': [rentScheduleValidation.checkRentSubjectDesignStyleConsistency, rentScheduleValidation.checkRentDesignAppealAdjustment],
+      'Design & Appeal Adjustment': [rentScheduleValidation.checkRentDesignAppealAdjustment],
     };
 
     marketConditionsFields.forEach(field => {
@@ -1359,6 +1363,26 @@ function Subject({ defaultFormType }) {
     'Other (e.g., basement, etc.)': [rentScheduleValidation.checkOtherBasement],
     'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF': [form1004And1007Validation.checkRentScheduleAsOfDateConsistency],
     'TO BE $': [form1004And1007Validation.checkRentScheduleToBeAmountConsistency],
+    'Design and Appeal': [rentScheduleValidation.checkRentSubjectDesignStyleConsistency, rentScheduleValidation.checkRentDesignAppealAdjustment],
+    'Design and Appeal Adjustment': [rentScheduleValidation.checkRentDesignAppealAdjustment],
+    'Design & Appeal': [rentScheduleValidation.checkRentSubjectDesignStyleConsistency, rentScheduleValidation.checkRentDesignAppealAdjustment],
+    'Design & Appeal Adjustment': [rentScheduleValidation.checkRentDesignAppealAdjustment],
+    'Location/View': [rentScheduleValidation.checkRentSubjectLocationViewConsistency, rentScheduleValidation.checkRentLocationViewAdjustment],
+    'Location/View Adjustment': [rentScheduleValidation.checkRentLocationViewAdjustment],
+    'Age': [rentScheduleValidation.checkRentSubjectAgeConsistency, rentScheduleValidation.checkRentAgeAdjustment],
+    'Age Adjustment': [rentScheduleValidation.checkRentAgeAdjustment],
+    'Condition': [rentScheduleValidation.checkRentSubjectConditionConsistency, rentScheduleValidation.checkRentConditionAdjustment],
+    'Condition Adjustment': [rentScheduleValidation.checkRentConditionAdjustment],
+    'Room Count Total': [rentScheduleValidation.checkRentSubjectRoomCountConsistency, rentScheduleValidation.checkRentRoomCountAdjustment],
+    'Room Count Bdrms': [rentScheduleValidation.checkRentSubjectRoomCountConsistency, rentScheduleValidation.checkRentRoomCountAdjustment],
+    'Room Count Baths': [rentScheduleValidation.checkRentSubjectRoomCountConsistency, rentScheduleValidation.checkRentRoomCountAdjustment],
+    'Room Count Total Adjustment': [rentScheduleValidation.checkRentRoomCountAdjustment],
+    'Gross Living Area': [rentScheduleValidation.checkRentSubjectGrossLivingAreaConsistency, rentScheduleValidation.checkRentGrossLivingAreaAdjustment],
+    'Gross Living Area Adjustment': [rentScheduleValidation.checkRentGrossLivingAreaAdjustment],
+    'Other:': [rentScheduleValidation.checkRentSubjectOtherConsistency, rentScheduleValidation.checkRentOtherAdjustment],
+    'Other: Adjustment': [rentScheduleValidation.checkRentOtherAdjustment],
+    'Other': [rentScheduleValidation.checkRentSubjectOtherConsistency, rentScheduleValidation.checkRentOtherAdjustment],
+    'Other Adjustment': [rentScheduleValidation.checkRentOtherAdjustment],
   };
 
   const getProperSectionName = (path, defaultSection) => {
@@ -1597,13 +1621,21 @@ function Subject({ defaultFormType }) {
         'Gross Living Area', 'Gross Living Area Adjustment',
         'Site', 'Site Adjustment',
         'Design (Style)', 'Design (Style) Adjustment',
+        'Design and Appeal', 'Design and Appeal Adjustment',
+        'Design & Appeal', 'Design & Appeal Adjustment',
         'Functional Utility', 'Functional Utility Adjustment',
         'Heating/Cooling', 'Heating/Cooling Adjustment',
         'Energy Efficient Items', 'Energy Efficient Items Adjustment',
         'Porch/Patio/Deck', 'Porch/Patio/Deck Adjustment',
         'Location', 'Location Adjustment',
         'Leasehold/Fee Simple', 'Leasehold/Fee Simple Adjustment',
-        'View', 'View Adjustment'
+        'View', 'View Adjustment',
+        'Location/View', 'Location/View Adjustment',
+        'Age', 'Age Adjustment',
+        'Room Count Total', 'Room Count Total Adjustment',
+        'Room Count Bdrms', 'Room Count Baths',
+        'Other:', 'Other: Adjustment',
+        'Other', 'Other Adjustment'
       ];
       const isComparativeCheck = comparativeFields.includes(lookupField);
       const isFiveValCheck = [
@@ -1783,7 +1815,16 @@ function Subject({ defaultFormType }) {
         'Monthly Rental',
         'Less: Utilities',
         'Furniture',
-        'Adjusted Monthly Rent'
+        'Adjusted Monthly Rent',
+        'Design and Appeal',
+        'Location/View',
+        'Age',
+        'Condition',
+        'Room Count Total',
+        'Room Count Bdrms',
+        'Room Count Baths',
+        'Gross Living Area',
+        'Other:'
       ];
       subjectRentFields.forEach(fieldKey => {
         const val = rentScheduleValidation.getSubjectRentFieldVal(allData, fieldKey);
@@ -1824,6 +1865,16 @@ function Subject({ defaultFormType }) {
           const costRes = form1004And1007Validation.checkCostApproachMatchConsistency('Cost Approach (if developed)', reconCostVal, allData, ['RECONCILIATION', 'Cost Approach (if developed)'], null, selectedFormType);
           if (costRes && costRes.isError) {
             errors.push(['Reconciliation', 'Cost Approach (if developed)', costRes.message, ['RECONCILIATION', 'Cost Approach (if developed)']]);
+          }
+        }
+      } catch (e) { }
+
+      try {
+        const rentDesignVal = form1004And1007Validation.getSectionFieldValue(allData, ['Single Family Rent Schedule', 'Subject Rent Schedule', 'Subject', 'RENT_SCHEDULE'], ['Design and Appeal', 'Design & Appeal', 'Design (Style)']);
+        if (rentDesignVal && String(rentDesignVal).trim() !== '') {
+          const designRes = rentScheduleValidation.checkRentSubjectDesignStyleConsistency('Design and Appeal', rentDesignVal, allData, ['Subject', 'Design and Appeal'], 'Subject', selectedFormType);
+          if (designRes && designRes.isError) {
+            errors.push(['Rent Schedule', 'Design and Appeal', designRes.message, ['Subject', 'Design and Appeal']]);
           }
         }
       } catch (e) { }
@@ -1905,10 +1956,17 @@ function Subject({ defaultFormType }) {
         'Functional Utility', 'Functional Utility Adjustment',
         'Heating/Cooling', 'Heating/Cooling Adjustment',
         'Energy Efficient Items', 'Energy Efficient Items Adjustment',
-        'Porch/Patio/Deck', 'Porch/Patio/Deck Adjustment',
+        'Design and Appeal', 'Design and Appeal Adjustment',
+        'Design & Appeal', 'Design & Appeal Adjustment',
         'Location', 'Location Adjustment',
         'Leasehold/Fee Simple', 'Leasehold/Fee Simple Adjustment',
-        'View', 'View Adjustment'
+        'View', 'View Adjustment',
+        'Location/View', 'Location/View Adjustment',
+        'Age', 'Age Adjustment',
+        'Room Count Total', 'Room Count Total Adjustment',
+        'Room Count Bdrms', 'Room Count Baths',
+        'Other:', 'Other: Adjustment',
+        'Other', 'Other Adjustment'
       ];
       const isComparativeCheck = comparativeFields.includes(lookupField);
       const isFiveValCheck = [

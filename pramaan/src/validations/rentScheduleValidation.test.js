@@ -4,6 +4,20 @@ import {
     checkSubjectUtilities,
     checkSubjectFurniture,
     checkSubjectAdjustedMonthlyRent,
+    checkRentSubjectDesignStyleConsistency,
+    checkRentDesignAppealAdjustment,
+    checkRentSubjectLocationViewConsistency,
+    checkRentLocationViewAdjustment,
+    checkRentSubjectAgeConsistency,
+    checkRentAgeAdjustment,
+    checkRentSubjectConditionConsistency,
+    checkRentConditionAdjustment,
+    checkRentSubjectRoomCountConsistency,
+    checkRentRoomCountAdjustment,
+    checkRentSubjectGrossLivingAreaConsistency,
+    checkRentGrossLivingAreaAdjustment,
+    checkRentSubjectOtherConsistency,
+    checkRentOtherAdjustment,
     parseMMDDYYYY,
     parseRentalAmount,
     getSubjectRentFieldVal,
@@ -315,5 +329,366 @@ describe('1007 Rental Grid & Occupant Validation Tests', () => {
                 expect(resBegins.message).toContain("must be 'Tenant'");
             });
         });
+
+        describe('1004+1007 Rental Grid: Design & Appeal vs Improvements Design (Style)', () => {
+            const mockData = (rentDesign, impDesign) => ({
+                formType: '1004 + 1007',
+                'Single Family Rent Schedule': {
+                    'Design and Appeal': rentDesign
+                },
+                IMPROVEMENTS: {
+                    'Design (Style)': impDesign
+                }
+            });
+
+            test('matches when Rental Grid Subject "Design and Appeal" matches Improvements "Design (Style)"', () => {
+                const allData = mockData('R Ranch', 'R Ranch');
+                const res = checkRentSubjectDesignStyleConsistency(
+                    'Design and Appeal',
+                    'R Ranch',
+                    allData,
+                    ['Subject', 'Design and Appeal'],
+                    'Subject',
+                    '1004 + 1007'
+                );
+                expect(res).toEqual({ isMatch: true, message: 'validated' });
+            });
+
+            test('matches when Improvements is "DT1;R Ranch" and Rental Grid is "R Ranch"', () => {
+                const allData = mockData('R Ranch', 'DT1;R Ranch');
+                const res = checkRentSubjectDesignStyleConsistency(
+                    'Design and Appeal',
+                    'R Ranch',
+                    allData,
+                    ['Subject', 'Design and Appeal'],
+                    'Subject',
+                    '1004 + 1007'
+                );
+                expect(res).toEqual({ isMatch: true, message: 'validated' });
+            });
+
+            test('matches abbreviations (Raised Ranch vs R Ranch)', () => {
+                const allData = mockData('Raised Ranch', 'DT1;R Ranch');
+                const res = checkRentSubjectDesignStyleConsistency(
+                    'Design and Appeal',
+                    'Raised Ranch',
+                    allData,
+                    ['Subject', 'Design and Appeal'],
+                    'Subject',
+                    '1004 + 1007'
+                );
+                expect(res).toEqual({ isMatch: true, message: 'validated' });
+            });
+
+            test('returns error when Rental Grid is "Colonial" but Improvements is "R Ranch"', () => {
+                const allData = mockData('Colonial', 'R Ranch');
+                const res = checkRentSubjectDesignStyleConsistency(
+                    'Design and Appeal',
+                    'Colonial',
+                    allData,
+                    ['Subject', 'Design and Appeal'],
+                    'Subject',
+                    '1004 + 1007'
+                );
+                expect(res).toEqual({
+                    isError: true,
+                    skipBlankFilter: true,
+                    message: "Design mismatch: Improvements section indicates 'R Ranch', but Rental Grid (Subject) indicates 'Colonial'. Please reconcile and revise."
+                });
+            });
+
+            test('does not run on non-1007 form types', () => {
+                const allData = {
+                    formType: '1004',
+                    'Single Family Rent Schedule': { 'Design and Appeal': 'Colonial' },
+                    IMPROVEMENTS: { 'Design (Style)': 'R Ranch' }
+                };
+                const res = checkRentSubjectDesignStyleConsistency(
+                    'Design and Appeal',
+                    'Colonial',
+                    allData,
+                    ['Subject', 'Design and Appeal'],
+                    'Subject',
+                    '1004'
+                );
+                expect(res).toBeNull();
+            });
+        });
+
+        describe('1004+1007 Rental Grid: Comparable Design and Appeal Adjustment', () => {
+            const mockRentCompData = (subjectDesign, compDesign, adjustment) => ({
+                formType: '1004 + 1007',
+                'Single Family Rent Schedule': {
+                    'Design and Appeal': subjectDesign
+                },
+                'COMPARABLE NO. 1': {
+                    'Design and Appeal': compDesign,
+                    'Design and Appeal Adjustment': adjustment
+                }
+            });
+
+            test('matches when comp design is identical to subject with no adjustment', () => {
+                const allData = mockRentCompData('R Ranch', 'R Ranch', '');
+                const res = checkRentDesignAppealAdjustment(
+                    'Design and Appeal',
+                    'R Ranch',
+                    allData,
+                    ['COMPARABLE NO. 1', 'Design and Appeal'],
+                    'COMPARABLE NO. 1'
+                );
+                expect(res).toEqual({ isMatch: true });
+            });
+
+            test('matches when comp design is different and adjustment is provided', () => {
+                const allData = mockRentCompData('R Ranch', 'Colonial', '100');
+                const res = checkRentDesignAppealAdjustment(
+                    'Design and Appeal',
+                    'Colonial',
+                    allData,
+                    ['COMPARABLE NO. 1', 'Design and Appeal'],
+                    'COMPARABLE NO. 1'
+                );
+                expect(res).toEqual({ isMatch: true });
+            });
+
+            test('returns error when comp design is different but adjustment is missing', () => {
+                const allData = mockRentCompData('R Ranch', 'Colonial', '');
+                const res = checkRentDesignAppealAdjustment(
+                    'Design and Appeal',
+                    'Colonial',
+                    allData,
+                    ['COMPARABLE NO. 1', 'Design and Appeal'],
+                    'COMPARABLE NO. 1'
+                );
+                expect(res).toEqual({
+                    isError: true,
+                    message: "Design/Appeal mismatch (Subject: 'R Ranch', Comp: 'Colonial'). An adjustment is required, even if $0."
+                });
+            });
+
+            test('returns null when checking Subject', () => {
+                const allData = mockRentCompData('R Ranch', 'Colonial', '');
+                const res = checkRentDesignAppealAdjustment(
+                    'Design and Appeal',
+                    'R Ranch',
+                    allData,
+                    ['Subject', 'Design and Appeal'],
+                    'Subject'
+                );
+                expect(res).toBeNull();
+            });
+        });
+
+        describe('Location/View Validations', () => {
+            test('returns isMatch: true when Subject Location/View matches Sales Grid Location and View', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    SALES_GRID: {
+                        Subject: {
+                            'Location': 'N;OpnAr;BsyRd',
+                            'View': 'N;Res;Mtn'
+                        }
+                    },
+                    Subject: {
+                        'Location/View': 'N;OpnAr;BsyRd\nN;Res;Mtn'
+                    }
+                };
+                const res = checkRentSubjectLocationViewConsistency(
+                    'Location/View',
+                    'N;OpnAr;BsyRd\nN;Res;Mtn',
+                    allData,
+                    ['Subject', 'Location/View'],
+                    'Subject'
+                );
+                expect(res).toEqual({ isMatch: true, message: 'validated' });
+            });
+
+            test('returns isError: true when Subject Location/View contradicts Sales Grid', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    SALES_GRID: {
+                        Subject: {
+                            'Location': 'N;OpnAr;BsyRd',
+                            'View': 'N;Res;Mtn'
+                        }
+                    },
+                    Subject: {
+                        'Location/View': 'B;Comm;Pkwy\nB;Ind;'
+                    }
+                };
+                const res = checkRentSubjectLocationViewConsistency(
+                    'Location/View',
+                    'B;Comm;Pkwy\nB;Ind;',
+                    allData,
+                    ['Subject', 'Location/View'],
+                    'Subject'
+                );
+                expect(res.isError).toBe(true);
+                expect(res.message).toContain('Location/View mismatch');
+            });
+
+            test('requires adjustment when comp Location/View differs from Subject', () => {
+                const allData = {
+                    Subject: { 'Location/View': 'N;OpnAr;BsyRd' },
+                    'COMPARABLE NO. 1': {
+                        'Location/View': 'B;Comm;Pkwy',
+                        'Location/View Adjustment': ''
+                    }
+                };
+                const res = checkRentLocationViewAdjustment(
+                    'Location/View',
+                    'B;Comm;Pkwy',
+                    allData,
+                    ['COMPARABLE NO. 1', 'Location/View'],
+                    'COMPARABLE NO. 1'
+                );
+                expect(res.isError).toBe(true);
+                expect(res.message).toContain('An adjustment is required');
+            });
+        });
+
+        describe('Age & Condition Validations', () => {
+            test('returns isMatch: true when Subject Age matches Sales Grid Subject Actual Age', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    SALES_GRID: { Subject: { 'Actual Age': '24' } },
+                    Subject: { 'Age': '24' }
+                };
+                const res = checkRentSubjectAgeConsistency('Age', '24', allData, ['Subject', 'Age'], 'Subject');
+                expect(res).toEqual({ isMatch: true, message: 'validated' });
+            });
+
+            test('returns isError: true when Subject Age mismatches Sales Grid Subject Actual Age', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    SALES_GRID: { Subject: { 'Actual Age': '24' } },
+                    Subject: { 'Age': '30' }
+                };
+                const res = checkRentSubjectAgeConsistency('Age', '30', allData, ['Subject', 'Age'], 'Subject');
+                expect(res.isError).toBe(true);
+                expect(res.message).toContain('Subject Age (30) in Rental Grid does not match Sales Grid Subject Actual Age (24)');
+            });
+
+            test('returns isMatch: true when Subject Condition matches Sales Grid Condition C4', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    SALES_GRID: { Subject: { 'Condition': 'C4' } },
+                    Subject: { 'Condition': 'C4' }
+                };
+                const res = checkRentSubjectConditionConsistency('Condition', 'C4', allData, ['Subject', 'Condition'], 'Subject');
+                expect(res).toEqual({ isMatch: true, message: 'validated' });
+            });
+
+            test('returns isError: true when Subject Condition differs from Sales Grid Condition', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    SALES_GRID: { Subject: { 'Condition': 'C4' } },
+                    Subject: { 'Condition': 'C2' }
+                };
+                const res = checkRentSubjectConditionConsistency('Condition', 'C2', allData, ['Subject', 'Condition'], 'Subject');
+                expect(res.isError).toBe(true);
+                expect(res.message).toContain('Condition mismatch');
+            });
+        });
+
+        describe('Above Grade Room Count Validations', () => {
+            test('returns isMatch: true for matching Total, Bdrms, and Baths', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    SALES_GRID: {
+                        Subject: {
+                            'Total': '8',
+                            'Bedrooms': '3',
+                            'Baths': '2.0'
+                        }
+                    },
+                    Subject: {
+                        'Room Count Total': '8',
+                        'Room Count Bdrms': '3',
+                        'Room Count Baths': '2.0'
+                    }
+                };
+                const resTotal = checkRentSubjectRoomCountConsistency('Room Count Total', '8', allData, ['Subject', 'Room Count Total'], 'Subject');
+                expect(resTotal).toEqual({ isMatch: true, message: 'validated' });
+
+                const resBdrms = checkRentSubjectRoomCountConsistency('Room Count Bdrms', '3', allData, ['Subject', 'Room Count Bdrms'], 'Subject');
+                expect(resBdrms).toEqual({ isMatch: true, message: 'validated' });
+
+                const resBaths = checkRentSubjectRoomCountConsistency('Room Count Baths', '2.0', allData, ['Subject', 'Room Count Baths'], 'Subject');
+                expect(resBaths).toEqual({ isMatch: true, message: 'validated' });
+            });
+
+            test('returns isError: true when bedroom count does not match Sales Grid / Improvements', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    SALES_GRID: { Subject: { 'Bedrooms': '3' } },
+                    Subject: { 'Room Count Bdrms': '4' }
+                };
+                const res = checkRentSubjectRoomCountConsistency('Room Count Bdrms', '4', allData, ['Subject', 'Room Count Bdrms'], 'Subject');
+                expect(res.isError).toBe(true);
+                expect(res.message).toContain('Bedroom count mismatch');
+            });
+        });
+
+        describe('Gross Living Area Validations', () => {
+            test('returns isMatch: true when GLA matches 1,939 Sq. Ft.', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    SALES_GRID: { Subject: { 'Gross Living Area': '1,939' } },
+                    Subject: { 'Gross Living Area': '1,939' }
+                };
+                const res = checkRentSubjectGrossLivingAreaConsistency('Gross Living Area', '1,939', allData, ['Subject', 'Gross Living Area'], 'Subject');
+                expect(res).toEqual({ isMatch: true, message: 'validated' });
+            });
+
+            test('returns isError: true when GLA mismatches', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    SALES_GRID: { Subject: { 'Gross Living Area': '1,939' } },
+                    Subject: { 'Gross Living Area': '2,100' }
+                };
+                const res = checkRentSubjectGrossLivingAreaConsistency('Gross Living Area', '2,100', allData, ['Subject', 'Gross Living Area'], 'Subject');
+                expect(res.isError).toBe(true);
+                expect(res.message).toContain('GLA mismatch');
+            });
+
+            test('validates comp GLA adjustment directionality', () => {
+                const allData = {
+                    Subject: { 'Gross Living Area': '1,939' },
+                    'COMPARABLE NO. 1': {
+                        'Gross Living Area': '2,200',
+                        'Gross Living Area Adjustment': '+5000'
+                    }
+                };
+                const res = checkRentGrossLivingAreaAdjustment('Gross Living Area Adjustment', '+5000', allData, ['COMPARABLE NO. 1', 'Gross Living Area Adjustment'], 'COMPARABLE NO. 1');
+                expect(res.isError).toBe(true);
+                expect(res.message).toContain('superior to Subject (1,939), but adjustment is not negative');
+            });
+        });
+
+        describe('Other: Feature Validations', () => {
+            test('returns isMatch: true when Subject Other: matches or has feature', () => {
+                const allData = {
+                    formType: '1004 + 1007',
+                    Subject: { 'Other:': "NoPool/Wall Avg Amen's" }
+                };
+                const res = checkRentSubjectOtherConsistency('Other:', "NoPool/Wall Avg Amen's", allData, ['Subject', 'Other:'], 'Subject');
+                expect(res).toEqual({ isMatch: true, message: 'validated' });
+            });
+
+            test('requires adjustment when comp Other: feature differs from Subject', () => {
+                const allData = {
+                    Subject: { 'Other:': 'Pool' },
+                    'COMPARABLE NO. 1': {
+                        'Other:': 'No Pool',
+                        'Other: Adjustment': ''
+                    }
+                };
+                const res = checkRentOtherAdjustment('Other:', 'No Pool', allData, ['COMPARABLE NO. 1', 'Other:'], 'COMPARABLE NO. 1');
+                expect(res.isError).toBe(true);
+                expect(res.message).toContain('Other feature mismatch');
+            });
+        });
     });
 });
+
