@@ -448,3 +448,10 @@ export const checkOtherBasement = (field, text, allData, path, saleName) => {
         return { isError: true, message: `Value (${comparableValueStr || 'empty'}) does not match Subject's value (${subjectValueStr || 'empty'}).` };
     }
 };
+
+export {
+    checkRentScheduleAsOfDateConsistency,
+    checkRentScheduleToBeAmountConsistency,
+    checkIncomeApproachIndicatedValueConsistency,
+    is1004And1007Form
+} from './form1004And1007Validation';

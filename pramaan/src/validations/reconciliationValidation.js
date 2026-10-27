@@ -563,3 +563,10 @@ export const checkAppraiserCredentialLevelConsistency = (field, text, allData) =
         return { isError: true, message: msg };
     }
 };
+
+export {
+    checkRentScheduleAsOfDateConsistency,
+    checkRentScheduleToBeAmountConsistency,
+    checkIncomeApproachIndicatedValueConsistency,
+    is1004And1007Form
+} from './form1004And1007Validation';

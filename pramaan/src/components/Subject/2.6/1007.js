@@ -80,6 +80,7 @@ const Form1007 = ({
         editingField={editingField}
         setEditingField={setEditingField}
         isEditable={true}
+        allData={allData}
         loading={loading}
         loadingSection={loadingSection}
         manualValidations={manualValidations}

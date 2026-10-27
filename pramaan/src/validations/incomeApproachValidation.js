@@ -23,3 +23,10 @@ export const checkIncomeApproach1007Required = (field, text, allData, path, sale
     }
     return { isMatch: true };
 };
+
+export {
+    checkRentScheduleAsOfDateConsistency,
+    checkRentScheduleToBeAmountConsistency,
+    checkIncomeApproachIndicatedValueConsistency,
+    is1004And1007Form
+} from './form1004And1007Validation';

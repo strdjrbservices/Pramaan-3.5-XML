@@ -205,6 +205,7 @@ const Form1004And1007 = ({
       editingField={editingField}
       setEditingField={setEditingField}
       isEditable={true}
+      allData={allData}
       loading={loading}
       loadingSection={loadingSection}
       manualValidations={manualValidations}

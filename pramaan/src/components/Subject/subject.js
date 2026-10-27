@@ -103,6 +103,7 @@ import * as htmlDataValidation from '../../validations/htmldatavaliadtion';
 import * as infoOfSalesValidation from '../../validations/infoOfSalesValidation';
 import * as costApproachValidation from '../../validations/costApproachValidation';
 import * as version1Validation from './Version1/version1Validation';
+import * as form1004And1007Validation from '../../validations/form1004And1007Validation';
 import { checkUnpaidLenderStatus } from '../../utils/unpaidLenders';
 
 import PremiumLogo from '../auth/logo';
@@ -1056,7 +1057,9 @@ function Subject({ defaultFormType }) {
       'APPRAISED VALUE OF SUBJECT PROPERTY $': [reconciliationValidation.checkFinalValueConsistency],
       'Cost Approach (if developed)': [reconciliationValidation.checkCostApproachDeveloped],
       'This appraisal is made "as is", subject to completion per plans and specifications on the basis of a hypothetical condition that the improvements have been completed, subject to the following repairs or alterations on the basis of a hypothetical condition that the repairs or alterations have been completed, or subject to the following required inspection based on the extraordinary assumption that the condition or deficiency does not require alteration or repair:': [reconciliationValidation.checkAppraisalCondition],
-      'as of': [reconciliationValidation.checkAsOfDate],
+      'as of': [reconciliationValidation.checkAsOfDate, form1004And1007Validation.checkRentScheduleAsOfDateConsistency],
+      'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF': [form1004And1007Validation.checkRentScheduleAsOfDateConsistency],
+      'TO BE $': [form1004And1007Validation.checkRentScheduleToBeAmountConsistency],
       'final value': [reconciliationValidation.checkFinalValueBracketing, reconciliationValidation.checkReconciliationFieldsNotBlank, reconciliationValidation.checkFinalValueConsistency],
       'Supervisory Signature': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
       'Supervisory Appraiser Signature': [appraiserLenderValidation.checkSupervisoryAppraiserFields],
@@ -1192,6 +1195,24 @@ function Subject({ defaultFormType }) {
       registry[field].push(reconciliationValidation.checkReconciliationFieldsNotBlank);
     });
 
+    if (!registry['Estimated Monthly Market Rent $']) registry['Estimated Monthly Market Rent $'] = [];
+    registry['Estimated Monthly Market Rent $'].push(form1004And1007Validation.checkRentScheduleToBeAmountConsistency);
+
+    if (!registry['Indicated Value by Income Approach']) registry['Indicated Value by Income Approach'] = [];
+    registry['Indicated Value by Income Approach'].push(form1004And1007Validation.checkIncomeApproachIndicatedValueConsistency);
+
+    if (!registry['Income Approach (if developed) $']) registry['Income Approach (if developed) $'] = [];
+    registry['Income Approach (if developed) $'].push(form1004And1007Validation.checkIncomeApproachIndicatedValueConsistency);
+
+    if (!registry['I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF']) registry['I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF'] = [];
+    registry['I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF'].push(form1004And1007Validation.checkRentScheduleAsOfDateConsistency);
+
+    if (!registry['TO BE $']) registry['TO BE $'] = [];
+    registry['TO BE $'].push(form1004And1007Validation.checkRentScheduleToBeAmountConsistency);
+
+    if (!registry['as of']) registry['as of'] = [];
+    registry['as of'].push(form1004And1007Validation.checkRentScheduleAsOfDateConsistency);
+
     const checkFields = [
       'Sales Comparison Approach Indicated Value',
       'Opinion of Market Value',
@@ -1324,6 +1345,8 @@ function Subject({ defaultFormType }) {
     'Furniture': [rentScheduleValidation.checkSubjectFurniture],
     'Adjusted Monthly Rent': [rentScheduleValidation.checkSubjectAdjustedMonthlyRent],
     'Other (e.g., basement, etc.)': [rentScheduleValidation.checkOtherBasement],
+    'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF': [form1004And1007Validation.checkRentScheduleAsOfDateConsistency],
+    'TO BE $': [form1004And1007Validation.checkRentScheduleToBeAmountConsistency],
   };
 
   const getProperSectionName = (path, defaultSection) => {
@@ -1757,6 +1780,33 @@ function Subject({ defaultFormType }) {
       });
     }
 
+    const is1004And1007 = form1004And1007Validation.is1004And1007Form(allData, selectedFormType);
+    if (is1004And1007) {
+      try {
+        const rentDateVal = form1004And1007Validation.getSectionFieldValue(allData, ['Comparable Rent Schedule Reconciliation', 'RENT_SCHEDULE_RECONCILIATION'], ['I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF']);
+        const dateRes = form1004And1007Validation.checkRentScheduleAsOfDateConsistency('I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF', rentDateVal, allData, ['Comparable Rent Schedule Reconciliation', 'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF'], null, selectedFormType);
+        if (dateRes && dateRes.isError) {
+          errors.push(['Rent Schedule', 'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF', dateRes.message, ['Comparable Rent Schedule Reconciliation', 'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF']]);
+        }
+      } catch (e) { }
+
+      try {
+        const toBeVal = form1004And1007Validation.getSectionFieldValue(allData, ['Comparable Rent Schedule Reconciliation', 'RENT_SCHEDULE_RECONCILIATION'], ['TO BE $']);
+        const toBeRes = form1004And1007Validation.checkRentScheduleToBeAmountConsistency('TO BE $', toBeVal, allData, ['Comparable Rent Schedule Reconciliation', 'TO BE $'], null, selectedFormType);
+        if (toBeRes && toBeRes.isError) {
+          errors.push(['Rent Schedule', 'TO BE $', toBeRes.message, ['Comparable Rent Schedule Reconciliation', 'TO BE $']]);
+        }
+      } catch (e) { }
+
+      try {
+        const reconIncVal = form1004And1007Validation.getSectionFieldValue(allData, ['RECONCILIATION', 'Reconciliation'], ['Income Approach (if developed) $']);
+        const incRes = form1004And1007Validation.checkIncomeApproachIndicatedValueConsistency('Income Approach (if developed) $', reconIncVal, allData, ['RECONCILIATION', 'Income Approach (if developed) $'], null, selectedFormType);
+        if (incRes && incRes.isError) {
+          errors.push(['Reconciliation', 'Income Approach (if developed) $', incRes.message, ['RECONCILIATION', 'Income Approach (if developed) $']]);
+        }
+      } catch (e) { }
+    }
+
     const isV1Form = isV1FormType;
 
 
@@ -1959,6 +2009,33 @@ function Subject({ defaultFormType }) {
       }
     });
 
+    const is1004And1007Success = form1004And1007Validation.is1004And1007Form(allData, selectedFormType);
+    if (is1004And1007Success) {
+      try {
+        const rentDateVal = form1004And1007Validation.getSectionFieldValue(allData, ['Comparable Rent Schedule Reconciliation', 'RENT_SCHEDULE_RECONCILIATION'], ['I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF']);
+        const dateRes = form1004And1007Validation.checkRentScheduleAsOfDateConsistency('I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF', rentDateVal, allData, ['Comparable Rent Schedule Reconciliation', 'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF'], null, selectedFormType);
+        if (dateRes && dateRes.isMatch) {
+          successes.push(['Rent Schedule', 'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF', dateRes.message || 'Passed', ['Comparable Rent Schedule Reconciliation', 'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF']]);
+        }
+      } catch (e) { }
+
+      try {
+        const toBeVal = form1004And1007Validation.getSectionFieldValue(allData, ['Comparable Rent Schedule Reconciliation', 'RENT_SCHEDULE_RECONCILIATION'], ['TO BE $']);
+        const toBeRes = form1004And1007Validation.checkRentScheduleToBeAmountConsistency('TO BE $', toBeVal, allData, ['Comparable Rent Schedule Reconciliation', 'TO BE $'], null, selectedFormType);
+        if (toBeRes && toBeRes.isMatch) {
+          successes.push(['Rent Schedule', 'TO BE $', toBeRes.message || 'Passed', ['Comparable Rent Schedule Reconciliation', 'TO BE $']]);
+        }
+      } catch (e) { }
+
+      try {
+        const reconIncVal = form1004And1007Validation.getSectionFieldValue(allData, ['RECONCILIATION', 'Reconciliation'], ['Income Approach (if developed) $']);
+        const incRes = form1004And1007Validation.checkIncomeApproachIndicatedValueConsistency('Income Approach (if developed) $', reconIncVal, allData, ['RECONCILIATION', 'Income Approach (if developed) $'], null, selectedFormType);
+        if (incRes && incRes.isMatch) {
+          successes.push(['Reconciliation', 'Income Approach (if developed) $', incRes.message || 'Passed', ['RECONCILIATION', 'Income Approach (if developed) $']]);
+        }
+      } catch (e) { }
+    }
+
     const uniqueSuccesses = [];
     const seenSuccesses = new Set();
 
@@ -2072,6 +2149,24 @@ function Subject({ defaultFormType }) {
           ...(newData['Comparable Rental Data'][rentKey] || {}),
           [fieldKey]: value
         };
+      }
+
+      if (rentScheduleReconciliationFields.includes(fieldKey)) {
+        if (!newData['Comparable Rent Schedule Reconciliation']) newData['Comparable Rent Schedule Reconciliation'] = {};
+        newData['Comparable Rent Schedule Reconciliation'] = { ...newData['Comparable Rent Schedule Reconciliation'], [fieldKey]: value };
+        if (!newData.RENT_SCHEDULE_RECONCILIATION) newData.RENT_SCHEDULE_RECONCILIATION = {};
+        newData.RENT_SCHEDULE_RECONCILIATION = { ...newData.RENT_SCHEDULE_RECONCILIATION, [fieldKey]: value };
+        newData[fieldKey] = value;
+      }
+      if (incomeApproachFields.includes(fieldKey)) {
+        if (!newData.INCOME_APPROACH) newData.INCOME_APPROACH = {};
+        newData.INCOME_APPROACH = { ...newData.INCOME_APPROACH, [fieldKey]: value };
+        newData[fieldKey] = value;
+      }
+      if (reconciliationFields.includes(fieldKey)) {
+        if (!newData.RECONCILIATION) newData.RECONCILIATION = {};
+        newData.RECONCILIATION = { ...newData.RECONCILIATION, [fieldKey]: value };
+        newData[fieldKey] = value;
       }
 
       return newData;

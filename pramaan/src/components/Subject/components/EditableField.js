@@ -22,6 +22,7 @@ import { checkUnitDescriptionsFieldsNotBlank } from '../../../validations/unitDe
 import { checkProjectSiteFieldsNotBlank } from '../../../validations/projectSiteValidation';
 import { checkPriorSaleHistoryFieldsNotBlank } from '../../../validations/priorSaleHistoryValidation';
 import { checkInfoOfSalesFieldsNotBlank } from '../../../validations/infoOfSalesValidation';
+import { checkRentScheduleAsOfDateConsistency, checkRentScheduleToBeAmountConsistency, checkIncomeApproachIndicatedValueConsistency } from '../../../validations/form1004And1007Validation';
 import { Tooltip, IconButton } from '@mui/material';
 import { PlaylistAdd as PlaylistAddIcon, CheckCircle as CheckCircleIcon } from '@mui/icons-material';
 
@@ -298,6 +299,8 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'Furniture': [checkSubjectFurniture],
     'Adjusted Monthly Rent': [checkSubjectAdjustedMonthlyRent],
     'Other (e.g., basement, etc.)': [checkOtherBasement],
+    'I (WE) ESTIMATE THE MONTHLY MARKET RENT OF THE SUBJECT AS OF': [checkRentScheduleAsOfDateConsistency],
+    'TO BE $': [checkRentScheduleToBeAmountConsistency],
 
     // Reconciliation Validations
     'Indicated Value by Sales Comparison Approach $': [checkFinalValueConsistency],
@@ -306,7 +309,7 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
     'APPRAISED VALUE OF SUBJECT PROPERTY $': [checkFinalValueConsistency],
     'Cost Approach (if developed)': [checkCostApproachDeveloped],
     'This appraisal is made "as is", subject to completion per plans and specifications on the basis of a hypothetical condition that the improvements have been completed, subject to the following repairs or alterations on the basis of a hypothetical condition that the repairs or alterations have been completed, or subject to the following required inspection based on the extraordinary assumption that the condition or deficiency does not require alteration or repair:': [checkAppraisalCondition],
-    'as of': [checkAsOfDate],
+    'as of': [checkAsOfDate, checkRentScheduleAsOfDateConsistency],
 
     'final value': [checkFinalValueBracketing, checkReconciliationFieldsNotBlank],
     // Appraiser/Lender Validations
@@ -542,6 +545,15 @@ export const EditableField = ({ fieldPath, value, onDataChange, editingField, se
       );
     }
   });
+
+  if (!validationRegistry['Estimated Monthly Market Rent $']) validationRegistry['Estimated Monthly Market Rent $'] = [];
+  validationRegistry['Estimated Monthly Market Rent $'].push(checkRentScheduleToBeAmountConsistency);
+
+  if (!validationRegistry['Indicated Value by Income Approach']) validationRegistry['Indicated Value by Income Approach'] = [];
+  validationRegistry['Indicated Value by Income Approach'].push(checkIncomeApproachIndicatedValueConsistency);
+
+  if (!validationRegistry['Income Approach (if developed) $']) validationRegistry['Income Approach (if developed) $'] = [];
+  validationRegistry['Income Approach (if developed) $'].push(checkIncomeApproachIndicatedValueConsistency);
 
   const pudInformationFieldsToValidate = [
     "PUD Fees $", "PUD Fees (per month)", "PUD Fees (per year)",
