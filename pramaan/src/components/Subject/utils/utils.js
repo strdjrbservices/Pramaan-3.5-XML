@@ -12,7 +12,9 @@ export const API_BASE_URL = process.env.REACT_APP_API_URL || (
         window.location.port === '3000'
     )
         ? `http://${window.location.hostname || '127.0.0.1'}:8000`
-        : 'https://45.195.243.67'
+        : window.location.hostname.includes('pythonanywhere.com')
+            ? 'https://appraisalreviewoffline-strdjrbservices.pythonanywhere.com'
+            : 'https://45.195.243.67'
 );
 //https://appraisalreviewoffline-strdjrbservices.pythonanywhere.com
 export const getComparisonStyle = (field, extractedValue, comparisonValue) => {
