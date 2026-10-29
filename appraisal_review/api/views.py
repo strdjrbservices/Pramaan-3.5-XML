@@ -238,7 +238,7 @@ def execute_automation_batch(filenames, username, password, mode='revised'):
 
 class SaveReportView(APIView):
     """
-    API endpoint to save appraisal report data.
+    API endpoint to save appraisal report data into MongoDB (and sync to SQLite).
     """
     permission_classes = (AllowAny,)
     authentication_classes = ()
@@ -279,9 +279,39 @@ class SaveReportView(APIView):
                     {"detail": "No report data found to save."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            AppraisalReport.objects.create(report_data=report_data, user_name=user_name, file_name=file_name, validation_log=validation_log, status=status_val)
+
+            # 1. Primary Save to MongoDB
+            saved_id = None
+            try:
+                from .mongo_db import mongo_save_report
+                saved_doc = mongo_save_report(
+                    report_data=report_data,
+                    user_name=user_name,
+                    file_name=file_name,
+                    validation_log=validation_log,
+                    status=status_val
+                )
+                saved_id = saved_doc.get("id")
+            except Exception as m_err:
+                logger.error(f"MongoDB save_report note: {m_err}")
+
+            # 2. Dual-write to local SQLite if available (best-effort)
+            try:
+                kwargs_create = {
+                    "report_data": report_data,
+                    "user_name": user_name,
+                    "file_name": file_name,
+                    "validation_log": validation_log,
+                    "status": status_val,
+                }
+                if saved_id:
+                    kwargs_create["id"] = saved_id
+                AppraisalReport.objects.create(**kwargs_create)
+            except Exception as sq_err:
+                logger.debug(f"Local SQLite save note: {sq_err}")
+
             return Response(
-                {"message": "Report data saved successfully!"},
+                {"message": "Report data saved successfully!", "id": saved_id},
                 status=status.HTTP_201_CREATED
             )
         except Exception as e:
@@ -302,22 +332,23 @@ class SaveReportView(APIView):
 class GetReportsView(APIView):
     """
     API endpoint to retrieve saved appraisal reports.
-    Optimized to eliminate MySQL Error 1038 (Out of sort memory) on shared hosts like PythonAnywhere.
+    Queries MongoDB Atlas first for persistent cloud storage across restarts.
     """
     permission_classes = (AllowAny,)
     authentication_classes = ()
 
     def get(self, request, *args, **kwargs):
         try:
-            # 1. Attempt to increase MySQL session sort_buffer_size if running on MySQL
+            # 1. Primary: Retrieve from MongoDB Atlas
             try:
-                from django.db import connection
-                with connection.cursor() as cursor:
-                    cursor.execute("SET SESSION sort_buffer_size = 4194304")  # 4MB
-            except Exception:
-                pass
+                from .mongo_db import mongo_get_reports
+                reports = mongo_get_reports(limit=100)
+                if reports and len(reports) > 0:
+                    return Response(reports, status=status.HTTP_200_OK)
+            except Exception as m_err:
+                logger.error(f"MongoDB get_reports note: {m_err}")
 
-            # 2. Fetch lightweight IDs first to avoid loading heavy JSON blobs into MySQL sort buffer
+            # 2. Fallback: Retrieve from local SQLite
             try:
                 report_ids = list(AppraisalReport.objects.values_list('id', flat=True).order_by('-created_at')[:50])
                 if report_ids:
@@ -328,8 +359,6 @@ class GetReportsView(APIView):
                 else:
                     reports = []
             except Exception as sort_err:
-                # 3. Bulletproof fallback: If MySQL still fails on filesort, retrieve without database-side ordering and sort in Python memory
-                print(f"Notice: Database sort failed ({sort_err}); falling back to in-memory sort.")
                 raw_reports = list(AppraisalReport.objects.defer('validation_log').all().order_by()[:100])
                 raw_reports.sort(
                     key=lambda r: (r.created_at.timestamp() if hasattr(r, 'created_at') and r.created_at else 0),
@@ -349,12 +378,22 @@ class GetReportsView(APIView):
 
 class GetReportView(APIView):
     """
-    API endpoint to retrieve a single appraisal report by ID.
+    API endpoint to retrieve a single appraisal report by ID from MongoDB or SQLite.
     """
     permission_classes = (AllowAny,)
     authentication_classes = ()
 
     def get(self, request, pk, *args, **kwargs):
+        # 1. Primary: Retrieve from MongoDB
+        try:
+            from .mongo_db import mongo_get_report_by_id
+            doc = mongo_get_report_by_id(pk)
+            if doc:
+                return Response(doc, status=status.HTTP_200_OK)
+        except Exception as m_err:
+            logger.error(f"MongoDB get_report_by_id note: {m_err}")
+
+        # 2. Fallback: Retrieve from local SQLite
         try:
             report = AppraisalReport.objects.get(pk=pk)
             serializer = AppraisalReportSerializer(report)
@@ -364,47 +403,74 @@ class GetReportView(APIView):
 
 class DeleteReportView(APIView):
     """
-    API endpoint to delete an appraisal report.
+    API endpoint to delete an appraisal report from MongoDB and SQLite.
     """
     permission_classes = (AllowAny,)
     authentication_classes = ()
 
     def delete(self, request, pk, *args, **kwargs):
+        deleted = False
+        try:
+            from .mongo_db import mongo_delete_report
+            deleted = mongo_delete_report(pk)
+        except Exception as m_err:
+            logger.error(f"MongoDB delete_report note: {m_err}")
+
         try:
             report = AppraisalReport.objects.get(pk=pk)
             report.delete()
-            return Response({"message": "Report deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
+            deleted = True
         except AppraisalReport.DoesNotExist:
-            return Response({"detail": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
+            pass
+
+        if deleted:
+            return Response({"message": "Report deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
+        return Response({"detail": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
 
 class UpdateReportView(APIView):
     """
-    API endpoint to update an appraisal report's status or data.
+    API endpoint to update an appraisal report's status or data in MongoDB and SQLite.
     """
     permission_classes = (AllowAny,)
     authentication_classes = ()
 
     def post(self, request, pk, *args, **kwargs):
+        updated = False
+        update_fields = {}
+        if 'status' in request.data:
+            update_fields['status'] = request.data.get('status')
+        if 'report_data' in request.data:
+            update_fields['report_data'] = request.data.get('report_data')
+        if 'validation_log' in request.data:
+            update_fields['validation_log'] = request.data.get('validation_log')
+
+        try:
+            from .mongo_db import mongo_update_report
+            updated = mongo_update_report(pk, update_fields)
+        except Exception as m_err:
+            logger.error(f"MongoDB update_report note: {m_err}")
+
         try:
             report = AppraisalReport.objects.get(pk=pk)
-            if 'status' in request.data:
-                report.status = request.data.get('status')
-            if 'report_data' in request.data:
-                report.report_data = request.data.get('report_data')
-            if 'validation_log' in request.data:
-                report.validation_log = request.data.get('validation_log')
-            
+            if 'status' in update_fields:
+                report.status = update_fields['status']
+            if 'report_data' in update_fields:
+                report.report_data = update_fields['report_data']
+            if 'validation_log' in update_fields:
+                report.validation_log = update_fields['validation_log']
             report.save()
-            return Response({"message": "Report updated successfully."}, status=status.HTTP_200_OK)
+            updated = True
         except AppraisalReport.DoesNotExist:
-            return Response({"detail": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            pass
+
+        if updated:
+            return Response({"message": "Report updated successfully."}, status=status.HTTP_200_OK)
+        return Response({"detail": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
 
 
 class ContactUsView(APIView):
     """
-    API endpoint to handle contact form submissions.
+    API endpoint to handle contact form submissions and persist to MongoDB.
     """
     permission_classes = (AllowAny,)
     authentication_classes = ()
@@ -412,22 +478,38 @@ class ContactUsView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = ContactMessageSerializer(data=request.data)
         if serializer.is_valid():
+            # 1. Primary: Save to MongoDB
+            try:
+                from .mongo_db import mongo_save_contact_message
+                mongo_save_contact_message(
+                    name=serializer.validated_data.get('name'),
+                    email=serializer.validated_data.get('email'),
+                    subject=serializer.validated_data.get('subject'),
+                    message=serializer.validated_data.get('message'),
+                    send_copy=serializer.validated_data.get('send_copy', False)
+                )
+            except Exception as m_err:
+                logger.error(f"MongoDB save_contact_message note: {m_err}")
+
+            # 2. Dual-write to local SQLite
+            contact_message = None
             try:
                 contact_message = serializer.save()
             except Exception as e:
-                print(f"Database Error saving contact message: {e}")
-                return Response(
-                    {"detail": "Internal error saving message. Please check database migrations."},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-
+                logger.debug(f"SQLite contact message save note: {e}")
 
             try:
-                subject = f"New Contact Message: {contact_message.subject}"
+                name_val = serializer.validated_data.get('name')
+                email_val = serializer.validated_data.get('email')
+                subject_val = serializer.validated_data.get('subject')
+                msg_val = serializer.validated_data.get('message')
+                send_copy_val = serializer.validated_data.get('send_copy', False)
+
+                subject = f"New Contact Message: {subject_val}"
                 message_body = (
-                    f"Name: {contact_message.name}\n"
-                    f"Email: {contact_message.email}\n\n"
-                    f"Message:\n{contact_message.message}"
+                    f"Name: {name_val}\n"
+                    f"Email: {email_val}\n\n"
+                    f"Message:\n{msg_val}"
                 )
 
                 from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@praman.com')
@@ -435,10 +517,10 @@ class ContactUsView(APIView):
 
                 send_mail(subject, message_body, from_email, recipient_list, fail_silently=True)
 
-                if contact_message.send_copy:
-                    user_subject = f"Copy of your message: {contact_message.subject}"
-                    user_message = f"Hi {contact_message.name},\n\nWe have received your message:\n\n{contact_message.message}\n\nThank you for contacting us."
-                    send_mail(user_subject, user_message, from_email, [contact_message.email], fail_silently=True)
+                if send_copy_val:
+                    user_subject = f"Copy of your message: {subject_val}"
+                    user_message = f"Hi {name_val},\n\nWe have received your message:\n\n{msg_val}\n\nThank you for contacting us."
+                    send_mail(user_subject, user_message, from_email, [email_val], fail_silently=True)
 
             except Exception as e:
                 print(f"Error sending contact email: {e}")

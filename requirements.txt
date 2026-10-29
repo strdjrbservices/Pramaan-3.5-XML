@@ -9,6 +9,10 @@ gradio
 gunicorn
 dj-database-url
 
+# Database & MongoDB
+pymongo[srv]>=4.6.0
+dnspython>=2.4.0
+
 # Admin UI
 django-jazzmin
 
@@ -32,4 +36,3 @@ pillow
 # Utilities
 aiosmtplib
 werkzeug
-

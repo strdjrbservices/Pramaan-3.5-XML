@@ -2,6 +2,8 @@ from typing import Any, Dict
 from django.db import models
 from django.contrib.auth.models import User
 import uuid
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 class UploadedFile(models.Model):
     """
@@ -71,3 +73,22 @@ class ContactMessage(models.Model):
 
     def __str__(self):
         return f"Message from {self.name}: {self.subject}"
+
+
+@receiver(post_save, sender=User)
+def sync_user_to_mongo_on_save(sender, instance, **kwargs):
+    """
+    Ensures any user created or updated (e.g., approved in Django Admin) is synced to MongoDB.
+    """
+    try:
+        from .mongo_db import mongo_save_user
+        mongo_save_user(
+            username=instance.username,
+            password_hash=instance.password,
+            email=instance.email or "",
+            is_active=instance.is_active,
+            is_staff=instance.is_staff,
+            is_superuser=instance.is_superuser
+        )
+    except Exception:
+        pass

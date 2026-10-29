@@ -80,7 +80,16 @@ try:
 except Exception as e:
     print(f"Django setup exception: {e}")
 
-# Ensure default admin account exists and is active
+# Synchronize users and ensure default admin account from MongoDB
+try:
+    print("==> Synchronizing users and default admin from MongoDB...")
+    from api.mongo_db import sync_users_from_mongo_to_django
+    sync_users_from_mongo_to_django()
+    print("==> MongoDB user synchronization complete.")
+except Exception as e:
+    print(f"MongoDB user sync note: {e}")
+
+# Ensure local active admin user
 try:
     from django.contrib.auth import get_user_model
     User = get_user_model()
