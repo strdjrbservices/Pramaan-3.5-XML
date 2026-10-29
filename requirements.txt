@@ -25,6 +25,9 @@ pymupdf
 beautifulsoup4
 lxml
 openpyxl
+opencv-python-headless
+numpy
+pillow
 
 # Utilities
 aiosmtplib
