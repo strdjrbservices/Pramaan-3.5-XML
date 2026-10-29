@@ -59,7 +59,7 @@ function App() {
     { label: 'Full Review', path: '/extractor', icon: <DescriptionIcon /> },
     { label: 'ECR Review', path: '/ecr', icon: <CompareArrowsIcon /> },
     { label: 'Revised Review', path: '/compare', icon: <CompareArrowsIcon /> },
-    { label: 'automation ', path: 'https://praman-strdjrbservices.pythonanywhere.com/api/automation/', icon: <AutoModeIcon /> },
+    { label: 'automation ', path: '/api/automation/', icon: <AutoModeIcon /> },
     { label: 'Custom Query', path: '/query', icon: <SearchIcon /> },
     { label: '1004D', path: '/1004D', icon: <AssignmentTurnedInIcon /> },
     // { label: 'Scenario', path: '/scenario2', icon: <AssignmentIcon /> },

@@ -21,3 +21,5 @@ pytest-playwright>=0.4.0
 openpyxl
 aiosmtplib
 werkzeug
+gunicorn
+dj-database-url

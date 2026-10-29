@@ -9,7 +9,13 @@ from typing import List, Union, Optional, Any
 import playwright.async_api as pw  # type: ignore
 from playwright.sync_api import sync_playwright  # type: ignore
 
-IS_PRODUCTION = os.environ.get('PYTHONANYWHERE_DOMAIN') is not None
+IS_PRODUCTION = (
+    os.environ.get('PYTHONANYWHERE_DOMAIN') is not None
+    or os.environ.get('SPACE_ID') is not None
+    or os.environ.get('DOCKER_CONTAINER') == 'true'
+    or os.environ.get('HEADLESS') == 'true'
+    or os.environ.get('ENVIRONMENT') == 'production'
+)
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 def get_browser_config():
@@ -17,7 +23,13 @@ def get_browser_config():
     if IS_PRODUCTION:
         return {
             "headless": True,
-            "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            "args": [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--single-process"
+            ]
         }
     return {"headless": False}
 

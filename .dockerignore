@@ -1,0 +1,26 @@
+# Git
+.git
+.gitignore
+
+# Node
+**/node_modules
+pramaan/build
+
+# Python
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Django / Local Data
+appraisal_review/db.sqlite3
+appraisal_review/staticfiles
+appraisal_review/media
+appraisal_review/Downloads
+map_output
+.env
+

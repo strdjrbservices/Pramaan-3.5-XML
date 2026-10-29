@@ -75,19 +75,39 @@ WSGI_APPLICATION = "appraisal_review.wsgi.application"
 
 import os
 
-IS_PRODUCTION = os.environ.get('PYTHONANYWHERE_DOMAIN') is not None
+IS_PRODUCTION = (
+    os.environ.get('PYTHONANYWHERE_DOMAIN') is not None
+    or os.environ.get('SPACE_ID') is not None
+    or os.environ.get('DOCKER_CONTAINER') == 'true'
+    or os.environ.get('ENVIRONMENT') == 'production'
+)
 
-if IS_PRODUCTION:
+USE_MYSQL = os.environ.get('USE_MYSQL', '').lower() in ('true', '1') or os.environ.get('PYTHONANYWHERE_DOMAIN') is not None
+
+if USE_MYSQL:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
-            'NAME': 'strdjrbservices$AppraisalReviewData',
-            'USER': 'strdjrbservices',
-            'PASSWORD': 'Kjg(mB=:r7ju8V2',
-            'HOST': 'strdjrbservices.mysql.pythonanywhere-services.com',
-            'PORT': '3306',
+            'NAME': os.environ.get('DB_NAME', 'strdjrbservices$AppraisalReviewData'),
+            'USER': os.environ.get('DB_USER', 'strdjrbservices'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', 'Kjg(mB=:r7ju8V2'),
+            'HOST': os.environ.get('DB_HOST', 'strdjrbservices.mysql.pythonanywhere-services.com'),
+            'PORT': os.environ.get('DB_PORT', '3306'),
         }
     }
+elif os.environ.get('DATABASE_URL'):
+    try:
+        import dj_database_url
+        DATABASES = {
+            'default': dj_database_url.config(default=os.environ.get('DATABASE_URL'))
+        }
+    except Exception:
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': BASE_DIR / 'db.sqlite3',
+            }
+        }
 else:
     DATABASES = {
         'default': {
@@ -178,6 +198,10 @@ CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "https://*.vercel.app",
+    "https://*.hf.space",
+    "http://*.hf.space",
+    "http://localhost:7860",
+    "http://127.0.0.1:7860",
     "https://45.195.243.67",
     "http://45.195.243.67",
     "https://praman-strdjrbservices.pythonanywhere.com",
