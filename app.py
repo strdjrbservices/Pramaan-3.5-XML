@@ -80,6 +80,25 @@ try:
 except Exception as e:
     print(f"Django setup exception: {e}")
 
+# Ensure default admin account exists and is active
+try:
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    admin_user = os.environ.get("ADMIN_USERNAME", "strdjrbservices")
+    admin_pass = os.environ.get("ADMIN_PASSWORD", "Admin")
+    admin_email = os.environ.get("ADMIN_EMAIL", "strdjrbservices@gmail.com")
+
+    user, _ = User.objects.get_or_create(username=admin_user)
+    user.set_password(admin_pass)
+    user.is_staff = True
+    user.is_superuser = True
+    user.is_active = True
+    user.email = admin_email
+    user.save()
+    print(f"==> Ensured active admin user: {admin_user}")
+except Exception as e:
+    print(f"Admin creation note: {e}")
+
 # Merge frontend static assets into staticfiles
 if (BUILD_DIR / "static").exists():
     print("==> Merging React static assets into staticfiles...")
