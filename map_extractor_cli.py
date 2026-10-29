@@ -164,15 +164,30 @@ class MapExtractor:
             except Exception:
                 pass
 
-        # 2. Try PyTesseract
+        # 2. Try PyTesseract with CLAHE contrast, inverted threshold, and PSM 6/11
         if pytesseract is not None:
             try:
                 gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-                # Otsu thresholding
-                _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-                raw_text = pytesseract.image_to_string(thresh)
+                clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+                enhanced = clahe.apply(gray)
+                _, thresh = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+                thresh_inv = cv2.bitwise_not(thresh)
+
+                # PSM 6: Assume a single uniform block of text (ideal for callout cards)
+                raw_text = pytesseract.image_to_string(thresh, config='--psm 6 --oem 3').strip()
+                if len(re.findall(r'[A-Za-z0-9]', raw_text)) < 4:
+                    raw_text_inv = pytesseract.image_to_string(thresh_inv, config='--psm 6 --oem 3').strip()
+                    if len(re.findall(r'[A-Za-z0-9]', raw_text_inv)) > len(re.findall(r'[A-Za-z0-9]', raw_text)):
+                        raw_text = raw_text_inv
+
+                if len(re.findall(r'[A-Za-z0-9]', raw_text)) < 4:
+                    raw_text_gray = pytesseract.image_to_string(enhanced, config='--psm 11 --oem 3').strip()
+                    if len(re.findall(r'[A-Za-z0-9]', raw_text_gray)) > len(re.findall(r'[A-Za-z0-9]', raw_text)):
+                        raw_text = raw_text_gray
+
                 lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
-                return [(l, 0.85) for l in lines]
+                if lines:
+                    return [(l, 0.85) for l in lines]
             except Exception:
                 pass
 
@@ -787,7 +802,10 @@ class MapExtractor:
             has_explicit_price = bool(re.search(r'[\$sS5]\d{1,3}(?:,\d{3})+', combined))
             has_explicit_apn = bool(re.search(r'\b(?:APN|PARCEL(?:\s*ID)?|TAX\s*ID)[:\s]+', combined, re.I))
 
-            if not is_sub and not (has_explicit_hdr or has_explicit_dist or has_explicit_price or has_explicit_apn):
+            has_street = bool(re.search(r'\b[0-9]{1,6}\s+[A-Za-z]', combined))
+            is_colored_comp = (pin_color in ("blue", "teal", "yellow", "purple", "green")) and has_street
+
+            if not is_sub and not (has_explicit_hdr or has_explicit_dist or has_explicit_price or has_explicit_apn or is_colored_comp):
                 return None
 
             if is_sub:
@@ -1031,13 +1049,15 @@ class MapExtractor:
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         annotated_img = img.copy()
 
-        # 1. Red Masks (Subject Callouts / Pins)
-        red_mask1 = cv2.inRange(hsv, np.array([0, 70, 70]), np.array([12, 255, 255]))
-        red_mask2 = cv2.inRange(hsv, np.array([168, 70, 70]), np.array([180, 255, 255]))
+        # 1. Red Masks (Subject Callouts / Pins - handles deep, standard, and bright red)
+        red_mask1 = cv2.inRange(hsv, np.array([0, 50, 60]), np.array([12, 255, 255]))
+        red_mask2 = cv2.inRange(hsv, np.array([165, 50, 60]), np.array([180, 255, 255]))
         red_mask = cv2.bitwise_or(red_mask1, red_mask2)
 
-        # 2. Blue Mask (Comparable Pins / Callouts - solid and border styles; Sat>=135 eliminates ocean water)
-        blue_mask = cv2.inRange(hsv, np.array([96, 135, 70]), np.array([135, 255, 255]))
+        # 2. Blue Mask (Comparable Pins / Callouts - solid blue, light sky blue, and blue borders)
+        blue_mask1 = cv2.inRange(hsv, np.array([88, 30, 50]), np.array([138, 255, 255]))
+        blue_mask2 = cv2.inRange(hsv, np.array([80, 25, 90]), np.array([105, 180, 255]))
+        blue_mask = cv2.bitwise_or(blue_mask1, blue_mask2)
 
         # 3. Green Mask (Rental Pins / Callouts - Sat>=55 captures darker green callouts while eliminating map water)
         green_mask = cv2.inRange(hsv, np.array([35, 55, 50]), np.array([85, 255, 255]))
@@ -1076,8 +1096,8 @@ class MapExtractor:
         base_name = os.path.splitext(os.path.basename(source_filename))[0]
 
         for color_name, mask, draw_color in color_configs:
-            k = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-            m_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
+            k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            m_clean = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
             contours, _ = cv2.findContours(m_clean, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
 
             cand_boxes = []
@@ -1085,16 +1105,16 @@ class MapExtractor:
                 x, y, w, h = cv2.boundingRect(c)
                 # Geometry filter: covers compact bubble pins and wide photo cards
                 if color_name == "white":
-                    # White callout cards are substantial boxes (TOTAL, ACI, ClickForms)
-                    if w < 120 or h < 45 or (w * h) < 7000 or (w * h) > 220000:
+                    # White callout cards (TOTAL, ACI, ClickForms)
+                    if w < 70 or h < 22 or (w * h) < 2000 or (w * h) > 250000:
                         continue
                     ar = w / float(h)
-                    if not (1.0 <= ar <= 5.5):
+                    if not (0.8 <= ar <= 6.5):
                         continue
                 else:
-                    if 50 <= w <= 850 and 24 <= h <= 280 and 1500 <= (w * h) <= 220000:
+                    if 35 <= w <= 850 and 16 <= h <= 300 and 800 <= (w * h) <= 250000:
                         ar = w / float(h)
-                        if not (0.65 <= ar <= 6.5):
+                        if not (0.60 <= ar <= 7.0):
                             continue
                     else:
                         continue
@@ -1876,6 +1896,27 @@ class MapExtractor:
                     if m_addr:
                         subject_record = {"street": m_addr.group(1).strip(), "address": m_addr.group(1).strip()}
 
+                # Sales Grid Comparables from Sales Comparison Approach page
+                if "SALES COMPARISON" in txt.upper() or "COMPARABLE SALE #" in txt.upper():
+                    for m in re.finditer(r'COMPARABLE\s+SALE\s*#?\s*([1-9]|1[0-2])\b', txt, re.I):
+                        c_num = int(m.group(1))
+                        if not any(sc.get("comp_num") == c_num for sc in sales_comps):
+                            chunk = txt[m.end():m.end() + 450]
+                            m_st = re.search(r'([0-9]{1,6}\s+[A-Za-z0-9#\s.,\'-]+?(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Way|Court|Ct|Circle|Cir|Place|Pl|Trail|Tr|Parkway|Pkwy|Pond|Bayview))\b', chunk, re.I)
+                            st_val = m_st.group(1).strip() if m_st else ""
+                            m_prox = re.search(r'([0-9]+(?:\.[0-9]+)?\s*(?:miles?|mi)\b(?:\s*[NSEWnsew]{1,2})?)', chunk, re.I)
+                            prox_val = m_prox.group(1).strip() if m_prox else ""
+                            m_pr = re.search(r'\$([0-9]{1,3}(?:,[0-9]{3})+)', chunk)
+                            price_val = f"${m_pr.group(1)}" if m_pr else ""
+                            if st_val or prox_val:
+                                sales_comps.append({
+                                    "comp_num": c_num,
+                                    "street": st_val,
+                                    "address": st_val,
+                                    "proximity": prox_val,
+                                    "sale_price": price_val
+                                })
+
                 # Rental Photo Page (Form DLSTRNT)
                 if not rental_comps and ("RENTAL PHOTO PAGE" in txt.upper() or "DLSTRNT" in txt.upper()):
                     for m in re.finditer(r'Rental\s+(\d+)\s*\n(?:[^\n]*\n){1,15}?(\d+\s+[^\n]+)\s*\n([0-9.]+\s*miles?[^\n]*)', txt, re.I):
@@ -2025,6 +2066,59 @@ class MapExtractor:
                     m_d = re.search(r'\d+', c.get("label", ""))
                     c_num = m_d.group(0) if m_d else ""
                     c["label"] = f"Rental #{c_num}" if c_num else "Rental"
+
+            # Multi-source backfill: Ensure every verified comparable from document references and photo addenda
+            # is represented on the Location Map table so the user never sees "0 Comps"
+            if is_loc:
+                known_comp_nums = set()
+                for c in comps:
+                    m = re.search(r'#?(\d+)', c.get("label", ""))
+                    if m:
+                        known_comp_nums.add(int(m.group(1)))
+
+                # 1. Backfill from sales_comps references
+                for gc in refs.get("sales_comps", []):
+                    cnum = gc.get("comp_num")
+                    if cnum and cnum not in known_comp_nums:
+                        matched_photo = next((p for p in comp_photos if p.get("comp_num") == cnum), None)
+                        synth_pin = {
+                            "item_type": "Comparable",
+                            "label": f"Comparable #{cnum}",
+                            "street": gc.get("street") or (matched_photo.get("address") if matched_photo else "") or "",
+                            "address": gc.get("address") or (matched_photo.get("address") if matched_photo else "") or "",
+                            "proximity": gc.get("proximity") or (matched_photo.get("proximity") if matched_photo else "") or "",
+                            "price": gc.get("sale_price") or (matched_photo.get("sale_price") if matched_photo else "") or "",
+                            "map_type": mp["map_type"],
+                            "page_number": mp["page_number"],
+                            "source_file": os.path.basename(file_path),
+                            "grid_data": gc,
+                            "photo_data": matched_photo,
+                            "status": "Verified from Grid & Photo Addenda"
+                        }
+                        comps.append(synth_pin)
+                        pins.append(synth_pin)
+                        known_comp_nums.add(cnum)
+
+                # 2. Backfill from comp_photos
+                for cp in comp_photos:
+                    cnum = cp.get("comp_num")
+                    if cnum and cnum not in known_comp_nums:
+                        synth_pin = {
+                            "item_type": "Comparable",
+                            "label": f"Comparable #{cnum}",
+                            "street": cp.get("street") or cp.get("address") or "",
+                            "address": cp.get("address") or cp.get("street") or "",
+                            "proximity": cp.get("proximity") or "",
+                            "price": cp.get("sale_price") or "",
+                            "map_type": mp["map_type"],
+                            "page_number": mp["page_number"],
+                            "source_file": os.path.basename(file_path),
+                            "photo_data": cp,
+                            "status": "Verified from Photo Addenda"
+                        }
+                        comps.append(synth_pin)
+                        pins.append(synth_pin)
+                        known_comp_nums.add(cnum)
 
             comps_only = [p for p in pins if p.get("item_type") == "Comparable"]
             rentals_only = [p for p in pins if p.get("item_type") == "Rental"]

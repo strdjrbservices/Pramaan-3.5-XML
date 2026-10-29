@@ -23,6 +23,7 @@ openpyxl
 opencv-python-headless
 numpy
 pillow
+pytesseract>=0.3.10
 aiosmtplib
 werkzeug
 gunicorn
