@@ -162,6 +162,7 @@ REST_FRAMEWORK = {
 
 # --- CORS & CSRF Settings ---
 CORS_ALLOWED_ORIGINS = [
+    "https://*.vercel.app",
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:3000",
@@ -176,6 +177,9 @@ CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
+    "https://*.vercel.app",
+    "https://45.195.243.67",
+    "http://45.195.243.67",
     "https://praman-strdjrbservices.pythonanywhere.com",
     "https://prod-pramaan.vercel.app",
     "https://qa-pramaan.vercel.app",
