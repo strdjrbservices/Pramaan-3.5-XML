@@ -1489,6 +1489,9 @@ export const MapAndSketchExhibitsSection = ({
             if (errJson?.message && errJson.message.toLowerCase().includes('file not found')) {
               setErrorMessage('The appraisal file could not be found on the server. Please select or re-upload your XML or PDF report file using the file selector above.');
               break;
+            } else if (errJson?.message) {
+              setErrorMessage(`Exhibit extraction notice: ${errJson.message}`);
+              break;
             }
             continue;
           }

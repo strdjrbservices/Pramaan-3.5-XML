@@ -24,9 +24,20 @@ from typing import List, Dict, Any, Optional, Tuple
 import xml.etree.ElementTree as ET
 
 # Image & Document Processing
-import cv2
-import numpy as np
-from PIL import Image
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 try:
     import fitz  # PyMuPDF
@@ -54,6 +65,11 @@ except ImportError:
 
 class MapExtractor:
     def __init__(self, output_dir: str = "map_output", save_images: bool = False, ocr_engine: str = "auto", dpi: int = 200):
+        if fitz is None:
+            raise RuntimeError("Missing required PDF dependency 'pymupdf' (fitz). Please run: pip install pymupdf")
+        self.has_cv = (cv2 is not None and np is not None)
+        if not self.has_cv:
+            warnings.warn("OpenCV (cv2) or numpy is not installed. Map pages and sketches will be extracted, but pin detection is disabled. Install opencv-python-headless.")
         self.output_dir = output_dir
         self.save_images = save_images
         self.ocr_engine_type = ocr_engine.lower()
@@ -1000,6 +1016,8 @@ class MapExtractor:
 
     def process_map_page(self, page, page_num: int, map_type: str, source_filename: str) -> List[Dict[str, Any]]:
         """Extracts pins and callouts from a rendered map page using Computer Vision segmentation."""
+        if cv2 is None or np is None:
+            return []
         extracted_pins = []
 
         # Render high-res image
