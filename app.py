@@ -104,23 +104,10 @@ if STATIC_DIR.exists():
 if MEDIA_DIR.exists():
     fastapi_app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
-# 2. Mount Gradio interface for Hugging Face Space detection
-try:
-    import gradio as gr
-    with gr.Blocks(title="Pramaan Appraisal Review") as demo:
-        gr.Markdown("# 🚀 Pramaan Appraisal Review System")
-        gr.Markdown("The application is active and running.")
-        gr.HTML(
-            '<div style="margin-top: 15px;">'
-            '<a href="/" target="_self" style="padding: 12px 24px; background: #1976d2; color: #fff; '
-            'border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: bold; display: inline-block;">'
-            'Open Web Application'
-            '</a>'
-            '</div>'
-        )
-    fastapi_app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
-except Exception as e:
-    print(f"Gradio mounting note: {e}")
+# 2. Status endpoint
+@fastapi_app.get("/status")
+async def status():
+    return {"status": "running", "service": "Pramaan Full-Stack"}
 
 # 3. Catch-all router for React SPA
 @fastapi_app.get("/{full_path:path}")
@@ -135,6 +122,14 @@ async def serve_frontend(full_path: str):
 
 # Master ASGI Dispatcher: routes /api, /admin, and /token directly to Django ASGI
 async def app(scope, receive, send):
+    if scope["type"] == "lifespan":
+        while True:
+            message = await receive()
+            if message["type"] == "lifespan.startup":
+                await send({"type": "lifespan.startup.complete"})
+            elif message["type"] == "lifespan.shutdown":
+                await send({"type": "lifespan.shutdown.complete"})
+                return
     if scope["type"] in ("http", "websocket"):
         path = scope.get("path", "")
         if path.startswith("/api/") or path.startswith("/admin/") or path.startswith("/token/"):
@@ -145,5 +140,5 @@ async def app(scope, receive, send):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
     print(f"==> Launching server on http://0.0.0.0:{port}...")
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info", lifespan="off")
 
