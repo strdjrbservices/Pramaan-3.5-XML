@@ -5,6 +5,16 @@ import sys
 os.environ["GRADIO_SERVER_PORT"] = "7861"
 os.environ["GRADIO_SSR_MODE"] = "false"
 
+# If Space was provisioned with ZeroGPU, satisfy the startup hook
+try:
+    import spaces
+    @spaces.GPU
+    def _hf_space_init():
+        return True
+    _hf_space_init()
+except Exception:
+    pass
+
 # Production flags for container / Hugging Face execution
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "appraisal_review.settings")
 os.environ.setdefault("SPACE_ID", "hf-space")
