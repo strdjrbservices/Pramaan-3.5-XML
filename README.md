@@ -1,3 +1,13 @@
+---
+title: Pramaan Appraisal
+emoji: 🚀
+colorFrom: blue
+colorTo: indigo
+sdk: gradio
+app_file: app.py
+pinned: false
+---
+
 # Pramaan 3.5 — Full Stack Appraisal Review System
 
 Unified Full-Stack Deployment: **React Frontend** + **Django REST Backend** + **Playwright Headless Browser** running inside a single **Hugging Face Space** using the **Free Gradio SDK** (16 GB RAM + 2 vCPUs).
@@ -17,36 +27,6 @@ Unified Full-Stack Deployment: **React Frontend** + **Django REST Backend** + **
 
 ---
 
-## 🚀 How to Deploy on Hugging Face Spaces (100% Free)
+## 🚀 Deployment
 
-### Step 1: Create a Space on Hugging Face
-1. Log in to [Hugging Face](https://huggingface.co/) and navigate to [huggingface.co/spaces](https://huggingface.co/spaces).
-2. Click **Create new Space**.
-3. Fill in:
-   - **Space Name**: e.g., `pramaan-appraisal`
-   - **License**: Apache 2.0 / MIT
-   - **Space SDK**: Select **Gradio** (choose the **Blank** template)
-   - **Space Hardware**: Free (2 vCPU, 16 GB RAM)
-   - **Visibility**: **Private** (recommended for appraisal data) or Public.
-
-### Step 2: Push Your Code to Hugging Face
-In your local terminal (inside `d:\Pramaan-3.5-regex-1`):
-
-```bash
-# 1. Add your Hugging Face Space git remote (copy URL from your Space page)
-git remote add hf https://huggingface.co/spaces/<YOUR_USERNAME>/<YOUR_SPACE_NAME>
-
-# 2. Stage and commit the files
-git add .
-git commit -m "Deploy full-stack React + Django app on Hugging Face Free Gradio SDK"
-
-# 3. Push to Hugging Face
-git push hf main
-```
-*(If your local branch is named `master`, run `git push hf master:main` or `git push -f hf main`).*
-
-### Step 3: Set Secrets / Environment Variables (Optional)
-In your Space settings (**Settings > Variables and secrets**):
-- `GEMINI_API_KEY`: Your Google Gemini API Key for AI report parsing.
-- `SECRET_KEY`: Any secure random string for Django.
-- `DATABASE_URL`: (Optional) Connection string to an external PostgreSQL database (e.g. Supabase, Neon) if you want permanent database storage across Space restarts.
+Deployed on Hugging Face Spaces with 16 GB RAM and 2 vCPUs.
