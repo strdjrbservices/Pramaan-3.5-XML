@@ -1,20 +1,23 @@
 # Pramaan 3.5 — Full Stack Appraisal Review System
 
-Unified Full-Stack Deployment: **React Frontend** + **Django REST Backend** + **Playwright Headless Browser** running inside a single container on **Hugging Face Spaces (Docker)** or any container platform.
+Unified Full-Stack Deployment: **React Frontend** + **Django REST Backend** + **Playwright Headless Browser** running inside a single **Hugging Face Space** using the **Free Gradio SDK** (16 GB RAM + 2 vCPUs).
 
 ---
 
 ## 🏗️ Architecture
 
-- **Frontend**: React 19 SPA (`pramaan/`) with Material UI.
+- **Frontend**: React 19 SPA (`pramaan/build/`) with Material UI.
 - **Backend**: Django 5.1 REST framework (`appraisal_review/`) with JWT authentication, PyMuPDF, and Google Generative AI.
 - **Automation**: Playwright Chromium headless engine (`appraisal_review/api/automation*.py`).
-- **Web Server & Reverse Proxy**: Nginx listening on port `7860`, reverse proxying `/api/*`, `/admin/*`, and `/token/*` to Gunicorn on internal port `8000`, while serving the React frontend from `/`.
-- **Process Supervisor**: Supervisord managing both Gunicorn and Nginx in the container.
+- **Unified ASGI Server**: `app.py` running Uvicorn on port `7860`.
+  - Routes `/api/*`, `/admin/*`, and `/token/*` directly to Django ASGI.
+  - Serves static assets (`/static/*`) and media files (`/media/*`).
+  - Serves the React single-page application at `/` and all client-side routes.
+  - Mounts a status UI at `/gradio` for Hugging Face health-check compliance.
 
 ---
 
-## 🚀 How to Deploy on Hugging Face Spaces (Free 16GB RAM + 2 vCPUs)
+## 🚀 How to Deploy on Hugging Face Spaces (100% Free)
 
 ### Step 1: Create a Space on Hugging Face
 1. Log in to [Hugging Face](https://huggingface.co/) and navigate to [huggingface.co/spaces](https://huggingface.co/spaces).
@@ -22,47 +25,28 @@ Unified Full-Stack Deployment: **React Frontend** + **Django REST Backend** + **
 3. Fill in:
    - **Space Name**: e.g., `pramaan-appraisal`
    - **License**: Apache 2.0 / MIT
-   - **Space SDK**: Choose **Docker** -> **Blank**
+   - **Space SDK**: Select **Gradio** (choose the **Blank** template)
    - **Space Hardware**: Free (2 vCPU, 16 GB RAM)
    - **Visibility**: **Private** (recommended for appraisal data) or Public.
 
 ### Step 2: Push Your Code to Hugging Face
-In your terminal, add Hugging Face as a remote and push:
+In your local terminal (inside `d:\Pramaan-3.5-regex-1`):
 
 ```bash
-# Add your Hugging Face Space git remote (copy URL from your HF Space page)
+# 1. Add your Hugging Face Space git remote (copy URL from your Space page)
 git remote add hf https://huggingface.co/spaces/<YOUR_USERNAME>/<YOUR_SPACE_NAME>
 
-# Commit the changes
+# 2. Stage and commit the files
 git add .
-git commit -m "Configure full-stack deployment for Hugging Face Docker Space"
+git commit -m "Deploy full-stack React + Django app on Hugging Face Free Gradio SDK"
 
-# Push to Hugging Face
+# 3. Push to Hugging Face
 git push hf main
 ```
-
-*(If your local branch is `master`, run `git push hf master:main`).*
+*(If your local branch is named `master`, run `git push hf master:main` or `git push -f hf main`).*
 
 ### Step 3: Set Secrets / Environment Variables (Optional)
 In your Space settings (**Settings > Variables and secrets**):
 - `GEMINI_API_KEY`: Your Google Gemini API Key for AI report parsing.
-- `SECRET_KEY`: A secure random string for Django.
+- `SECRET_KEY`: Any secure random string for Django.
 - `DATABASE_URL`: (Optional) Connection string to an external PostgreSQL database (e.g. Supabase, Neon) if you want permanent database storage across Space restarts.
-
----
-
-## 💻 Local Development
-
-### 1. Run Backend:
-```bash
-cd appraisal_review
-python manage.py migrate
-python manage.py runserver 8000
-```
-
-### 2. Run Frontend:
-```bash
-cd pramaan
-npm start
-```
-The frontend automatically proxies API calls to `http://localhost:8000` when running locally on port 3000.

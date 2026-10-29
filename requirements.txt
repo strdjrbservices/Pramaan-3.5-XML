@@ -1,0 +1,32 @@
+# Core Framework & Server
+django
+djangorestframework
+django-cors-headers
+djangorestframework-simplejwt
+fastapi
+uvicorn[standard]
+gradio
+gunicorn
+dj-database-url
+
+# Admin UI
+django-jazzmin
+
+# Automation & Headless Browser
+playwright>=1.40.0
+pytest-playwright>=0.4.0
+
+# Document Processing & OCR
+google-generativeai
+PyPDF2
+pypdf
+pdfplumber
+pymupdf
+beautifulsoup4
+lxml
+openpyxl
+
+# Utilities
+aiosmtplib
+werkzeug
+
