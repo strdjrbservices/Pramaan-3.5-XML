@@ -1,8 +1,26 @@
 import os
 import sys
+
+# Critical: Prevent Gradio from claiming port 7860 for internal SSR proxy
+os.environ["GRADIO_SERVER_PORT"] = "7861"
+os.environ["GRADIO_SSR_MODE"] = "false"
+
+# Production flags for container / Hugging Face execution
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "appraisal_review.settings")
+os.environ.setdefault("SPACE_ID", "hf-space")
+os.environ.setdefault("HEADLESS", "true")
+os.environ.setdefault("DOCKER_CONTAINER", "true")
+os.environ.setdefault("ENVIRONMENT", "production")
+
 import shutil
 import subprocess
 from pathlib import Path
+
+# Release any lingering process on port 7860
+try:
+    subprocess.run(["fuser", "-k", "7860/tcp"], capture_output=True)
+except Exception:
+    pass
 
 # Paths
 ROOT_DIR = Path(__file__).resolve().parent
