@@ -6694,7 +6694,7 @@ def extract_fields_from_pdf_offline(pdf_path):
                             subj_section[r_k] = r_v
                             unified_fields.setdefault(r_k, r_v)
 
-                    # Merge comps into COMPARABLE_RENTAL_DATA, clean_sales_grid, and unified_fields
+                    # Merge comps into COMPARABLE_RENTAL_DATA and unified_fields
                     comps_rent = rent_page_res.get("comparables") or {}
                     for c_label, c_dict in comps_rent.items():
                         m_num = re.search(r'(\d+)', c_label)
@@ -6703,14 +6703,18 @@ def extract_fields_from_pdf_offline(pdf_path):
                         unified_fields[c_label] = c_dict
                         unified_fields[f"COMPARABLE NO. {c_num_str}"] = c_dict
                         unified_fields[f"COMPARABLE NO {c_num_str}"] = c_dict
-                        unified_fields[f"COMPARABLE #{c_num_str}"] = c_dict
+                        # CRITICAL: Do NOT overwrite unified_fields[f"COMPARABLE #{c_num_str}"] with rental comps!
+                        # COMPARABLE #{c_num_str} is reserved strictly for Sales Comparison Approach.
                         unified_fields[f"COMPARABLE RENTAL #{c_num_str}"] = c_dict
+                        unified_fields[f"Comparable Rental #{c_num_str}"] = c_dict
+                        unified_fields[f"RENTAL #{c_num_str}"] = c_dict
                         unified_fields[f"Rental {c_num_str}"] = c_dict
 
                         clean_data.setdefault("COMPARABLE_RENTAL_DATA", {})[f"COMPARABLE RENTAL #{c_num_str}"] = c_dict
                         clean_data["COMPARABLE_RENTAL_DATA"][f"COMPARABLE NO. {c_num_str}"] = c_dict
                         clean_data["COMPARABLE_RENTAL_DATA"][f"Rental {c_num_str}"] = c_dict
-                        clean_sales_grid[f"Comparable Rental {c_num_str}"] = c_dict
+                        clean_data.setdefault("Single Family Rent Schedule", {})[f"COMPARABLE NO. {c_num_str}"] = c_dict
+                        # CRITICAL: Do NOT inject rental comps into clean_sales_grid!
 
                     # Merge reconciliation
                     rec_rent = rent_page_res.get("reconciliation") or {}

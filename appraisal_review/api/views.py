@@ -1531,13 +1531,28 @@ def extract_maps_view(request):
             pass
 
     try:
-        # Add workspace root to sys.path to import map_extractor_cli
+        # Add paths to sys.path to reliably import map_extractor_cli
         curr_dir = os.path.dirname(os.path.abspath(__file__))
-        workspace_root = os.path.dirname(os.path.dirname(curr_dir))
-        if workspace_root not in sys.path:
-            sys.path.insert(0, workspace_root)
+        backend_dir = os.path.dirname(curr_dir)
+        workspace_root = os.path.dirname(backend_dir)
+        for p in [workspace_root, backend_dir, curr_dir]:
+            if p and p not in sys.path:
+                sys.path.insert(0, p)
 
-        from map_extractor_cli import MapExtractor
+        try:
+            from map_extractor_cli import MapExtractor
+        except ImportError:
+            try:
+                from appraisal_review.map_extractor_cli import MapExtractor
+            except ImportError:
+                import importlib.util
+                cli_path = os.path.join(backend_dir, "map_extractor_cli.py")
+                if not os.path.exists(cli_path):
+                    cli_path = os.path.join(workspace_root, "map_extractor_cli.py")
+                spec = importlib.util.spec_from_file_location("map_extractor_cli", cli_path)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                MapExtractor = mod.MapExtractor
         out_dir = os.path.join(workspace_root, "map_output")
         extractor = MapExtractor(output_dir=out_dir, save_images=save_images)
         exhibits_result = extractor.extract_all_exhibits_data(tmp_path, exhibit_type=exhibit_type)

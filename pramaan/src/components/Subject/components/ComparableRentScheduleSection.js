@@ -97,10 +97,10 @@ const ComparableRentScheduleSection = ({
         `COMPARABLE NO. ${n}`,
         `COMPARABLE NO ${n}`,
         `COMPARABLE RENTAL #${n}`,
-        `COMPARABLE #${n}`,
         `Comparable Rental ${n}`,
         `Rental ${n}`,
-        `Comp ${n}`,
+        `RENTAL #${n}`,
+        `Rental #${n}`,
         `COMPARABLE NO. 0${n}`,
         `COMPARABLE NO 0${n}`
       );
@@ -149,13 +149,27 @@ const ComparableRentScheduleSection = ({
 
     for (const r of rentAliases) {
       for (const f of fieldAliases) {
+        // Guard against picking up Sales Comp values
+        const checkCandidate = (obj) => {
+          if (!obj || typeof obj !== 'object') return undefined;
+          const isSalesComp = Boolean(
+            (obj['Sale Price'] || obj['Sales Price']) &&
+            !obj['Monthly Rental'] &&
+            !obj['Date Lease Begins'] &&
+            !obj['Adjusted Monthly Rent']
+          );
+          return isSalesComp ? undefined : obj[f];
+        };
+
         const val =
-          (data?.[r] && data[r][f]) ??
-          (allData?.[r] && allData[r][f]) ??
           (data?.['Comparable Rental Data']?.[r] && data['Comparable Rental Data'][r][f]) ??
           (allData?.['Comparable Rental Data']?.[r] && allData['Comparable Rental Data'][r][f]) ??
           (data?.clean_data?.['Comparable Rental Data']?.[r] && data.clean_data['Comparable Rental Data'][r][f]) ??
-          (allData?.clean_data?.['Comparable Rental Data']?.[r] && allData.clean_data['Comparable Rental Data'][r][f]);
+          (allData?.clean_data?.['Comparable Rental Data']?.[r] && allData.clean_data['Comparable Rental Data'][r][f]) ??
+          (data?.['Single Family Rent Schedule']?.[r] && data['Single Family Rent Schedule'][r][f]) ??
+          (allData?.['Single Family Rent Schedule']?.[r] && allData['Single Family Rent Schedule'][r][f]) ??
+          checkCandidate(data?.[r]) ??
+          checkCandidate(allData?.[r]);
 
         if (val !== undefined && val !== null && String(val).trim() !== '') {
           return val;
@@ -167,23 +181,42 @@ const ComparableRentScheduleSection = ({
   };
 
   const activeComparableRents = (comparableRents || []).filter((rent, idx) => {
+    // Always render minimum 3 rental comps (COMPARABLE NO. 1, 2, 3)
+    if (idx < 3) return true;
+
     const rentAliases = getRentKeyAliases(rent);
     let rentData = null;
     for (const r of rentAliases) {
-      rentData =
-        (data && data[r]) ||
-        (allData && allData[r]) ||
+      const candidate =
         (data?.['Comparable Rental Data'] && data['Comparable Rental Data'][r]) ||
         (allData?.['Comparable Rental Data'] && allData['Comparable Rental Data'][r]) ||
         (data?.clean_data?.['Comparable Rental Data'] && data.clean_data['Comparable Rental Data'][r]) ||
-        (allData?.clean_data?.['Comparable Rental Data'] && allData.clean_data['Comparable Rental Data'][r]);
-      if (rentData) break;
+        (allData?.clean_data?.['Comparable Rental Data'] && allData.clean_data['Comparable Rental Data'][r]) ||
+        (data?.['Single Family Rent Schedule'] && data['Single Family Rent Schedule'][r]) ||
+        (allData?.['Single Family Rent Schedule'] && allData['Single Family Rent Schedule'][r]) ||
+        (data && data[r]) ||
+        (allData && allData[r]);
+
+      if (candidate && typeof candidate === 'object') {
+        // Guard: strictly ignore if this is actually a Sales Comp from the Sales Comparison Approach
+        const isSalesComp = Boolean(
+          (candidate['Sale Price'] || candidate['Sales Price'] || candidate['Settlement Price']) &&
+          !candidate['Monthly Rental'] &&
+          !candidate['Gross Monthly Rent'] &&
+          !candidate['Date Lease Begins'] &&
+          !candidate['Adjusted Monthly Rent']
+        );
+        if (!isSalesComp) {
+          rentData = candidate;
+          break;
+        }
+      }
     }
-    if (!rentData) return idx < 3;
+    if (!rentData) return false;
     const hasVal = Object.values(rentData).some(
       (val) => val !== undefined && val !== null && String(val).trim() !== ''
     );
-    return hasVal || idx < 3;
+    return hasVal;
   });
 
   return (

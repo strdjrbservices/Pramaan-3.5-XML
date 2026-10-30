@@ -885,10 +885,27 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, 
   const mMapNum = normMap.match(/^(\d+)/);
   const mapNum = mMapNum ? mMapNum[1] : '';
 
+  const subGrid = getSubjectGridData(data, allData);
+  const subCity = subGrid.city || '';
+  const subState = subGrid.state || '';
+  const subZip = subGrid.zipcode || '';
+
   const extractFromCompObj = (obj, isRental = false) => {
     if (!obj) return { address: '', proximity: '', sale_price: '', gla: '', bed_bath: '', site: '', quality_age: '' };
-    if (typeof obj === 'string') return { address: obj, proximity: '', sale_price: '', gla: '', bed_bath: '', site: '', quality_age: '' };
-    const addr = obj['Address'] || obj['Comparable Property Address'] || obj['Property Address'] || obj['Physical Address'] || '';
+    if (typeof obj === 'string') {
+      let strAddr = obj.trim();
+      if (strAddr && !/,\s*[A-Z]{2}\s+[0-9]{5}/i.test(strAddr) && subCity && subState) {
+        strAddr = `${strAddr}, ${subCity}, ${subState} ${subZip}`.trim();
+      }
+      return { address: strAddr, proximity: '', sale_price: '', gla: '', bed_bath: '', site: '', quality_age: '' };
+    }
+    let addr = obj['Address'] || obj['Comparable Property Address'] || obj['Property Address'] || obj['Physical Address'] || obj['Street Address'] || obj['Street'] || obj['Full Address'] || obj['PropertyStreetAddress'] || '';
+    if (addr && typeof addr === 'string') {
+      addr = addr.trim();
+      if (addr && !/,\s*[A-Z]{2}\s+[0-9]{5}/i.test(addr) && subCity && subState) {
+        addr = `${addr}, ${subCity}, ${subState} ${subZip}`.trim();
+      }
+    }
     const prox = obj['Proximity to Subject'] || obj['Proximity'] || '';
     const sale_price = isRental
       ? (obj['Monthly Rental'] || obj['Gross Monthly Rent'] || obj['Rental Price'] || obj['Adjusted Monthly Rent'] || obj['Current Monthly Rent'] || obj['Actual Rent'] || obj['Rent'] || obj['Sale Price'] || '')
@@ -906,10 +923,10 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, 
     return { address: addr, proximity: prox, sale_price, gla, bed_bath, site, quality_age };
   };
 
-  // Dynamically extract all sales comps from grid
+  // Dynamically extract all sales comps from grid (minimum 3 comps guaranteed)
   const salesComps = [];
   const allSalesKeys = new Set([...Object.keys(root || {}), ...Object.keys(sGrid || {})]);
-  const salesCompNums = new Set();
+  const salesCompNums = new Set([1, 2, 3]);
   allSalesKeys.forEach(k => {
     const m = k.match(/(?:COMPARABLE(?:\s+SALE)?|COMP)[_\s]+#?([0-9]+)/i);
     if (m) salesCompNums.add(parseInt(m[1], 10));
@@ -919,37 +936,65 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, 
       if (sc.comp_num) salesCompNums.add(sc.comp_num);
     });
   }
-  const sortedSalesNums = Array.from(salesCompNums).sort((a, b) => a - b);
-  const salesNumsToCheck = sortedSalesNums.length > 0 ? sortedSalesNums : [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  const salesNumsToCheck = Array.from(salesCompNums).sort((a, b) => a - b);
 
   for (const i of salesNumsToCheck) {
     const candidateKeys = [
       `COMPARABLE SALE #${i}`,
-      `Comparable #${i}`,
+      `COMPARABLE SALE # ${i}`,
       `Comparable Sale ${i}`,
+      `Comparable Sale #${i}`,
+      `Comparable #${i}`,
+      `COMPARABLE #${i}`,
+      `COMPARABLE # ${i}`,
+      `Comparable ${i}`,
+      `Comp ${i}`,
+      `COMP ${i}`,
       `COMP_${i}`,
+      `COMP #${i}`,
       `Comparable #${i} Address`,
       `COMP_SALE_${i}`
     ];
     let found = false;
+    let item = null;
     for (const k of candidateKeys) {
-      const item = root[k] || sGrid[k];
-      if (item) {
-        const compData = extractFromCompObj(item);
-        if (compData.address) {
-          salesComps.push({ num: i, label: `Comp #${i}`, ...compData });
-          found = true;
-          break;
-        }
+      if (root[k]) { item = root[k]; break; }
+      if (sGrid[k]) { item = sGrid[k]; break; }
+    }
+    if (!item) {
+      const sGridKeys = Object.keys(sGrid || {});
+      const matchK = sGridKeys.find(sk => {
+        const m = sk.match(/(?:comp|comparable|sale)[_\s#]*0?([0-9]+)(?:\b|_|$)/i);
+        return m && parseInt(m[1], 10) === i;
+      });
+      if (matchK) item = sGrid[matchK];
+    }
+    if (!item) {
+      const rootKeys = Object.keys(root || {});
+      const matchK = rootKeys.find(rk => {
+        const m = rk.match(/^(?:comp|comparable(?:\s+sale)?)[_\s#]*0?([0-9]+)$/i);
+        return m && parseInt(m[1], 10) === i;
+      });
+      if (matchK) item = root[matchK];
+    }
+    if (item) {
+      const compData = extractFromCompObj(item);
+      if (compData.address) {
+        salesComps.push({ num: i, label: `Comp #${i}`, ...compData });
+        found = true;
       }
     }
     if (!found && scanResult?.reference_records?.sales_comps) {
       const refComp = scanResult.reference_records.sales_comps.find(s => s.comp_num === i);
-      if (refComp && refComp.address) {
+      if (refComp && refComp.address && refComp.address !== '—') {
+        let rAddr = refComp.address;
+        if (rAddr && !/,\s*[A-Z]{2}\s+[0-9]{5}/i.test(rAddr) && subCity && subState) {
+          rAddr = `${rAddr}, ${subCity}, ${subState} ${subZip}`.trim();
+        }
         salesComps.push({
           num: i,
           label: `Comp #${i}`,
-          address: refComp.address,
+          address: rAddr,
           proximity: refComp.proximity || '',
           sale_price: refComp.sale_price || '',
           gla: '',
@@ -957,14 +1002,15 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, 
           site: '',
           quality_age: ''
         });
+        found = true;
       }
     }
   }
 
-  // Dynamically extract all rental comps from grid
+  // Dynamically extract all rental comps from grid (minimum 3 rentals guaranteed)
   const rentalComps = [];
   const allRentalKeys = new Set([...Object.keys(root || {}), ...Object.keys(rGrid || {})]);
-  const rentalCompNums = new Set();
+  const rentalCompNums = new Set([1, 2, 3]);
   allRentalKeys.forEach(k => {
     const m = k.match(/(?:RENTAL(?:_COMPARABLE)?|COMPARABLE\s+NO\.|COMPARABLE\s+RENTAL)[_\s]+#?([0-9]+)/i);
     if (m) rentalCompNums.add(parseInt(m[1], 10));
@@ -974,8 +1020,7 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, 
       if (rc.comp_num) rentalCompNums.add(rc.comp_num);
     });
   }
-  const sortedRentalNums = Array.from(rentalCompNums).sort((a, b) => a - b);
-  const rentalNumsToCheck = sortedRentalNums.length > 0 ? sortedRentalNums : [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  const rentalNumsToCheck = Array.from(rentalCompNums).sort((a, b) => a - b);
 
   for (const i of rentalNumsToCheck) {
     const candidateKeys = [
@@ -990,24 +1035,45 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, 
       `RENTAL_COMPARABLE_${i}`
     ];
     let found = false;
+    let item = null;
     for (const k of candidateKeys) {
-      const item = root[k] || rGrid[k];
-      if (item) {
-        const compData = extractFromCompObj(item, true);
-        if (compData.address) {
-          rentalComps.push({ num: i, label: `Rental #${i}`, ...compData });
-          found = true;
-          break;
-        }
+      if (root[k]) { item = root[k]; break; }
+      if (rGrid[k]) { item = rGrid[k]; break; }
+    }
+    if (!item) {
+      const rGridKeys = Object.keys(rGrid || {});
+      const matchK = rGridKeys.find(rk => {
+        const m = rk.match(/(?:rental|comparable\s+no|comp\s*rent)[_\s#]*0?([0-9]+)(?:\b|_|$)/i);
+        return m && parseInt(m[1], 10) === i;
+      });
+      if (matchK) item = rGrid[matchK];
+    }
+    if (!item) {
+      const rootKeys = Object.keys(root || {});
+      const matchK = rootKeys.find(rk => {
+        const m = rk.match(/^(?:rental|comparable\s+rental|comparable\s+no)[_\s#]*0?([0-9]+)$/i);
+        return m && parseInt(m[1], 10) === i;
+      });
+      if (matchK) item = root[matchK];
+    }
+    if (item) {
+      const compData = extractFromCompObj(item, true);
+      if (compData.address) {
+        rentalComps.push({ num: i, label: `Rental #${i}`, ...compData });
+        found = true;
       }
     }
     if (!found && scanResult?.reference_records?.rental_comps) {
       const refRent = scanResult.reference_records.rental_comps.find(r => r.comp_num === i);
-      if (refRent && refRent.address) {
+      if (refRent && refRent.address && refRent.address !== '—') {
+        let rAddr = refRent.address;
+        if (rAddr && !/,\s*[A-Z]{2}\s+[0-9]{5}/i.test(rAddr) && subCity && subState) {
+          rAddr = `${rAddr}, ${subCity}, ${subState} ${subZip}`.trim();
+        }
         rentalComps.push({
           num: i,
           label: `Rental #${i}`,
-          address: refRent.address,
+          address: rAddr,
           proximity: refRent.proximity || '',
           sale_price: refRent.monthly_rent || '',
           gla: '',
@@ -1015,6 +1081,7 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, 
           site: '',
           quality_age: ''
         });
+        found = true;
       }
     }
   }
@@ -1338,6 +1405,84 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
   const finalComps = processGroup(compsGroup, 'Comp', maxSalesComps);
   const finalRentals = processGroup(rentalsGroup, 'Rental', maxRentalComps);
   const finalListings = processGroup(listingsGroup, 'Listing', Infinity);
+
+  // Guarantee comp address minimum 3 (Comps 1, 2, 3) in Location Map & Comps
+  for (let cNum = 1; cNum <= 3; cNum++) {
+    const hasComp = finalComps.some(c => c.num === cNum);
+    if (!hasComp) {
+      const gridComp = getGridComparableData(cNum - 1, `Comp #${cNum}`, '', data, allData, scanResult);
+      const photoComp = getComparablePhotoData({ gridComp, isRental: false, label: `Comp #${cNum}` }, cNum - 1, scanResult, allData, data);
+      finalComps.push({
+        pinInfo: {
+          label: `Comp #${cNum}`,
+          street: '—',
+          address: '—',
+          item_type: 'Comparable',
+          notOnMap: true
+        },
+        photoComp,
+        gridComp: gridComp || {
+          gridCompNum: cNum,
+          gridCompLabel: `Comp #${cNum}`,
+          address: '—',
+          proximity: '—',
+          sale_price: '—',
+          gla: '—',
+          bed_bath: '—',
+          site: '—',
+          quality_age: '—',
+          isRental: false,
+          matchStatus: 'missing',
+          matchLabel: 'Not on Map'
+        },
+        isRental: false,
+        num: cNum,
+        milesVal: 999.0,
+        displayStreet: gridComp?.address && gridComp.address !== '—' ? gridComp.address : '—',
+        badgeLabel: `Comp #${cNum}`
+      });
+    }
+  }
+  finalComps.sort((a, b) => (a.num || 999) - (b.num || 999));
+
+  // Guarantee rentals address minimum 3 (Rentals 1, 2, 3) in Rentals Map & Table
+  for (let rNum = 1; rNum <= 3; rNum++) {
+    const hasRental = finalRentals.some(r => r.num === rNum);
+    if (!hasRental) {
+      const gridComp = getGridComparableData(rNum - 1, `Rental #${rNum}`, '', data, allData, scanResult);
+      const photoComp = getComparablePhotoData({ gridComp, isRental: true, label: `Rental #${rNum}` }, rNum - 1, scanResult, allData, data);
+      finalRentals.push({
+        pinInfo: {
+          label: `Rental #${rNum}`,
+          street: '—',
+          address: '—',
+          item_type: 'Rental',
+          notOnMap: true
+        },
+        photoComp,
+        gridComp: gridComp || {
+          gridCompNum: rNum,
+          gridCompLabel: `Rental #${rNum}`,
+          address: '—',
+          proximity: '—',
+          sale_price: '—',
+          gla: '—',
+          bed_bath: '—',
+          site: '—',
+          quality_age: '—',
+          isRental: true,
+          matchStatus: 'missing',
+          matchLabel: 'Not on Map'
+        },
+        isRental: true,
+        num: rNum,
+        milesVal: 999.0,
+        displayStreet: gridComp?.address && gridComp.address !== '—' ? gridComp.address : '—',
+        badgeLabel: `Rental #${rNum}`
+      });
+    }
+  }
+  finalRentals.sort((a, b) => (a.num || 999) - (b.num || 999));
   
   // Strictly isolate: Rentals tab gets only rentals, Sales tab gets only sales comps & listings
   const sortedRows = forceRental ? finalRentals : [...finalComps, ...finalListings];
@@ -2291,6 +2436,13 @@ export const MapAndSketchExhibitsSection = ({
                                         label="Mismatch"
                                         size="small"
                                         sx={{ bgcolor: '#fee2e2', color: '#b91c1c', fontWeight: 700, border: '1px solid #fecaca', fontSize: '0.72rem' }}
+                                      />
+                                    ) : (safeGridComp.address && safeGridComp.address !== '—') ? (
+                                      <Chip
+                                        label="Grid Verified"
+                                        size="small"
+                                        icon={<CheckCircleIcon sx={{ fontSize: '13px !important', color: '#047857 !important' }} />}
+                                        sx={{ bgcolor: '#ecfdf5', color: '#047857', fontWeight: 700, border: '1px solid #a7f3d0', fontSize: '0.72rem' }}
                                       />
                                     ) : (
                                       <Chip

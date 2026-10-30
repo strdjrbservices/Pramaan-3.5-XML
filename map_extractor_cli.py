@@ -1886,51 +1886,187 @@ class MapExtractor:
 
         # 2. Extract from PDF text if missing
         if doc and (not sales_comps or not rental_comps or not subject_record):
-            for pno in range(len(doc)):
-                page = doc[pno]
-                txt = page.get_text()
+            # 2a. Attempt structured extraction via appraisal_review engines
+            sub_city = ""
+            sub_state = ""
+            sub_zip = ""
+            try:
+                try:
+                    from api.pdf_extractor_offline import detect_form_pages, extract_page_1_fields, extract_page_2_sales_grid_and_reconciliation
+                    from api.xml_extractor import extract_rent_schedule_from_pdf_page
+                except ImportError:
+                    try:
+                        from appraisal_review.api.pdf_extractor_offline import detect_form_pages, extract_page_1_fields, extract_page_2_sales_grid_and_reconciliation
+                        from appraisal_review.api.xml_extractor import extract_rent_schedule_from_pdf_page
+                    except ImportError:
+                        api_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "appraisal_review", "api")
+                        if api_dir not in sys.path:
+                            sys.path.insert(0, api_dir)
+                        from pdf_extractor_offline import detect_form_pages, extract_page_1_fields, extract_page_2_sales_grid_and_reconciliation
+                        from xml_extractor import extract_rent_schedule_from_pdf_page
 
-                # Subject fallback
-                if not subject_record and ("SUBJECT PROPERTY" in txt.upper() or "UNIFORM RESIDENTIAL" in txt.upper()):
-                    m_addr = re.search(r'Property\s+Address\s*[:\n]\s*([^\n]+)', txt, re.I)
-                    if m_addr:
-                        subject_record = {"street": m_addr.group(1).strip(), "address": m_addr.group(1).strip()}
+                import pdfplumber
+                p_indices = detect_form_pages(doc)
 
-                # Sales Grid Comparables from Sales Comparison Approach page
-                if "SALES COMPARISON" in txt.upper() or "COMPARABLE SALE #" in txt.upper():
-                    for m in re.finditer(r'COMPARABLE\s+SALE\s*#?\s*([1-9]|1[0-2])\b', txt, re.I):
-                        c_num = int(m.group(1))
-                        if not any(sc.get("comp_num") == c_num for sc in sales_comps):
-                            chunk = txt[m.end():m.end() + 450]
-                            m_st = re.search(r'([0-9]{1,6}\s+[A-Za-z0-9#\s.,\'-]+?(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Way|Court|Ct|Circle|Cir|Place|Pl|Trail|Tr|Parkway|Pkwy|Pond|Bayview))\b', chunk, re.I)
-                            st_val = m_st.group(1).strip() if m_st else ""
-                            m_prox = re.search(r'([0-9]+(?:\.[0-9]+)?\s*(?:miles?|mi)\b(?:\s*[NSEWnsew]{1,2})?)', chunk, re.I)
-                            prox_val = m_prox.group(1).strip() if m_prox else ""
-                            m_pr = re.search(r'\$([0-9]{1,3}(?:,[0-9]{3})+)', chunk)
-                            price_val = f"${m_pr.group(1)}" if m_pr else ""
-                            if st_val or prox_val:
-                                sales_comps.append({
-                                    "comp_num": c_num,
-                                    "street": st_val,
-                                    "address": st_val,
-                                    "proximity": prox_val,
-                                    "sale_price": price_val
+                # Subject
+                p1_idx = p_indices.get("form_p1")
+                if p1_idx is not None and not subject_record and os.path.exists(file_path):
+                    try:
+                        with pdfplumber.open(file_path) as pdoc:
+                            p1_res = extract_page_1_fields(pdoc.pages[p1_idx], fitz_page=doc[p1_idx])
+                            sub = p1_res.get("SUBJECT", {})
+                            sub_st = sub.get("Property Address") or ""
+                            sub_city = re.sub(r'^(?:City|City:)\s*', '', sub.get("City") or "", flags=re.I).strip()
+                            sub_state = re.sub(r'^(?:State|State:)\s*', '', sub.get("State") or "", flags=re.I).strip()
+                            sub_zip = re.sub(r'^(?:Zip|Zip\s*Code|Code|Zip:)\s*', '', sub.get("Zip Code") or "", flags=re.I).strip()
+                            if sub_st:
+                                subject_record = {
+                                    "street": sub_st,
+                                    "city": sub_city,
+                                    "state": sub_state,
+                                    "zipcode": sub_zip,
+                                    "address": f"{sub_st}, {sub_city}, {sub_state} {sub_zip}".strip(", ") if (sub_city and sub_state) else sub_st
+                                }
+                    except Exception as e_p1:
+                        print(f"Notice: Page 1 Subject extraction: {e_p1}")
+
+                # Sales Comps (Comps 1..N)
+                p2_idx = p_indices.get("form_p2")
+                extra_indices = p_indices.get("extra_comp_pages") or []
+                if p2_idx is not None and os.path.exists(file_path):
+                    try:
+                        with pdfplumber.open(file_path) as pdoc:
+                            extra_plumbs = [pdoc.pages[i] for i in extra_indices if i < len(pdoc.pages)]
+                            extra_fitz = [doc[i] for i in extra_indices if i < len(doc)]
+                            sg_res, _ = extract_page_2_sales_grid_and_reconciliation(
+                                pdoc.pages[p2_idx],
+                                page_extra_comps=extra_plumbs if extra_plumbs else None,
+                                fitz_page=doc[p2_idx],
+                                fitz_extra_pages=extra_fitz if extra_fitz else None
+                            )
+                            for i in range(1, 13):
+                                k = f"COMPARABLE SALE #{i}"
+                                c_dict = sg_res.get(k) or sg_res.get(f"COMPARABLE SALE # {i}") or sg_res.get(f"Comparable {i}") or sg_res.get(f"Comparable Sale {i}")
+                                if c_dict and isinstance(c_dict, dict):
+                                    c_addr = c_dict.get("Address") or ""
+                                    c_prox = c_dict.get("Proximity to Subject") or ""
+                                    c_price = c_dict.get("Sale Price") or ""
+                                    full_c_addr = c_addr
+                                    if c_addr and not re.search(r'[A-Za-z]{2}\s+[0-9]{5}', c_addr) and sub_city and sub_state:
+                                        full_c_addr = f"{c_addr}, {sub_city}, {sub_state} {sub_zip}".strip(", ")
+                                    m_st = re.match(r'^([^,]+)', c_addr)
+                                    st = m_st.group(1).strip() if m_st else c_addr
+                                    if not any(sc["comp_num"] == i for sc in sales_comps):
+                                        sales_comps.append({
+                                            "comp_num": i,
+                                            "street": st,
+                                            "address": full_c_addr or st,
+                                            "city": sub_city,
+                                            "state": sub_state,
+                                            "zipcode": sub_zip,
+                                            "proximity": c_prox,
+                                            "sale_price": c_price
+                                        })
+                    except Exception as e_p2:
+                        print(f"Notice: Page 2 Sales Grid extraction: {e_p2}")
+
+                # Rental Comps (Rentals 1..N)
+                for rent_pno in p_indices.get("rent_schedule_pages", []):
+                    try:
+                        rent_res = extract_rent_schedule_from_pdf_page(doc[rent_pno], start_comp_num=len(rental_comps) + 1)
+                        if rent_res and "comparables" in rent_res:
+                            for r_k, r_dict in rent_res["comparables"].items():
+                                m_rnum = re.search(r'(\d+)', r_k)
+                                r_num = int(m_rnum.group(1)) if m_rnum else len(rental_comps) + 1
+                                if not any(rc["comp_num"] == r_num for rc in rental_comps):
+                                    r_addr = r_dict.get("Address") or ""
+                                    m_st = re.match(r'^([^,]+)', r_addr)
+                                    st = m_st.group(1).strip() if m_st else r_addr
+                                    full_r_addr = r_addr
+                                    if r_addr and not re.search(r'[A-Za-z]{2}\s+[0-9]{5}', r_addr) and sub_city and sub_state:
+                                        full_r_addr = f"{r_addr}, {sub_city}, {sub_state} {sub_zip}".strip(", ")
+                                    rental_comps.append({
+                                        "comp_num": r_num,
+                                        "street": st,
+                                        "address": full_r_addr or st,
+                                        "city": sub_city,
+                                        "state": sub_state,
+                                        "zipcode": sub_zip,
+                                        "proximity": r_dict.get("Proximity to Subject") or "",
+                                        "monthly_rent": r_dict.get("Monthly Rental") or r_dict.get("Adjusted Monthly Rent") or ""
+                                    })
+                    except Exception as e_rent:
+                        print(f"Notice: Rent Schedule extraction: {e_rent}")
+            except Exception as e_struct:
+                print(f"Notice: Structured reference extraction exception: {e_struct}")
+
+            # 2b. Fallback to basic text parsing if still missing
+            if not sales_comps or not rental_comps or not subject_record:
+                for pno in range(len(doc)):
+                    page = doc[pno]
+                    txt = page.get_text()
+
+                    # Subject fallback
+                    if not subject_record and ("SUBJECT PROPERTY" in txt.upper() or "UNIFORM RESIDENTIAL" in txt.upper()):
+                        m_addr = re.search(r'Property\s+Address\s*[:\n]\s*([^\n]+)', txt, re.I)
+                        if m_addr:
+                            subject_record = {"street": m_addr.group(1).strip(), "address": m_addr.group(1).strip()}
+
+                    # Sales Grid Comparables fallback
+                    if not sales_comps and ("SALES COMPARISON" in txt.upper() or "COMPARABLE SALE #" in txt.upper()):
+                        for m in re.finditer(r'COMPARABLE\s+SALE\s*#?\s*([1-9]|1[0-2])\b', txt, re.I):
+                            c_num = int(m.group(1))
+                            if not any(sc.get("comp_num") == c_num for sc in sales_comps):
+                                chunk = txt[m.end():m.end() + 450]
+                                m_st = re.search(r'([0-9]{1,6}\s+[A-Za-z0-9#\s.,\'-]+?(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Way|Court|Ct|Circle|Cir|Place|Pl|Trail|Tr|Parkway|Pkwy|Pond|Bayview))\b', chunk, re.I)
+                                st_val = m_st.group(1).strip() if m_st else ""
+                                m_prox = re.search(r'([0-9]+(?:\.[0-9]+)?\s*(?:miles?|mi)\b(?:\s*[NSEWnsew]{1,2})?)', chunk, re.I)
+                                prox_val = m_prox.group(1).strip() if m_prox else ""
+                                m_pr = re.search(r'\$([0-9]{1,3}(?:,[0-9]{3})+)', chunk)
+                                price_val = f"${m_pr.group(1)}" if m_pr else ""
+                                if st_val or prox_val:
+                                    sales_comps.append({
+                                        "comp_num": c_num,
+                                        "street": st_val,
+                                        "address": st_val,
+                                        "proximity": prox_val,
+                                        "sale_price": price_val
+                                    })
+
+                    # Rental Photo Page fallback
+                    if not rental_comps and ("RENTAL PHOTO PAGE" in txt.upper() or "DLSTRNT" in txt.upper()):
+                        for m in re.finditer(r'Rental\s+(\d+)\s*\n(?:[^\n]*\n){1,15}?(\d+\s+[^\n]+)\s*\n([0-9.]+\s*miles?[^\n]*)', txt, re.I):
+                            r_num = int(m.group(1))
+                            r_addr = m.group(2).strip()
+                            r_prox = m.group(3).strip()
+                            if not any(r["comp_num"] == r_num for r in rental_comps):
+                                rental_comps.append({
+                                    "comp_num": r_num,
+                                    "street": r_addr,
+                                    "address": r_addr,
+                                    "proximity": r_prox,
+                                    "monthly_rent": ""
                                 })
 
-                # Rental Photo Page (Form DLSTRNT)
-                if not rental_comps and ("RENTAL PHOTO PAGE" in txt.upper() or "DLSTRNT" in txt.upper()):
-                    for m in re.finditer(r'Rental\s+(\d+)\s*\n(?:[^\n]*\n){1,15}?(\d+\s+[^\n]+)\s*\n([0-9.]+\s*miles?[^\n]*)', txt, re.I):
-                        r_num = int(m.group(1))
-                        r_addr = m.group(2).strip()
-                        r_prox = m.group(3).strip()
-                        if not any(r["comp_num"] == r_num for r in rental_comps):
-                            rental_comps.append({
-                                "comp_num": r_num,
-                                "street": r_addr,
-                                "address": r_addr,
-                                "proximity": r_prox,
-                                "monthly_rent": ""
-                            })
+        # 3. Ensure minimum 3 sales comps and minimum 3 rental comps
+        for i in range(1, 4):
+            if not any(sc.get("comp_num") == i for sc in sales_comps):
+                sales_comps.append({
+                    "comp_num": i,
+                    "street": "—",
+                    "address": "—",
+                    "proximity": "—",
+                    "sale_price": "—"
+                })
+        for i in range(1, 4):
+            if not any(rc.get("comp_num") == i for rc in rental_comps):
+                rental_comps.append({
+                    "comp_num": i,
+                    "street": "—",
+                    "address": "—",
+                    "proximity": "—",
+                    "monthly_rent": "—"
+                })
 
         sales_comps.sort(key=lambda x: x["comp_num"])
         rental_comps.sort(key=lambda x: x["comp_num"])
