@@ -3025,10 +3025,10 @@ def extract_page_2_sales_grid_and_reconciliation(page_p2, page_extra_comps=None,
         return is_box_checked_in_page(words, bx0, by0, bx1, by1, kw_label=kw_label, page=page_p2, fitz_page=fitz_page)
 
     cols = {
-        "Subject": {"desc": (95, 195), "adj": None},
-        "COMPARABLE SALE #1": {"desc": (195, 260), "adj": (260, 326)},
-        "COMPARABLE SALE #2": {"desc": (326, 390), "adj": (390, 458)},
-        "COMPARABLE SALE #3": {"desc": (458, 520), "adj": (520, 590)},
+        "Subject": {"desc": (55, 195), "adj": None},
+        "COMPARABLE SALE #1": {"desc": (190, 260), "adj": (260, 326)},
+        "COMPARABLE SALE #2": {"desc": (320, 390), "adj": (390, 458)},
+        "COMPARABLE SALE #3": {"desc": (450, 520), "adj": (520, 590)},
     }
 
     def find_y(label_keyword, min_y=75, max_y=550):
@@ -3249,15 +3249,15 @@ def extract_page_2_sales_grid_and_reconciliation(page_p2, page_extra_comps=None,
 
             if has_subj:
                 slot_boxes = [
-                    {"desc": (195, 260), "adj": (260, 326), "prior": (245, 355)},
-                    {"desc": (326, 390), "adj": (390, 458), "prior": (355, 465)},
-                    {"desc": (458, 520), "adj": (520, 590), "prior": (465, 585)}
+                    {"desc": (190, 260), "adj": (260, 326), "prior": (245, 355)},
+                    {"desc": (320, 390), "adj": (390, 458), "prior": (355, 465)},
+                    {"desc": (450, 520), "adj": (520, 590), "prior": (465, 585)}
                 ]
             else:
                 slot_boxes = [
-                    {"desc": (180, 260), "adj": (255, 326), "prior": (245, 355)},
-                    {"desc": (326, 390), "adj": (385, 458), "prior": (355, 465)},
-                    {"desc": (458, 520), "adj": (515, 590), "prior": (465, 585)}
+                    {"desc": (175, 260), "adj": (255, 326), "prior": (245, 355)},
+                    {"desc": (320, 390), "adj": (385, 458), "prior": (355, 465)},
+                    {"desc": (450, 520), "adj": (515, 590), "prior": (465, 585)}
                 ]
 
             cols_ex = {}
@@ -4127,7 +4127,7 @@ def extract_pud_info_section(page_p3, full_doc_text="", fitz_page=None):
     return pud
 
 
-def extract_certification_section(pdf_path, full_doc_text=""):
+def extract_certification_section(pdf_path, full_doc_text="", extract_eo_ocr: bool = True):
     doc = pymupdf.open(pdf_path)
     cert_page_idx = None
     for idx in range(len(doc)):
@@ -4248,7 +4248,7 @@ def extract_certification_section(pdf_path, full_doc_text=""):
 
     # Extract E&O Insurance details (Policy Number, Policy Period From, Policy Period To, etc.)
     try:
-        eo_details = extract_eo_insurance_from_doc(doc)
+        eo_details = extract_eo_insurance_from_doc(doc, allow_ocr=extract_eo_ocr)
         cert["E&O"] = eo_details.get("E&O", "Absent")
         cert["E&O Present"] = eo_details.get("E&O Present", "Absent")
         if eo_details.get("E&O Insurance"):
@@ -6228,7 +6228,7 @@ def detect_form_pages(doc) -> Dict[str, Any]:
     return indices
 
 
-def extract_fields_from_pdf_offline(pdf_path):
+def extract_fields_from_pdf_offline(pdf_path, extract_eo_ocr: bool = True):
     """
     100% Offline, Deterministic, Zero-Cloud Form 1004 & Exhibits Extractor.
     Extracts all fields, photos, sketches, and maps in < 0.25 seconds.
@@ -6307,7 +6307,7 @@ def extract_fields_from_pdf_offline(pdf_path):
             data["INCOME_APPROACH"] = extract_income_approach_section(p3, full_doc_text, fitz_page=fitz_p3)
             data["PUD_INFO"] = extract_pud_info_section(p3, full_doc_text, fitz_page=fitz_p3)
 
-            data["CERTIFICATION"] = extract_certification_section(pdf_path, full_doc_text)
+            data["CERTIFICATION"] = extract_certification_section(pdf_path, full_doc_text, extract_eo_ocr=extract_eo_ocr)
 
             if not recon.get("as of") and data.get("CERTIFICATION", {}).get("Effective Date of Appraisal"):
                 cert_eff = data["CERTIFICATION"]["Effective Date of Appraisal"]
@@ -6416,11 +6416,21 @@ def extract_fields_from_pdf_offline(pdf_path):
                     if comp_info.get("Is Rental"):
                         r_num = comp_info.get("Rental Number") or comp_info.get("Comparable Number")
                         if r_num:
-                            rent_grid_key = f"COMPARABLE RENTAL #{r_num}"
-                            existing_r = data["COMPARABLE_RENTAL_DATA"].get(rent_grid_key) or {}
-                            if not existing_r or not existing_r.get("Address") or not existing_r.get("Monthly Rent"):
-                                merged_rent = {**comp_info, **existing_r}
-                                data["COMPARABLE_RENTAL_DATA"][rent_grid_key] = merged_rent
+                            # Guard: verify this is not actually a Sales Comp from SALES_GRID
+                            c_addr_lower = (comp_info.get("Address") or "").strip().lower()
+                            is_sale_comp = False
+                            for sk, sv in data.get("SALES_GRID", {}).items():
+                                if isinstance(sv, dict):
+                                    sv_addr = (sv.get("Address") or "").strip().lower()
+                                    if c_addr_lower and sv_addr and (c_addr_lower == sv_addr or c_addr_lower in sv_addr or sv_addr in c_addr_lower):
+                                        is_sale_comp = True
+                                        break
+                            if not is_sale_comp:
+                                rent_grid_key = f"COMPARABLE RENTAL #{r_num}"
+                                existing_r = data["COMPARABLE_RENTAL_DATA"].get(rent_grid_key) or {}
+                                if not existing_r or not existing_r.get("Address") or not existing_r.get("Monthly Rent"):
+                                    merged_rent = {**comp_info, **existing_r}
+                                    data["COMPARABLE_RENTAL_DATA"][rent_grid_key] = merged_rent
                     else:
                         c_num = comp_info.get("Comparable Number")
                         if c_num:

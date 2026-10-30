@@ -149,27 +149,14 @@ const ComparableRentScheduleSection = ({
 
     for (const r of rentAliases) {
       for (const f of fieldAliases) {
-        // Guard against picking up Sales Comp values
-        const checkCandidate = (obj) => {
-          if (!obj || typeof obj !== 'object') return undefined;
-          const isSalesComp = Boolean(
-            (obj['Sale Price'] || obj['Sales Price']) &&
-            !obj['Monthly Rental'] &&
-            !obj['Date Lease Begins'] &&
-            !obj['Adjusted Monthly Rent']
-          );
-          return isSalesComp ? undefined : obj[f];
-        };
-
+        // Strictly read from Form 1007 / Form 1025 rental schedule sections - NEVER fallback to top-level sales comps
         const val =
           (data?.['Comparable Rental Data']?.[r] && data['Comparable Rental Data'][r][f]) ??
           (allData?.['Comparable Rental Data']?.[r] && allData['Comparable Rental Data'][r][f]) ??
           (data?.clean_data?.['Comparable Rental Data']?.[r] && data.clean_data['Comparable Rental Data'][r][f]) ??
           (allData?.clean_data?.['Comparable Rental Data']?.[r] && allData.clean_data['Comparable Rental Data'][r][f]) ??
           (data?.['Single Family Rent Schedule']?.[r] && data['Single Family Rent Schedule'][r][f]) ??
-          (allData?.['Single Family Rent Schedule']?.[r] && allData['Single Family Rent Schedule'][r][f]) ??
-          checkCandidate(data?.[r]) ??
-          checkCandidate(allData?.[r]);
+          (allData?.['Single Family Rent Schedule']?.[r] && allData['Single Family Rent Schedule'][r][f]);
 
         if (val !== undefined && val !== null && String(val).trim() !== '') {
           return val;
@@ -184,6 +171,8 @@ const ComparableRentScheduleSection = ({
     // Always render minimum 3 rental comps (COMPARABLE NO. 1, 2, 3)
     if (idx < 3) return true;
 
+    // For comp 4 and beyond: ONLY include if it is genuinely a Form 1007 / Form 1025 rental comparable!
+    // NEVER mix comps from the Sales Comparison Approach!
     const rentAliases = getRentKeyAliases(rent);
     let rentData = null;
     for (const r of rentAliases) {
@@ -193,30 +182,41 @@ const ComparableRentScheduleSection = ({
         (data?.clean_data?.['Comparable Rental Data'] && data.clean_data['Comparable Rental Data'][r]) ||
         (allData?.clean_data?.['Comparable Rental Data'] && allData.clean_data['Comparable Rental Data'][r]) ||
         (data?.['Single Family Rent Schedule'] && data['Single Family Rent Schedule'][r]) ||
-        (allData?.['Single Family Rent Schedule'] && allData['Single Family Rent Schedule'][r]) ||
-        (data && data[r]) ||
-        (allData && allData[r]);
+        (allData?.['Single Family Rent Schedule'] && allData['Single Family Rent Schedule'][r]);
 
       if (candidate && typeof candidate === 'object') {
-        // Guard: strictly ignore if this is actually a Sales Comp from the Sales Comparison Approach
-        const isSalesComp = Boolean(
-          (candidate['Sale Price'] || candidate['Sales Price'] || candidate['Settlement Price']) &&
-          !candidate['Monthly Rental'] &&
-          !candidate['Gross Monthly Rent'] &&
-          !candidate['Date Lease Begins'] &&
-          !candidate['Adjusted Monthly Rent']
-        );
-        if (!isSalesComp) {
-          rentData = candidate;
-          break;
-        }
+        rentData = candidate;
+        break;
       }
     }
     if (!rentData) return false;
-    const hasVal = Object.values(rentData).some(
-      (val) => val !== undefined && val !== null && String(val).trim() !== ''
+
+    // Must have at least one genuine Form 1007 rental field populated
+    const hasRentalData = Boolean(
+      rentData['Monthly Rental'] ||
+      rentData['Adjusted Monthly Rent'] ||
+      rentData['Gross Monthly Rent'] ||
+      rentData['Current Monthly Rent'] ||
+      rentData['Monthly Rent'] ||
+      rentData['Date Lease Begins'] ||
+      rentData['Date Lease Expires'] ||
+      rentData['Rent Adjustments']
     );
-    return hasVal;
+    if (!hasRentalData) return false;
+
+    // Cross-check against Sales Grid: NEVER mix sales comps into Comparable Rent Schedule!
+    const sGrid = allData?.SALES_GRID || allData?.['Sales Grid'] || data?.SALES_GRID || data?.['Sales Grid'] || {};
+    const candAddr = (rentData['Address'] || rentData['Property Address'] || '').trim().toLowerCase();
+    const isSaleGridComp = Object.entries(sGrid).some(([k, v]) => {
+      if (!v || typeof v !== 'object') return false;
+      const sAddr = (v['Address'] || v['Property Address'] || '').trim().toLowerCase();
+      return candAddr && sAddr && (candAddr === sAddr || candAddr.includes(sAddr) || sAddr.includes(candAddr));
+    });
+    if (isSaleGridComp && !rentData['Monthly Rental'] && !rentData['Adjusted Monthly Rent']) {
+      return false; // Strictly do not mix from Sales Comparison Approach!
+    }
+
+    return true;
   });
 
   return (

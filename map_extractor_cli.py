@@ -2180,13 +2180,13 @@ class MapExtractor:
                 grid_candidates = refs["rental_comps"] if is_rental_pin else refs["sales_comps"]
                 matched_grid = None
                 c_st = (c.get("street") or c.get("address") or "").lower()
-                m_c_num = re.search(r'^\d+', c_st)
-                c_house_num = m_c_num.group(0) if m_c_num else ""
+                m_c_nums = re.findall(r'\b\d{1,6}\b', c_st)
 
                 for gc in grid_candidates:
                     gc_st = (gc.get("street") or gc.get("address") or "").lower()
-                    m_gc_num = re.search(r'^\d+', gc_st)
-                    if m_gc_num and c_house_num and m_gc_num.group(0) == c_house_num:
+                    m_gc_nums = re.findall(r'\b\d{1,6}\b', gc_st)
+                    common_nums = set(m_c_nums) & set(m_gc_nums)
+                    if common_nums:
                         matched_grid = gc
                         break
                 if not matched_grid:
@@ -2197,7 +2197,7 @@ class MapExtractor:
 
                 if matched_grid:
                     c["grid_data"] = matched_grid
-                    if not c.get("street"):
+                    if not c.get("street") or c.get("street") == "—":
                         c["street"] = matched_grid.get("street", "")
                         c["address"] = matched_grid.get("address", "")
 

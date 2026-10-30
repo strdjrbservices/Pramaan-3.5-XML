@@ -222,7 +222,7 @@ def parse_eo_text(text: str) -> Dict[str, str]:
     return res
 
 
-def extract_eo_insurance_from_doc(doc: pymupdf.Document) -> Dict[str, str]:
+def extract_eo_insurance_from_doc(doc: pymupdf.Document, allow_ocr: bool = True) -> Dict[str, str]:
     """
     Locates the E&O (Errors & Omissions) Insurance page within a PDF Document
     and extracts:
@@ -319,7 +319,7 @@ def extract_eo_insurance_from_doc(doc: pymupdf.Document) -> Dict[str, str]:
         return result
 
     # Step 3: If native text is incomplete and page has images, run OCR
-    if len(page.get_images()) > 0:
+    if allow_ocr and len(page.get_images()) > 0:
         reader = get_easyocr_reader()
         if reader is not None:
             try:

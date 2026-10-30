@@ -4499,7 +4499,7 @@ def extract_fields_from_xml(xml_path_or_bytes: Any, extract_images: bool = True)
         try:
             pdf_bytes = base64.b64decode(emb_doc_elem.text.strip())
             emb_pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
-            eo_info = extract_eo_insurance_from_doc(emb_pdf)
+            eo_info = extract_eo_insurance_from_doc(emb_pdf, allow_ocr=False)
             if eo_info.get("E&O"):
                 certification_section["E&O"] = eo_info["E&O"]
                 certification_section["E&O Present"] = eo_info.get("E&O Present", eo_info["E&O"])

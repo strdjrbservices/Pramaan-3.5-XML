@@ -364,6 +364,7 @@ const cleanPinAddress = (pin, subjectPin = null, compIndex = null) => {
     miles,
     proximity,
     photo_data: pin.photo_data || null,
+    grid_data: pin.grid_data || null,
     raw_pin: pin
   };
 };
@@ -504,9 +505,9 @@ const compareAddresses = (mapAddr, gridAddr) => {
 
   if (normMap === normGrid) return { status: 'match', label: 'Match' };
 
-  // 1. House number matching (robust to leading OCR tokens e.g. "2 were mee 1950 NW 57th St")
-  const mGridNum = normGrid.match(/\b([0-9]{2,6})\b/);
-  const mMapNum = normMap.match(/\b([0-9]{2,6})\b/);
+  // 1. House number matching (robust to 1 to 6 digit house numbers, e.g. 3 Jockey Ter N)
+  const mGridNum = normGrid.match(/\b([0-9]{1,6})\b/);
+  const mMapNum = normMap.match(/\b([0-9]{1,6})\b/);
 
   if (mGridNum) {
     const gridHouse = mGridNum[1];
@@ -878,13 +879,34 @@ const evaluateRoomMatch = (sketchVal, impVal, gridVal, isBath = false, isGLA = f
 
 const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, scanResult) => {
   const root = { ...(allData || {}), ...(data || {}) };
-  const sGrid = root.SALES_GRID || root['Sales Grid'] || root.sales_grid ||
-                root.clean_data?.['Sales Grid'] || root.fields?.['Sales Grid'] ||
-                root.clean_data?.SALES_GRID || root.fields?.SALES_GRID || {};
-  const rGrid = root.RENTAL_GRID || root['Rental Grid'] || root.RENTALS || root['Rentals'] ||
-                root['Comparable Rental Data'] || root['Single Family Rent Schedule'] ||
-                root.clean_data?.['Comparable Rental Data'] || root.clean_data?.['Single Family Rent Schedule'] ||
-                root.fields?.['Comparable Rental Data'] || root.fields?.['Single Family Rent Schedule'] || {};
+  const sGrid = {
+    ...(allData?.clean_data?.['Sales Grid'] || {}),
+    ...(allData?.fields?.['Sales Grid'] || {}),
+    ...(allData?.clean_data?.SALES_GRID || {}),
+    ...(allData?.fields?.SALES_GRID || {}),
+    ...(allData?.['Sales Grid'] || {}),
+    ...(allData?.SALES_GRID || {}),
+    ...(data?.clean_data?.['Sales Grid'] || {}),
+    ...(data?.fields?.['Sales Grid'] || {}),
+    ...(data?.clean_data?.SALES_GRID || {}),
+    ...(data?.fields?.SALES_GRID || {}),
+    ...(data?.['Sales Grid'] || {}),
+    ...(data?.SALES_GRID || {})
+  };
+  const rGrid = {
+    ...(allData?.clean_data?.['Comparable Rental Data'] || {}),
+    ...(allData?.fields?.['Comparable Rental Data'] || {}),
+    ...(allData?.clean_data?.['Single Family Rent Schedule'] || {}),
+    ...(allData?.fields?.['Single Family Rent Schedule'] || {}),
+    ...(allData?.['Comparable Rental Data'] || {}),
+    ...(allData?.['Single Family Rent Schedule'] || {}),
+    ...(data?.clean_data?.['Comparable Rental Data'] || {}),
+    ...(data?.fields?.['Comparable Rental Data'] || {}),
+    ...(data?.clean_data?.['Single Family Rent Schedule'] || {}),
+    ...(data?.fields?.['Single Family Rent Schedule'] || {}),
+    ...(data?.['Comparable Rental Data'] || {}),
+    ...(data?.['Single Family Rent Schedule'] || {})
+  };
 
   const explicitNum = extractCompNumberFromLabel(compLabel);
   const isRentalLabel = /rental/i.test(compLabel || '');
@@ -1278,6 +1300,34 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
     let gridComp = getGridComparableData(idx, compLabel, pinInfo.street, data, allData, scanResult);
     const photoComp = getComparablePhotoData({ ...pinInfo, gridComp, isRental }, idx, scanResult, allData, data);
 
+    // Fallback A: If gridComp address is missing or '—', check direct grid_data from backend
+    const directGridData = comp?.grid_data || pinInfo?.raw_pin?.grid_data || pinInfo?.grid_data;
+    if ((!gridComp || !gridComp.address || gridComp.address === '—') && directGridData) {
+      const gNum = directGridData.comp_num || extractCompNumberFromLabel(pinInfo.label) || (idx + 1);
+      gridComp = {
+        gridCompNum: gNum,
+        gridCompLabel: isRental ? `Rental #${gNum}` : `Comp #${gNum}`,
+        address: directGridData.address || directGridData.street || '—',
+        proximity: directGridData.proximity || '',
+        sale_price: directGridData.sale_price || directGridData.monthly_rent || '',
+        gla: directGridData.gla || '',
+        bed_bath: directGridData.bed_bath || '',
+        site: directGridData.site || '',
+        quality_age: directGridData.quality_age || '',
+        isRental: Boolean(isRental),
+        matchStatus: 'match',
+        matchLabel: 'Match'
+      };
+    }
+
+    // Fallback B: If still missing, check comp.matched_photo_address
+    if ((!gridComp || !gridComp.address || gridComp.address === '—') && comp?.matched_photo_address) {
+      const byPhotoMatch = getGridComparableData(idx, compLabel, comp.matched_photo_address, data, allData, scanResult);
+      if (byPhotoMatch && byPhotoMatch.address && byPhotoMatch.address !== '—') {
+        gridComp = byPhotoMatch;
+      }
+    }
+
     // Cross-link: If gridComp address is missing or '—', but photoComp was identified, resolve gridComp via photoComp!
     if ((!gridComp || !gridComp.address || gridComp.address === '—') && photoComp) {
       const photoNum = photoComp.comp_num || photoComp.comp_number;
@@ -1292,6 +1342,17 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
         const byPhotoNum = getGridComparableData(photoNum - 1, isRental ? `Rental #${photoNum}` : `Comp #${photoNum}`, pinInfo.street, data, allData, scanResult);
         if (byPhotoNum && byPhotoNum.address && byPhotoNum.address !== '—') {
           gridComp = byPhotoNum;
+        }
+      }
+    }
+
+    // Fallback C: If still missing, resolve by explicit comp number from pinInfo.label
+    if (!gridComp || !gridComp.address || gridComp.address === '—') {
+      const lblNum = extractCompNumberFromLabel(pinInfo.label);
+      if (lblNum) {
+        const byNum = getGridComparableData(lblNum - 1, isRental ? `Rental #${lblNum}` : `Comp #${lblNum}`, '', data, allData, scanResult);
+        if (byNum && byNum.address && byNum.address !== '—') {
+          gridComp = byNum;
         }
       }
     }
@@ -1464,10 +1525,18 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
     if (existingIndex >= 0) {
       const cRow = finalComps[existingIndex];
       if (!cRow.gridComp || !cRow.gridComp.address || cRow.gridComp.address === '—') {
-        const linkedGrid = getGridComparableData(cNum - 1, `Comp #${cNum}`, cRow.displayStreet, data, allData, scanResult);
-        if (linkedGrid && linkedGrid.address && linkedGrid.address !== '—') {
-          cRow.gridComp = linkedGrid;
+        let numComp = getGridComparableData(cNum - 1, `Comp #${cNum}`, '', data, allData, scanResult);
+        if (numComp && numComp.address && numComp.address !== '—') {
+          cRow.gridComp = numComp;
+        } else {
+          const linkedGrid = getGridComparableData(cNum - 1, `Comp #${cNum}`, cRow.displayStreet, data, allData, scanResult);
+          if (linkedGrid && linkedGrid.address && linkedGrid.address !== '—') {
+            cRow.gridComp = linkedGrid;
+          }
         }
+      }
+      if ((!cRow.displayStreet || cRow.displayStreet === '—') && cRow.gridComp?.address && cRow.gridComp.address !== '—') {
+        cRow.displayStreet = cRow.gridComp.address;
       }
     } else {
       const gridComp = getGridComparableData(cNum - 1, `Comp #${cNum}`, '', data, allData, scanResult);
@@ -1475,8 +1544,8 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
       finalComps.push({
         pinInfo: {
           label: `Comp #${cNum}`,
-          street: '—',
-          address: '—',
+          street: gridComp?.address && gridComp.address !== '—' ? gridComp.address : '—',
+          address: gridComp?.address && gridComp.address !== '—' ? gridComp.address : '—',
           item_type: 'Comparable',
           notOnMap: true
         },
@@ -1511,10 +1580,18 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
     if (existingIndex >= 0) {
       const rRow = finalRentals[existingIndex];
       if (!rRow.gridComp || !rRow.gridComp.address || rRow.gridComp.address === '—') {
-        const linkedGrid = getGridComparableData(rNum - 1, `Rental #${rNum}`, rRow.displayStreet, data, allData, scanResult);
-        if (linkedGrid && linkedGrid.address && linkedGrid.address !== '—') {
-          rRow.gridComp = linkedGrid;
+        let numRent = getGridComparableData(rNum - 1, `Rental #${rNum}`, '', data, allData, scanResult);
+        if (numRent && numRent.address && numRent.address !== '—') {
+          rRow.gridComp = numRent;
+        } else {
+          const linkedGrid = getGridComparableData(rNum - 1, `Rental #${rNum}`, rRow.displayStreet, data, allData, scanResult);
+          if (linkedGrid && linkedGrid.address && linkedGrid.address !== '—') {
+            rRow.gridComp = linkedGrid;
+          }
         }
+      }
+      if ((!rRow.displayStreet || rRow.displayStreet === '—') && rRow.gridComp?.address && rRow.gridComp.address !== '—') {
+        rRow.displayStreet = rRow.gridComp.address;
       }
     } else {
       const gridComp = getGridComparableData(rNum - 1, `Rental #${rNum}`, '', data, allData, scanResult);
@@ -1522,8 +1599,8 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
       finalRentals.push({
         pinInfo: {
           label: `Rental #${rNum}`,
-          street: '—',
-          address: '—',
+          street: gridComp?.address && gridComp.address !== '—' ? gridComp.address : '—',
+          address: gridComp?.address && gridComp.address !== '—' ? gridComp.address : '—',
           item_type: 'Rental',
           notOnMap: true
         },
@@ -2074,7 +2151,7 @@ export const MapAndSketchExhibitsSection = ({
             iconPosition="start"
             label={
               <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
-                <span>Location Map & Comps ({locationMaps.reduce((acc, m) => acc + (m.comparables?.length || 0), 0)} Comps)</span>
+                <span>Location Map & Comps ({locationMaps.length > 0 ? Math.max(3, locationMaps.reduce((acc, m) => Math.max(acc, m.comparables?.length || 0), 0)) : 3} Comps)</span>
                 {extractingStage === 'location_map' && <CircularProgress size={12} sx={{ color: '#0284c7' }} />}
               </Box>
             }
