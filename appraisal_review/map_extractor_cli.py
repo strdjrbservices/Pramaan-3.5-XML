@@ -1874,12 +1874,13 @@ class MapExtractor:
                             addr = v.get("Address") or ""
                             m_st = re.match(r'^([^,]+)', addr)
                             st = m_st.group(1).strip() if m_st else addr
+                            rent_val = v.get("Adjusted Monthly Rent") if (not v.get("Monthly Rental") or str(v.get("Monthly Rental")).strip() in ("0", "0.00", "$0", "$ 0")) else v.get("Monthly Rental")
                             rental_comps.append({
                                 "comp_num": cnum,
                                 "street": st,
                                 "address": addr,
                                 "proximity": v.get("Proximity to Subject") or v.get("Proximity") or "",
-                                "monthly_rent": v.get("Monthly Rental") or v.get("Adjusted Monthly Rent") or ""
+                                "monthly_rent": rent_val or ""
                             })
             except Exception as e:
                 print(f"Notice: XML reference extraction: {e}")
@@ -1985,6 +1986,8 @@ class MapExtractor:
                                     full_r_addr = r_addr
                                     if r_addr and not re.search(r'[A-Za-z]{2}\s+[0-9]{5}', r_addr) and sub_city and sub_state:
                                         full_r_addr = f"{r_addr}, {sub_city}, {sub_state} {sub_zip}".strip(", ")
+                                    r_raw_rent = r_dict.get("Monthly Rental") or ""
+                                    r_rent_val = r_dict.get("Adjusted Monthly Rent") if (not r_raw_rent or str(r_raw_rent).strip() in ("0", "0.00", "$0", "$ 0")) else r_raw_rent
                                     rental_comps.append({
                                         "comp_num": r_num,
                                         "street": st,
@@ -1993,7 +1996,7 @@ class MapExtractor:
                                         "state": sub_state,
                                         "zipcode": sub_zip,
                                         "proximity": r_dict.get("Proximity to Subject") or "",
-                                        "monthly_rent": r_dict.get("Monthly Rental") or r_dict.get("Adjusted Monthly Rent") or ""
+                                        "monthly_rent": r_rent_val or ""
                                     })
                     except Exception as e_rent:
                         print(f"Notice: Rent Schedule extraction: {e_rent}")

@@ -6192,7 +6192,17 @@ def detect_form_pages(doc) -> Dict[str, Any]:
         if idx in [indices["form_p1"], indices["form_p2"], indices["form_p3"], indices["market_conditions"]] or idx in indices.get("rent_schedule_pages", []):
             continue
         txt = (page.get_text("text") or "").upper()
-        if (
+
+        # Guard: Ignore narrative text addenda and commentary pages
+        is_narrative = (
+            ("TEXT ADDENDUM" in txt or "ADDITIONAL COMMENTS" in txt or "APPRAISAL ADDENDUM" in txt)
+            and ("ITEM" not in txt and "FORM 1004-46" not in txt and "FORM 2055-46" not in txt and "FORM 70B" not in txt)
+        )
+        if is_narrative:
+            continue
+
+        has_grid_structure = ("ITEM" in txt or "FORM 1004-46" in txt or "FORM 2055-46" in txt or "FORM 70B" in txt or "FORM 1004" in txt)
+        if has_grid_structure and (
             ("ADDITIONAL COMPARABLE" in txt or "ADDITIONAL SALES COMPARISON" in txt or "FORM 1004-46" in txt or "FORM 2055-46" in txt or "FORM 70B" in txt or "ADDITIONAL COMPARISON" in txt)
             or ("COMPARABLE SALE #" in txt and any(f"#{n}" in txt or f"# {n}" in txt or f"NO. {n}" in txt for n in range(4, 25)))
             or ("COMPARABLE PROPERTIES OFFERED" in txt and "SALES COMPARISON" in txt)
@@ -6749,8 +6759,11 @@ def extract_fields_from_pdf_offline(pdf_path):
             if clean_data.get("CERTIFICATION") and any(clean_data["CERTIFICATION"].values()):
                 clean_section_data["Certification"] = clean_data["CERTIFICATION"]
             if single_family_rent_schedule and any(single_family_rent_schedule.values()):
-                clean_section_data["Single Family Rent Schedule"] = single_family_rent_schedule
-                unified_fields["Single Family Rent Schedule"] = single_family_rent_schedule
+                clean_section_data["Single Family Rent Schedule"] = {
+                    **single_family_rent_schedule,
+                    **clean_data.get("Single Family Rent Schedule", {})
+                }
+                unified_fields["Single Family Rent Schedule"] = clean_section_data["Single Family Rent Schedule"]
             if clean_data.get("COMPARABLE_RENTAL_DATA") and any(clean_data["COMPARABLE_RENTAL_DATA"].values()):
                 clean_section_data["Comparable Rental Data"] = clean_data["COMPARABLE_RENTAL_DATA"]
                 unified_fields["Comparable Rental Data"] = clean_data["COMPARABLE_RENTAL_DATA"]

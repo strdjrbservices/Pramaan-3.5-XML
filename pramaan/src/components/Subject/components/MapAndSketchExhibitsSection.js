@@ -490,6 +490,9 @@ const normalizeAddressForCompare = (str) => {
     .replace(/\bsouth\b/g, 's')
     .replace(/\beast\b/g, 'e')
     .replace(/\bwest\b/g, 'w')
+    .replace(/\bterrace\b/g, 'ter')
+    .replace(/\bsath\b/g, '58th')
+    .replace(/\bs(\d+)(?:st|nd|rd|th)\b/g, '5$1th')
     .replace(/\s+/g, ' ')
     .trim();
 };
@@ -501,23 +504,28 @@ const compareAddresses = (mapAddr, gridAddr) => {
 
   if (normMap === normGrid) return { status: 'match', label: 'Match' };
 
-  const mMapNum = normMap.match(/^(\d+)/);
-  const mGridNum = normGrid.match(/^(\d+)/);
+  // 1. House number matching (robust to leading OCR tokens e.g. "2 were mee 1950 NW 57th St")
+  const mGridNum = normGrid.match(/\b([0-9]{2,6})\b/);
+  const mMapNum = normMap.match(/\b([0-9]{2,6})\b/);
 
-  if (mMapNum && mGridNum && mMapNum[1] === mGridNum[1]) {
-    const mapWords = normMap.split(' ').slice(1);
-    const gridWords = normGrid.split(' ').slice(1);
-    const common = mapWords.filter(w => w.length > 1 && gridWords.some(gw => gw.includes(w) || w.includes(gw)));
-    if (common.length >= 1) {
-      return { status: 'match', label: 'Match' };
+  if (mGridNum) {
+    const gridHouse = mGridNum[1];
+    const mapHasGridHouse = new RegExp(`\\b${gridHouse}\\b`).test(normMap);
+    if (mapHasGridHouse || (mMapNum && mMapNum[1] === gridHouse)) {
+      const mapWords = normMap.split(' ');
+      const gridWords = normGrid.split(' ');
+      const common = mapWords.filter(w => w.length > 1 && !/^\d+$/.test(w) && gridWords.some(gw => gw === w || (w.length >= 4 && (gw.includes(w) || w.includes(gw)))));
+      if (common.length >= 1) {
+        return { status: 'match', label: 'Match' };
+      }
+      return { status: 'partial', label: 'Near Match' };
     }
-    return { status: 'partial', label: 'Near Match' };
   }
 
-  // Check street words overlap if pin lacked house number
+  // 2. Street words overlap fallback
   const mapWords = normMap.split(' ');
   const gridWords = normGrid.split(' ');
-  const common = mapWords.filter(w => w.length > 2 && gridWords.some(gw => gw === w));
+  const common = mapWords.filter(w => w.length > 2 && !/^\d+$/.test(w) && gridWords.some(gw => gw === w));
   if (common.length >= 2) {
     return { status: 'partial', label: 'Near Match' };
   }
@@ -907,9 +915,31 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, 
       }
     }
     const prox = obj['Proximity to Subject'] || obj['Proximity'] || '';
-    const sale_price = isRental
-      ? (obj['Monthly Rental'] || obj['Gross Monthly Rent'] || obj['Rental Price'] || obj['Adjusted Monthly Rent'] || obj['Current Monthly Rent'] || obj['Actual Rent'] || obj['Rent'] || obj['Sale Price'] || '')
-      : (obj['Sale Price'] || obj['Sales Price'] || obj['Settlement Price'] || '');
+    let sale_price = '';
+    if (isRental) {
+      const rCandidates = [
+        obj['Adjusted Monthly Rent'],
+        obj['Monthly Rental'],
+        obj['Gross Monthly Rent'],
+        obj['Rental Price'],
+        obj['Indicated Monthly Market Rent'],
+        obj['Current Monthly Rent'],
+        obj['Actual Rent'],
+        obj['Rent'],
+        obj['Sale Price']
+      ];
+      for (const rc of rCandidates) {
+        if (rc !== undefined && rc !== null && String(rc).trim() !== '' && String(rc).trim() !== '0' && String(rc).trim() !== '$0') {
+          sale_price = String(rc).trim();
+          break;
+        }
+      }
+      if (!sale_price && obj['Monthly Rental']) {
+        sale_price = String(obj['Monthly Rental']).trim();
+      }
+    } else {
+      sale_price = obj['Sale Price'] || obj['Sales Price'] || obj['Settlement Price'] || '';
+    }
     const gla = obj['Gross Living Area'] || obj['GLA'] || '';
     const beds = obj['Total Bedrooms'] || obj['Bedrooms'] || '';
     const baths = obj['Total Bathrooms'] || obj['Bathrooms'] || '';
@@ -1127,31 +1157,27 @@ const getGridComparableData = (compIndex, compLabel, compStreet, data, allData, 
       const matchedRental = rentalComps.find(r => r.num === explicitNum);
       if (matchedRental) {
         const cmpRes = compareAddresses(compStreet, matchedRental.address);
-        if (cmpRes.status !== 'mismatch' || !compStreet || compStreet === '—') {
-          return {
-            gridCompNum: explicitNum,
-            gridCompLabel: `Rental #${explicitNum}`,
-            ...matchedRental,
-            isRental: true,
-            matchStatus: cmpRes.status,
-            matchLabel: cmpRes.label
-          };
-        }
+        return {
+          gridCompNum: explicitNum,
+          gridCompLabel: `Rental #${explicitNum}`,
+          ...matchedRental,
+          isRental: true,
+          matchStatus: cmpRes.status,
+          matchLabel: cmpRes.label
+        };
       }
     } else {
       const matchedComp = salesComps.find(s => s.num === explicitNum);
       if (matchedComp) {
         const cmpRes = compareAddresses(compStreet, matchedComp.address);
-        if (cmpRes.status !== 'mismatch' || !compStreet || compStreet === '—') {
-          return {
-            gridCompNum: explicitNum,
-            gridCompLabel: `Comp #${explicitNum}`,
-            ...matchedComp,
-            isRental: false,
-            matchStatus: cmpRes.status,
-            matchLabel: cmpRes.label
-          };
-        }
+        return {
+          gridCompNum: explicitNum,
+          gridCompLabel: `Comp #${explicitNum}`,
+          ...matchedComp,
+          isRental: false,
+          matchStatus: cmpRes.status,
+          matchLabel: cmpRes.label
+        };
       }
     }
   }
@@ -1249,8 +1275,26 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
       ? (pinInfo.label?.toLowerCase()?.includes('rental') ? pinInfo.label : `Rental ${pinInfo.label || `#${idx + 1}`}`)
       : pinInfo.label;
 
-    const gridComp = getGridComparableData(idx, compLabel, pinInfo.street, data, allData, scanResult);
+    let gridComp = getGridComparableData(idx, compLabel, pinInfo.street, data, allData, scanResult);
     const photoComp = getComparablePhotoData({ ...pinInfo, gridComp, isRental }, idx, scanResult, allData, data);
+
+    // Cross-link: If gridComp address is missing or '—', but photoComp was identified, resolve gridComp via photoComp!
+    if ((!gridComp || !gridComp.address || gridComp.address === '—') && photoComp) {
+      const photoNum = photoComp.comp_num || photoComp.comp_number;
+      const photoAddr = photoComp.address;
+      if (photoAddr && photoAddr !== '—') {
+        const byPhotoAddr = getGridComparableData(idx, isRental ? `Rental #${photoNum || idx + 1}` : `Comp #${photoNum || idx + 1}`, photoAddr, data, allData, scanResult);
+        if (byPhotoAddr && byPhotoAddr.address && byPhotoAddr.address !== '—') {
+          gridComp = byPhotoAddr;
+        }
+      }
+      if ((!gridComp || !gridComp.address || gridComp.address === '—') && photoNum) {
+        const byPhotoNum = getGridComparableData(photoNum - 1, isRental ? `Rental #${photoNum}` : `Comp #${photoNum}`, pinInfo.street, data, allData, scanResult);
+        if (byPhotoNum && byPhotoNum.address && byPhotoNum.address !== '—') {
+          gridComp = byPhotoNum;
+        }
+      }
+    }
 
     let num = null;
     if (gridComp?.gridCompNum) {
@@ -1399,7 +1443,15 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
       return aN - bN;
     });
 
-    return deduped;
+    // Filter out phantom noise pins: if an item has no grid comp address, no photo comp, and was assigned 'Pin'
+    const validGroup = deduped.filter(it => {
+      const hasGrid = it.gridComp?.address && it.gridComp.address !== '—';
+      const hasPhoto = Boolean(it.photoComp);
+      const isNamedComp = it.badgeLabel && !it.badgeLabel.endsWith('Pin');
+      return hasGrid || hasPhoto || isNamedComp;
+    });
+
+    return validGroup;
   };
 
   const finalComps = processGroup(compsGroup, 'Comp', maxSalesComps);
@@ -1408,8 +1460,16 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
 
   // Guarantee comp address minimum 3 (Comps 1, 2, 3) in Location Map & Comps
   for (let cNum = 1; cNum <= 3; cNum++) {
-    const hasComp = finalComps.some(c => c.num === cNum);
-    if (!hasComp) {
+    const existingIndex = finalComps.findIndex(c => c.num === cNum);
+    if (existingIndex >= 0) {
+      const cRow = finalComps[existingIndex];
+      if (!cRow.gridComp || !cRow.gridComp.address || cRow.gridComp.address === '—') {
+        const linkedGrid = getGridComparableData(cNum - 1, `Comp #${cNum}`, cRow.displayStreet, data, allData, scanResult);
+        if (linkedGrid && linkedGrid.address && linkedGrid.address !== '—') {
+          cRow.gridComp = linkedGrid;
+        }
+      }
+    } else {
       const gridComp = getGridComparableData(cNum - 1, `Comp #${cNum}`, '', data, allData, scanResult);
       const photoComp = getComparablePhotoData({ gridComp, isRental: false, label: `Comp #${cNum}` }, cNum - 1, scanResult, allData, data);
       finalComps.push({
@@ -1447,8 +1507,16 @@ const buildProcessedExhibitsRows = (rawSourceList, mapItem, scanResult, data, al
 
   // Guarantee rentals address minimum 3 (Rentals 1, 2, 3) in Rentals Map & Table
   for (let rNum = 1; rNum <= 3; rNum++) {
-    const hasRental = finalRentals.some(r => r.num === rNum);
-    if (!hasRental) {
+    const existingIndex = finalRentals.findIndex(r => r.num === rNum);
+    if (existingIndex >= 0) {
+      const rRow = finalRentals[existingIndex];
+      if (!rRow.gridComp || !rRow.gridComp.address || rRow.gridComp.address === '—') {
+        const linkedGrid = getGridComparableData(rNum - 1, `Rental #${rNum}`, rRow.displayStreet, data, allData, scanResult);
+        if (linkedGrid && linkedGrid.address && linkedGrid.address !== '—') {
+          rRow.gridComp = linkedGrid;
+        }
+      }
+    } else {
       const gridComp = getGridComparableData(rNum - 1, `Rental #${rNum}`, '', data, allData, scanResult);
       const photoComp = getComparablePhotoData({ gridComp, isRental: true, label: `Rental #${rNum}` }, rNum - 1, scanResult, allData, data);
       finalRentals.push({
